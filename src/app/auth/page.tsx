@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default function AuthPage() {
+function AuthForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("from") || "/dashboard";
@@ -44,50 +44,58 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen grid place-items-center bg-gradient-to-br from-background via-background to-accent px-4">
-      <Card className="w-full max-w-md shadow-xl">
-        <CardHeader className="text-center space-y-2">
-          <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-primary text-primary-foreground text-xl font-bold">
-            A
+    <Card className="w-full max-w-md shadow-xl">
+      <CardHeader className="text-center space-y-2">
+        <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-primary text-primary-foreground text-xl font-bold">
+          A
+        </div>
+        <CardTitle className="text-2xl">AivraSol Builder</CardTitle>
+        <CardDescription>Administrator access</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="space-y-4" onSubmit={submit}>
+          <div className="space-y-1.5">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
           </div>
-          <CardTitle className="text-2xl">AivraSol Builder</CardTitle>
-          <CardDescription>Administrator access</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={submit}>
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            {error && (
-              <p className="text-sm text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Please wait…" : "Sign in"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+          <div className="space-y-1.5">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+          {error && (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Please wait…" : "Sign in"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <div className="min-h-screen grid place-items-center bg-gradient-to-br from-background via-background to-accent px-4">
+      <Suspense fallback={<Card className="w-full max-w-md shadow-xl p-8 text-center">Loading...</Card>}>
+        <AuthForm />
+      </Suspense>
     </div>
   );
 }
