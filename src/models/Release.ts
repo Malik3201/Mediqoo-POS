@@ -1,0 +1,51 @@
+import mongoose, { Schema, Document } from "mongoose";
+import crypto from "crypto";
+
+export interface IRelease extends Document {
+  id: string;
+  version: string;
+  mandatory: boolean;
+  min_version?: string;
+  rollout_type: string;
+  status: string;
+  changelog?: string;
+  storage_path: string;
+  installer_size?: number;
+  sha256?: string;
+  published_at?: Date;
+  created_by?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+const ReleaseSchema = new Schema<IRelease>(
+  {
+    id: { type: String, default: () => crypto.randomUUID(), unique: true, index: true },
+    version: { type: String, required: true },
+    mandatory: { type: Boolean, default: false },
+    min_version: { type: String },
+    rollout_type: { type: String, default: "all" },
+    status: { type: String, default: "draft" },
+    changelog: { type: String },
+    storage_path: { type: String, required: true },
+    installer_size: { type: Number },
+    sha256: { type: String },
+    published_at: { type: Date },
+    created_by: { type: String },
+  },
+  {
+    timestamps: { createdAt: "created_at", updatedAt: "updated_at" },
+    toJSON: {
+      virtuals: true,
+      transform: function (doc, ret) {
+        delete ret._id;
+        delete ret.__v;
+        return ret;
+      },
+    },
+  }
+);
+
+ReleaseSchema.set("toObject", { virtuals: true });
+
+export default mongoose.models.Release || mongoose.model<IRelease>("Release", ReleaseSchema);
