@@ -4,10 +4,10 @@ import { ArrowRight, CheckCircle2 } from "lucide-react";
 export function Hero() {
   return (
     <section className="relative overflow-hidden bg-background pt-16 md:pt-24 lg:pt-32">
-      {/* Background decoration */}
+      {/* Enhanced Background decoration */}
       <div className="absolute inset-0 z-0 overflow-hidden">
-        <div className="absolute -top-[30%] -right-[10%] h-[1000px] w-[1000px] rounded-full bg-primary/5 blur-3xl" />
-        <div className="absolute top-[20%] -left-[10%] h-[800px] w-[800px] rounded-full bg-secondary/30 blur-3xl" />
+        <div className="absolute -top-[30%] -right-[10%] h-[1000px] w-[1000px] rounded-full bg-gradient-to-br from-primary/20 to-primary/5 blur-3xl opacity-80" />
+        <div className="absolute top-[20%] -left-[10%] h-[800px] w-[800px] rounded-full bg-gradient-to-tr from-secondary/40 to-primary/10 blur-3xl opacity-70" />
       </div>
 
       <div className="container relative z-10 mx-auto px-4 md:px-6">
@@ -27,10 +27,10 @@ export function Hero() {
           
           <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
-              href="/dashboard"
+              href="/download"
               className="inline-flex h-12 items-center justify-center rounded-full bg-primary px-8 text-base font-medium text-primary-foreground shadow-lg transition-all hover:scale-105 hover:bg-primary/90 hover:shadow-primary/25"
             >
-              Get Started Free
+              Get Your License Today
               <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
             <Link
@@ -39,21 +39,6 @@ export function Hero() {
             >
               Explore Features
             </Link>
-          </div>
-
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground sm:gap-8">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-primary" />
-              No credit card required
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-primary" />
-              14-day free trial
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-primary" />
-              Cancel anytime
-            </div>
           </div>
         </div>
 

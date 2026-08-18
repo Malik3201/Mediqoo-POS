@@ -26,10 +26,10 @@ export function Header() {
         </nav>
         <div className="flex items-center gap-4">
           <Link
-            href="/dashboard"
+            href="/download"
             className="hidden items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow-md md:inline-flex"
           >
-            Go to Dashboard
+            Download
           </Link>
           <button className="inline-flex items-center justify-center rounded-md p-2 text-foreground md:hidden">
             <Menu className="h-6 w-6" />
