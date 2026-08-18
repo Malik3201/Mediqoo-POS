@@ -50,4 +50,18 @@ const LicenseSchema = new Schema<ILicense>(
   }
 );
 
+LicenseSchema.virtual('clients', {
+  ref: 'Client',
+  localField: 'client_id',
+  foreignField: 'id',
+  justOne: true
+});
+
+LicenseSchema.virtual('projects', {
+  ref: 'Project',
+  localField: 'project_id',
+  foreignField: 'id',
+  justOne: true
+});
+
 export default mongoose.models.License || mongoose.model<ILicense>("License", LicenseSchema);

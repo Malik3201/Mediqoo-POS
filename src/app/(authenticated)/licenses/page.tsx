@@ -90,7 +90,7 @@ function generateLicenseKey() {
 export default function LicensesPage() {
   const { data: session } = useSession();
   
-  const { data: rows = [], isLoading: loadingLicenses } = useDataQuery("licenses");
+  const { data: rows = [], isLoading: loadingLicenses } = useDataQuery("licenses", { populate: "clients,projects" });
   const { data: projects = [], isLoading: loadingProjects } = useDataQuery("projects");
   const { mutateAsync: mutateLicense } = useDataMutation("licenses");
 
