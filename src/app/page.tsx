@@ -6,6 +6,9 @@ import { Benefits } from "@/components/landing/Benefits";
 import { Testimonials } from "@/components/landing/Testimonials";
 import { Footer } from "@/components/landing/Footer";
 
+export const revalidate = 60; // Revalidate the page every 60 seconds
+
+
 export default function Home() {
   return (
     <div className="flex min-h-screen flex-col bg-background selection:bg-primary/20 selection:text-primary">

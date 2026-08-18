@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import dbConnect from "@/lib/db";
 import SystemSetting from "@/models/SystemSetting";
 
@@ -35,6 +36,8 @@ export async function POST(req: Request) {
         { value: body.demo_video_url },
         { upsert: true, new: true }
       );
+      // Revalidate the home page so the new video shows up
+      revalidatePath("/");
     }
     
     return NextResponse.json({ success: true, message: "Settings updated successfully" });
