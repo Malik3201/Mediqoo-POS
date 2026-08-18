@@ -16,6 +16,7 @@ import {
   Bell,
   ShieldCheck,
   Rocket,
+  MessageSquare,
 } from "lucide-react";
 
 import {
@@ -49,6 +50,7 @@ const admin = [
   { title: "Audit Logs", url: "/audit", icon: ScrollText },
   { title: "Activity", url: "/activity", icon: Activity },
   { title: "Notifications", url: "/notifications", icon: Bell },
+  { title: "Feedbacks", url: "/feedbacks", icon: MessageSquare },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 

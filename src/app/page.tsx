@@ -5,9 +5,9 @@ import { Features } from "@/components/landing/Features";
 import { Benefits } from "@/components/landing/Benefits";
 import { Testimonials } from "@/components/landing/Testimonials";
 import { Footer } from "@/components/landing/Footer";
+import { FeedbackModal } from "@/components/landing/FeedbackModal";
 
 export const revalidate = 60; // Revalidate the page every 60 seconds
-
 
 export default function Home() {
   return (
@@ -21,6 +21,7 @@ export default function Home() {
         <Testimonials />
       </main>
       <Footer />
+      <FeedbackModal />
     </div>
   );
 }
