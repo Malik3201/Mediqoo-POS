@@ -15,7 +15,7 @@ export default async function DownloadPage() {
   const latestRelease = await Release.findOne({ 
     is_prerelease: { $ne: true },
     status: "published",
-    storage_path: { $exists: true, $ne: null } 
+    release_type: { $ne: "hot" }
   }).sort({ published_at: -1 }).lean();
 
   const formattedDate = latestRelease?.published_at 
@@ -24,7 +24,7 @@ export default async function DownloadPage() {
 
   const version = latestRelease ? (latestRelease as any).version : "1.0.0";
   const size = latestRelease ? formatBytes((latestRelease as any).installer_size) : "0 MB";
-  const downloadUrl = latestRelease ? (latestRelease as any).storage_path : "#";
+  const downloadUrl = latestRelease ? ((latestRelease as any).full_package_url || (latestRelease as any).storage_path || "#") : "#";
 
   return (
     <div className="min-h-screen bg-white font-sans flex flex-col">
