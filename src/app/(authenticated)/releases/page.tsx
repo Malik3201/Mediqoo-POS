@@ -210,14 +210,14 @@ function NewReleaseDialog({
   const [version, setVersion] = useState("");
   const [changelog, setChangelog] = useState("");
   const [releaseType, setReleaseType] = useState<"hot" | "full">("hot");
-  const [asarUrl, setAsarUrl] = useState("");
-  const [fullPackageUrl, setFullPackageUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [sha256, setSha256] = useState("");
   const [rollout, setRollout] = useState<"all" | "specific">("all");
   const [targets, setTargets] = useState<string[]>([]);
   const [mandatory, setMandatory] = useState(false);
   const [publish, setPublish] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const toggleTarget = (id: string) => {
     setTargets((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -225,13 +225,56 @@ function NewReleaseDialog({
 
   const submit = async () => {
     if (!version.trim()) return toast.error("Version required");
-    if (releaseType === "hot" && !asarUrl.trim()) return toast.error("ASAR URL required");
-    if (releaseType === "full" && !fullPackageUrl.trim()) return toast.error("Full Package URL required");
+    if (!file) return toast.error("Select an installer file");
     if (rollout === "specific" && targets.length === 0)
       return toast.error("Pick at least one client");
 
     setBusy(true);
     try {
+      setProgress(10);
+      
+      // 1. Get Pre-signed URL from our API
+      const signRes = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          fileType: file.type || "application/octet-stream",
+          version: version.trim()
+        })
+      });
+
+      if (!signRes.ok) throw new Error("Failed to initialize upload");
+      const { uploadUrl, publicUrl } = await signRes.json();
+      
+      setProgress(30);
+
+      // 2. Upload file directly to Cloudflare R2 using XHR for realistic progress
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable) {
+            // scale progress nicely between 15% and 85%
+            const percent = 15 + Math.round((event.loaded / event.total) * 70);
+            setProgress(percent);
+          }
+        });
+        
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Upload failed with status ${xhr.status}`));
+        });
+        
+        xhr.addEventListener("error", () => reject(new Error("Network error or CORS block")));
+        xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
+
+        xhr.open("PUT", uploadUrl);
+        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+        xhr.send(file);
+      });
+      
+      setProgress(80);
+
       const status = publish ? "published" : "draft";
       
       await mutateRelease({
@@ -240,9 +283,11 @@ function NewReleaseDialog({
           version: version.trim(),
           changelog: changelog.trim(),
           release_type: releaseType,
-          asar_url: releaseType === "hot" ? asarUrl.trim() : undefined,
+          asar_url: releaseType === "hot" ? publicUrl : undefined,
           sha256: releaseType === "hot" ? sha256.trim() : undefined,
-          full_package_url: releaseType === "full" ? fullPackageUrl.trim() : undefined,
+          full_package_url: releaseType === "full" ? publicUrl : undefined,
+          storage_path: publicUrl,
+          installer_size: file.size,
           rollout_type: rollout,
           target_client_ids: rollout === "specific" ? targets : [],
           mandatory,
@@ -252,10 +297,11 @@ function NewReleaseDialog({
         },
       });
 
+      setProgress(100);
       toast.success(publish ? `v${version} published` : `v${version} saved as draft`);
       onCreated();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to create release");
+      toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setBusy(false);
     }
@@ -304,16 +350,22 @@ function NewReleaseDialog({
             </div>
           </div>
 
-          {releaseType === "hot" ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <Label>ASAR File URL</Label>
-                <Input
-                  value={asarUrl}
-                  onChange={(e) => setAsarUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <Label>Installer ({releaseType === "hot" ? ".asar" : ".exe, .zip"})</Label>
+              <Input
+                type="file"
+                accept={releaseType === "hot" ? ".asar,application/octet-stream" : ".exe,.msi,.zip,application/octet-stream,application/zip,application/x-zip-compressed"}
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+              {file && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {fmtSize(file.size)} — {file.name}
+                </p>
+              )}
+            </div>
+            
+            {releaseType === "hot" && (
               <div className="col-span-2">
                 <Label>SHA-256 Checksum (Optional)</Label>
                 <Input
@@ -323,17 +375,8 @@ function NewReleaseDialog({
                   className="font-mono text-xs"
                 />
               </div>
-            </div>
-          ) : (
-            <div>
-              <Label>Full Package URL (.exe, .zip)</Label>
-              <Input
-                value={fullPackageUrl}
-                onChange={(e) => setFullPackageUrl(e.target.value)}
-                placeholder="https://..."
-              />
-            </div>
-          )}
+            )}
+          </div>
 
           <div>
             <Label>Changelog (what's new)</Label>
@@ -403,6 +446,14 @@ function NewReleaseDialog({
             <Switch checked={publish} onCheckedChange={setPublish} />
           </div>
 
+          {busy && (
+            <div className="text-xs text-muted-foreground">
+              Uploading… {progress}%
+              <div className="h-1 bg-muted rounded mt-1 overflow-hidden">
+                <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+          )}
           {busy && (
             <div className="text-xs text-muted-foreground">
               Uploading… {progress}%
