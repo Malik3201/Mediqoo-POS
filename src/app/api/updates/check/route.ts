@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbConnect } from "@/lib/db";
+import connectToDatabase from "@/lib/db";
 import Release from "@/models/Release";
 import License from "@/models/License";
 
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing version parameter" }, { status: 400 });
     }
 
-    await dbConnect();
+    await connectToDatabase();
 
     // Verify license if provided (optional for public updates, but good for tracking)
     if (licenseKey) {
