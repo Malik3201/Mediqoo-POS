@@ -118,11 +118,18 @@ export default function ReleasesPage() {
                 <TableRow key={r.id} className="cursor-pointer" onClick={() => setDetail(r)}>
                   <TableCell>
                     <div className="font-mono font-semibold">v{r.version}</div>
-                    {r.mandatory && (
-                      <Badge variant="destructive" className="mt-1 text-[10px]">
-                        Mandatory
-                      </Badge>
-                    )}
+                    <div className="mt-1 flex items-center gap-1">
+                      {r.release_type === "full" ? (
+                        <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-600">Full</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-600">Hot</Badge>
+                      )}
+                      {r.mandatory && (
+                        <Badge variant="destructive" className="text-[10px]">
+                          Mandatory
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -202,13 +209,15 @@ function NewReleaseDialog({
 }) {
   const [version, setVersion] = useState("");
   const [changelog, setChangelog] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [releaseType, setReleaseType] = useState<"hot" | "full">("hot");
+  const [asarUrl, setAsarUrl] = useState("");
+  const [fullPackageUrl, setFullPackageUrl] = useState("");
+  const [sha256, setSha256] = useState("");
   const [rollout, setRollout] = useState<"all" | "specific">("all");
   const [targets, setTargets] = useState<string[]>([]);
   const [mandatory, setMandatory] = useState(false);
   const [publish, setPublish] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(0);
 
   const toggleTarget = (id: string) => {
     setTargets((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -216,66 +225,24 @@ function NewReleaseDialog({
 
   const submit = async () => {
     if (!version.trim()) return toast.error("Version required");
-    if (!file) return toast.error("Select an installer file");
+    if (releaseType === "hot" && !asarUrl.trim()) return toast.error("ASAR URL required");
+    if (releaseType === "full" && !fullPackageUrl.trim()) return toast.error("Full Package URL required");
     if (rollout === "specific" && targets.length === 0)
       return toast.error("Pick at least one client");
 
     setBusy(true);
     try {
-      setProgress(10);
-      
-      // 1. Get Pre-signed URL from our API
-      const signRes = await fetch("/api/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          fileType: file.type || "application/octet-stream",
-          version: version.trim()
-        })
-      });
-
-      if (!signRes.ok) throw new Error("Failed to initialize upload");
-      const { uploadUrl, publicUrl } = await signRes.json();
-      
-      setProgress(30);
-
-      // 2. Upload file directly to Cloudflare R2 using XHR for realistic progress
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.upload.addEventListener("progress", (event) => {
-          if (event.lengthComputable) {
-            // scale progress nicely between 15% and 85%
-            const percent = 15 + Math.round((event.loaded / event.total) * 70);
-            setProgress(percent);
-          }
-        });
-        
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`Upload failed with status ${xhr.status}`));
-        });
-        
-        xhr.addEventListener("error", () => reject(new Error("Network error or CORS block")));
-        xhr.addEventListener("abort", () => reject(new Error("Upload aborted")));
-
-        xhr.open("PUT", uploadUrl);
-        xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-        xhr.send(file);
-      });
-      
-      setProgress(80);
-
       const status = publish ? "published" : "draft";
-      const path = publicUrl;
       
       await mutateRelease({
         method: "POST",
         data: {
           version: version.trim(),
           changelog: changelog.trim(),
-          storage_path: path,
-          installer_size: file.size,
+          release_type: releaseType,
+          asar_url: releaseType === "hot" ? asarUrl.trim() : undefined,
+          sha256: releaseType === "hot" ? sha256.trim() : undefined,
+          full_package_url: releaseType === "full" ? fullPackageUrl.trim() : undefined,
           rollout_type: rollout,
           target_client_ids: rollout === "specific" ? targets : [],
           mandatory,
@@ -285,11 +252,10 @@ function NewReleaseDialog({
         },
       });
 
-      setProgress(100);
       toast.success(publish ? `v${version} published` : `v${version} saved as draft`);
       onCreated();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
+      toast.error(e instanceof Error ? e.message : "Failed to create release");
     } finally {
       setBusy(false);
     }
@@ -316,19 +282,58 @@ function NewReleaseDialog({
               />
             </div>
             <div>
-              <Label>Installer (.exe, .zip)</Label>
-              <Input
-                type="file"
-                accept=".exe,.msi,.zip,application/octet-stream,application/zip,application/x-zip-compressed"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              {file && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {fmtSize(file.size)} — {file.name}
-                </p>
-              )}
+              <Label>Release Type</Label>
+              <div className="flex gap-2 mt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={releaseType === "hot" ? "default" : "outline"}
+                  onClick={() => setReleaseType("hot")}
+                >
+                  Hot Update
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={releaseType === "full" ? "default" : "outline"}
+                  onClick={() => setReleaseType("full")}
+                >
+                  Full Update
+                </Button>
+              </div>
             </div>
           </div>
+
+          {releaseType === "hot" ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <Label>ASAR File URL</Label>
+                <Input
+                  value={asarUrl}
+                  onChange={(e) => setAsarUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+              <div className="col-span-2">
+                <Label>SHA-256 Checksum (Optional)</Label>
+                <Input
+                  value={sha256}
+                  onChange={(e) => setSha256(e.target.value)}
+                  placeholder="e.g. 5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+                  className="font-mono text-xs"
+                />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <Label>Full Package URL (.exe, .zip)</Label>
+              <Input
+                value={fullPackageUrl}
+                onChange={(e) => setFullPackageUrl(e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+          )}
 
           <div>
             <Label>Changelog (what's new)</Label>
@@ -506,7 +511,15 @@ function ReleaseDetailDialog({
 
         <div className="text-xs text-muted-foreground space-y-1">
           <div>Rollout: {release.rollout_type === "all" ? "All clients" : `${release.target_client_ids?.length ?? 0} specific clients`}</div>
-          <div>Size: {fmtSize(release.installer_size ?? 0)}</div>
+          {release.release_type === "hot" ? (
+             <>
+                <div>ASAR URL: {release.asar_url ?? "—"}</div>
+                <div>SHA-256: {release.sha256 ?? "—"}</div>
+             </>
+          ) : (
+             <div>Full URL: {release.full_package_url ?? "—"}</div>
+          )}
+          {release.installer_size ? <div>Size: {fmtSize(release.installer_size)}</div> : null}
           <div>Created: {new Date(release.created_at).toLocaleString()}</div>
           {release.published_at && <div>Published: {new Date(release.published_at).toLocaleString()}</div>}
         </div>
