@@ -9,7 +9,6 @@ export interface IProject extends Document {
   slug: string;
   description?: string;
   status: string;
-  version: string;
   branding?: any;
   modules_config?: any;
   hardware_config?: any;
@@ -28,7 +27,6 @@ const ProjectSchema = new Schema<IProject>(
     slug: { type: String, required: true, unique: true },
     description: { type: String },
     status: { type: String, default: "active" },
-    version: { type: String, default: "1.0.0" },
     branding: { type: Schema.Types.Mixed, default: {} },
     modules_config: { type: Schema.Types.Mixed, default: {} },
     hardware_config: { type: Schema.Types.Mixed, default: {} },

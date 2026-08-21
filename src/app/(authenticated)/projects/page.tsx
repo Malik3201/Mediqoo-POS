@@ -42,7 +42,6 @@ type Project = {
   id: string;
   name: string;
   slug: string;
-  version: string;
   status: string;
   client_id: string;
   template_id: string;
@@ -67,7 +66,6 @@ const STEPS = [
 type WizardForm = {
   name: string;
   slug: string;
-  version: string;
   description: string;
   client_id: string;
   template_id: string;
@@ -80,7 +78,6 @@ type WizardForm = {
 const emptyForm: WizardForm = {
   name: "",
   slug: "",
-  version: "1.0.0",
   description: "",
   client_id: "",
   template_id: "",
@@ -131,7 +128,6 @@ export default function ProjectsPage() {
     setForm({
       name: row.name,
       slug: row.slug,
-      version: row.version,
       description: "",
       client_id: row.client_id,
       template_id: row.template_id,
@@ -156,7 +152,7 @@ export default function ProjectsPage() {
     const tpl = templates.find((t: any) => t.id === id);
     const mods: Record<string, boolean> = {};
     (tpl?.modules || []).forEach((m: string) => (mods[m] = true));
-    setForm((f) => ({ ...f, template_id: id, modules_config: mods, version: tpl?.version ?? f.version }));
+    setForm((f) => ({ ...f, template_id: id, modules_config: mods }));
   }
 
   async function save(markReady = false) {
@@ -168,7 +164,6 @@ export default function ProjectsPage() {
     const payload = {
       name: form.name.trim(),
       slug: form.slug.trim().toLowerCase(),
-      version: form.version.trim() || "1.0.0",
       description: form.description || null,
       client_id: form.client_id,
       template_id: form.template_id,
@@ -240,7 +235,6 @@ export default function ProjectsPage() {
               <TableHead>Name</TableHead>
               <TableHead>Client</TableHead>
               <TableHead>Template</TableHead>
-              <TableHead>Version</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-[100px]" />
             </TableRow>
@@ -267,7 +261,6 @@ export default function ProjectsPage() {
                   </TableCell>
                   <TableCell>{r.clients?.name ?? "—"}</TableCell>
                   <TableCell>{r.business_templates?.name ?? "—"}</TableCell>
-                  <TableCell className="font-mono text-xs">{r.version}</TableCell>
                   <TableCell>
                     <Badge variant={r.status === "draft" ? "secondary" : "default"}>{r.status}</Badge>
                   </TableCell>
@@ -375,7 +368,7 @@ export default function ProjectsPage() {
                       <div className="flex-1">
                         <div className="font-medium">{t.name}</div>
                         <div className="text-xs text-muted-foreground mt-1">
-                          v{t.version} · {t.modules.length} modules configured
+                          {t.modules.length} modules configured
                         </div>
                       </div>
                       {form.template_id === t.id && <CheckCircle2 className="h-5 w-5 text-primary" />}

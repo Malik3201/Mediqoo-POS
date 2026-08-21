@@ -116,7 +116,7 @@ export async function generatePackage(data: { project_id: string; license_id?: s
         id: project.id,
         name: project.name,
         slug: project.slug,
-        version: project.version,
+        version: "Auto",
         modules_config: project.modules_config,
         branding: project.branding,
         hardware_config: project.hardware_config,
@@ -155,7 +155,7 @@ export async function generatePackage(data: { project_id: string; license_id?: s
       alg: { cipher: "AES-256-GCM", signature: "Ed25519" },
       created_at: generatedAt,
       project_slug: project.slug,
-      project_version: project.version,
+      project_version: "Auto",
       iv: b64encode(iv),
       ciphertext: b64encode(cipher),
       signature: b64encode(signature),
@@ -164,12 +164,12 @@ export async function generatePackage(data: { project_id: string; license_id?: s
 
     const envelopeBytes = toBytes(JSON.stringify(envelope));
     const checksum = await sha256Hex(envelopeBytes);
-    const filename = `${project.slug}-v${project.version}-${generatedAt.slice(0, 10)}.aivra`;
+    const filename = `${project.slug}-vAuto-${generatedAt.slice(0, 10)}.aivra`;
 
     const pkgRow = await Package.create({
       project_id: project.id,
       license_id: license?.id ?? null,
-      version: project.version,
+      version: "Auto",
       filename,
       size_bytes: envelopeBytes.byteLength,
       checksum_sha256: checksum,

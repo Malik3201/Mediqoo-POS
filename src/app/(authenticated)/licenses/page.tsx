@@ -58,7 +58,7 @@ type License = {
   revoked_at: string | null;
   revoked_reason: string | null;
   notes: string | null;
-  projects?: { name: string; slug: string; version: string } | null;
+  projects?: { name: string; slug: string } | null;
   clients?: { name: string } | null;
 };
 
@@ -255,11 +255,6 @@ export default function LicensesPage() {
                   </TableCell>
                   <TableCell>
                     {r.projects?.name}
-                    {r.projects?.version && (
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        v{r.projects.version}
-                      </span>
-                    )}
                   </TableCell>
                   <TableCell>{r.clients?.name ?? "—"}</TableCell>
                   <TableCell>{r.seats}</TableCell>
