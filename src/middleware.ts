@@ -14,10 +14,11 @@ export async function middleware(req: NextRequest) {
     return null;
   }
 
-  // Protect everything except /api/public, /api/auth, /auth, /download, and /demo
+  // Protect everything except /api/public, /api/auth, /api/updates, /auth, /download, and /demo
   const isPublicRoute = 
     req.nextUrl.pathname.startsWith("/api/public") ||
     req.nextUrl.pathname.startsWith("/api/auth") ||
+    req.nextUrl.pathname.startsWith("/api/updates") ||
     req.nextUrl.pathname.startsWith("/download") ||
     req.nextUrl.pathname.startsWith("/demo") ||
     req.nextUrl.pathname === "/";

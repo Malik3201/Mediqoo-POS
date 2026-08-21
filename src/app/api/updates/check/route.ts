@@ -56,21 +56,15 @@ export async function GET(req: NextRequest) {
     if (isNewer(latestRelease.version, version)) {
       return NextResponse.json({
         updateAvailable: true,
-        currentVersion: version,
         latestVersion: latestRelease.version,
-        releaseType: latestRelease.release_type || "hot",
         downloadUrl: latestRelease.release_type === "hot" ? latestRelease.asar_url : latestRelease.full_package_url,
-        sha256: latestRelease.sha256,
-        fileSize: latestRelease.installer_size,
-        mandatory: latestRelease.mandatory || false,
-        releaseNotes: latestRelease.changelog || ""
+        sha256: latestRelease.sha256 || "",
+        releaseType: latestRelease.release_type || "hot"
       });
     }
 
     return NextResponse.json({
-      updateAvailable: false,
-      currentVersion: version,
-      latestVersion: latestRelease.version
+      updateAvailable: false
     });
 
   } catch (error: any) {
