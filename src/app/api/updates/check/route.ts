@@ -34,7 +34,10 @@ export async function GET(req: NextRequest) {
 
     // Verify license if provided (optional for public updates, but good for tracking)
     if (licenseKey) {
-      const license = await License.findOne({ key: licenseKey, status: "active" });
+      const license = await License.findOne({ 
+        license_key: licenseKey, 
+        status: { $in: ["active", "issued"] } 
+      });
       if (!license) {
         return NextResponse.json({ updateAvailable: false, reason: "invalid_license" }, { status: 403 });
       }
