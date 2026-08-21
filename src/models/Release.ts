@@ -9,7 +9,10 @@ export interface IRelease extends Document {
   rollout_type: string;
   status: string;
   changelog?: string;
-  storage_path: string;
+  release_type?: string;
+  asar_url?: string;
+  full_package_url?: string;
+  storage_path?: string;
   installer_size?: number;
   sha256?: string;
   published_at?: Date;
@@ -27,7 +30,10 @@ const ReleaseSchema = new Schema<IRelease>(
     rollout_type: { type: String, default: "all" },
     status: { type: String, default: "draft" },
     changelog: { type: String },
-    storage_path: { type: String, required: true },
+    release_type: { type: String, enum: ["hot", "full"], default: "hot" },
+    asar_url: { type: String },
+    full_package_url: { type: String },
+    storage_path: { type: String },
     installer_size: { type: Number },
     sha256: { type: String },
     published_at: { type: Date },
