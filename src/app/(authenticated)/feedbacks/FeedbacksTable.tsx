@@ -138,7 +138,7 @@ export function FeedbacksTable({ feedbacks }: { feedbacks: any[] }) {
                   </div>
                 </div>
 
-                {selectedFeedback.screenshots && selectedFeedback.screenshots.length > 0 && (
+                  {selectedFeedback.screenshots && selectedFeedback.screenshots.length > 0 && (
                   <div>
                     <span className="font-semibold block text-sm text-muted-foreground mb-2">Attachments</span>
                     <div className="grid grid-cols-2 gap-4">
@@ -150,7 +150,6 @@ export function FeedbacksTable({ feedbacks }: { feedbacks: any[] }) {
                           rel="noopener noreferrer"
                           className="group relative block overflow-hidden rounded-md border aspect-video bg-muted"
                         >
-                          {/* We use an img tag for thumbnails to make it look great */}
                           <img
                             src={url}
                             alt={`Attachment ${i + 1}`}
@@ -164,6 +163,84 @@ export function FeedbacksTable({ feedbacks }: { feedbacks: any[] }) {
                     </div>
                   </div>
                 )}
+
+                <div className="border-t pt-4 mt-2">
+                  <span className="font-semibold block text-sm text-muted-foreground mb-3">Email Actions</span>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <button 
+                      onClick={async () => {
+                        const res = await fetch(`/api/feedbacks/${selectedFeedback._id}/email`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "analyzing" }),
+                        });
+                        if (res.ok) alert("Email sent successfully!");
+                        else alert("Failed to send email.");
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded bg-blue-100 text-blue-800 hover:bg-blue-200"
+                    >
+                      Analyzing
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        const res = await fetch(`/api/feedbacks/${selectedFeedback._id}/email`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "fixing" }),
+                        });
+                        if (res.ok) alert("Email sent successfully!");
+                        else alert("Failed to send email.");
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded bg-amber-100 text-amber-800 hover:bg-amber-200"
+                    >
+                      Start Fixing
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        const res = await fetch(`/api/feedbacks/${selectedFeedback._id}/email`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "fixed" }),
+                        });
+                        if (res.ok) alert("Email sent successfully!");
+                        else alert("Failed to send email.");
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded bg-green-100 text-green-800 hover:bg-green-200"
+                    >
+                      Fixed
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <textarea 
+                      id={`custom-msg-${selectedFeedback._id}`}
+                      placeholder="Write a custom email message to the user..."
+                      className="w-full text-sm border rounded-md p-2 bg-background min-h-[80px]"
+                    ></textarea>
+                    <button 
+                      onClick={async () => {
+                        const msgInput = document.getElementById(`custom-msg-${selectedFeedback._id}`) as HTMLTextAreaElement;
+                        const msg = msgInput?.value;
+                        if (!msg?.trim()) return alert("Message cannot be empty");
+                        
+                        const res = await fetch(`/api/feedbacks/${selectedFeedback._id}/email`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ action: "custom", customMessage: msg }),
+                        });
+                        if (res.ok) {
+                          alert("Custom email sent successfully!");
+                          msgInput.value = "";
+                        } else {
+                          alert("Failed to send custom email.");
+                        }
+                      }}
+                      className="self-end px-4 py-2 text-xs font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90"
+                    >
+                      Send Custom Message
+                    </button>
+                  </div>
+                </div>
               </div>
             </>
           )}
