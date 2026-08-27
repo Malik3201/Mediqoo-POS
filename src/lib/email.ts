@@ -31,16 +31,20 @@ const baseTemplate = (content: string) => `
 <head>
   <meta charset="utf-8">
   <style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f9fafa; margin: 0; padding: 0; }
-    .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid #eaeaea; }
-    .header { background-color: #009A4D; padding: 24px; text-align: center; }
-    .header img { max-height: 40px; }
-    .content { padding: 32px; color: #333333; line-height: 1.6; }
-    .footer { background-color: #f1f5f9; padding: 24px; text-align: center; color: #64748b; font-size: 13px; border-top: 1px solid #eaeaea; }
-    h1 { color: #1e293b; font-size: 24px; margin-top: 0; }
-    h2 { color: #009A4D; font-size: 20px; }
-    .btn { display: inline-block; background-color: #009A4D; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; margin-top: 16px; }
-    .quote { background-color: #f8fafc; border-left: 4px solid #009A4D; padding: 16px; margin: 20px 0; font-style: italic; color: #475569; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f6; margin: 0; padding: 40px 20px; color: #1e293b; }
+    .container { max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01); }
+    .header { background-color: #ffffff; padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #f1f5f9; border-top: 5px solid #009A4D; }
+    .header img { max-height: 48px; display: block; margin: 0 auto; }
+    .content { padding: 40px 32px; font-size: 16px; line-height: 1.6; color: #334155; }
+    .footer { background-color: #f8fafc; padding: 32px; text-align: center; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0; }
+    .footer p { margin: 8px 0; }
+    h1 { color: #0f172a; font-size: 24px; font-weight: 700; margin-top: 0; margin-bottom: 24px; letter-spacing: -0.02em; }
+    h2 { color: #009A4D; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 16px; }
+    p { margin-top: 0; margin-bottom: 16px; }
+    .btn { display: inline-block; background-color: #009A4D; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; margin-top: 24px; transition: background-color 0.2s; }
+    .quote { background-color: #f1f5f9; border-left: 4px solid #009A4D; padding: 20px; margin: 24px 0; border-radius: 0 8px 8px 0; font-style: italic; color: #475569; font-size: 15px; }
+    strong { color: #0f172a; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -53,7 +57,7 @@ const baseTemplate = (content: string) => `
     </div>
     <div class="footer">
       <p>&copy; ${new Date().getFullYear()} AivraSol POS. All rights reserved.</p>
-      <p>This is an automated message, please do not reply directly to this email.</p>
+      <p>This email was sent automatically. Please do not reply directly to this message.</p>
     </div>
   </div>
 </body>
