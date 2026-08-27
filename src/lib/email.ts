@@ -15,7 +15,11 @@ const getTransporter = () => {
   });
 };
 
-const FROM_EMAIL = process.env.SMTP_FROM || '"AivraSol Support" <support@aivrasol.com>';
+const FROM_EMAIL = process.env.SMTP_FROM || 'support@aivrasol.com';
+const FROM_OBJECT = {
+  name: "AivraSol Support",
+  address: FROM_EMAIL,
+};
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@aivrasol.com";
 
 /**
@@ -83,7 +87,7 @@ export async function sendUserAutoReply(name: string, email: string, type: "issu
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: FROM_EMAIL,
+      from: FROM_OBJECT,
       to: email,
       subject,
       html: baseTemplate(content),
@@ -112,7 +116,7 @@ export async function sendAdminAlert(name: string, email: string, type: "issue" 
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: FROM_EMAIL,
+      from: FROM_OBJECT,
       to: ADMIN_EMAIL,
       subject,
       html: baseTemplate(content),
@@ -161,7 +165,7 @@ export async function sendStatusUpdate(name: string, email: string, action: "ana
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: FROM_EMAIL,
+      from: FROM_OBJECT,
       to: email,
       subject,
       html: baseTemplate(content),
@@ -193,7 +197,7 @@ export async function sendCustomMessage(name: string, email: string, customMessa
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: FROM_EMAIL,
+      from: FROM_OBJECT,
       to: email,
       subject,
       html: baseTemplate(content),
