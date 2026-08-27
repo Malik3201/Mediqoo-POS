@@ -35,7 +35,7 @@ const baseTemplate = (content: string) => `
     body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f6; margin: 0; padding: 40px 20px; color: #1e293b; }
     .container { max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01); }
     .header { background-color: #ffffff; padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #f1f5f9; border-top: 5px solid #009A4D; }
-    .header img { max-height: 48px; display: block; margin: 0 auto; }
+    .header img { max-height: 80px; display: block; margin: 0 auto; }
     .content { padding: 40px 32px; font-size: 16px; line-height: 1.6; color: #334155; }
     .footer { background-color: #f8fafc; padding: 32px; text-align: center; color: #64748b; font-size: 13px; border-top: 1px solid #e2e8f0; }
     .footer p { margin: 8px 0; }
