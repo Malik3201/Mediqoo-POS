@@ -4,7 +4,7 @@ import dbConnect from "@/lib/db";
 import Feedback from "@/models/Feedback";
 import { sendStatusUpdate, sendCustomMessage } from "@/lib/email";
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await getServerSession();
     if (!session || !session.user) {
@@ -13,12 +13,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     await dbConnect();
     const { action, customMessage } = await req.json();
+    const { id } = await params;
 
     if (!action) {
       return NextResponse.json({ error: "Action is required" }, { status: 400 });
     }
 
-    const feedback = await Feedback.findById(params.id);
+    const feedback = await Feedback.findById(id);
     if (!feedback) {
       return NextResponse.json({ error: "Feedback not found" }, { status: 404 });
     }
