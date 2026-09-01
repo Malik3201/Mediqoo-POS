@@ -4,6 +4,8 @@ import AnalyticsEvent from "@/models/AnalyticsEvent";
 import CloudExpense from "@/models/CloudExpense";
 import Client from "@/models/Client";
 import License from "@/models/License";
+import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
+import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
 import {
   requirePortalSession,
   PortalAuthError,
@@ -12,6 +14,10 @@ import {
 import {
   getClientDateRange,
   computeFinancialSummary,
+  splitDateRange,
+  historicalToFinancialSummary,
+  mergeFinancialSummaries,
+  ZERO_FINANCIAL_SUMMARY,
   type EventTypeAgg,
 } from "@/lib/analytics";
 
@@ -19,119 +25,139 @@ import {
  * GET /api/portal/dashboard/summary
  *
  * Returns the financial summary for the authenticated portal user's client.
- *
- * Query params:
- *   period: "today" | "7d" | "30d" (default: "today")
- *   license_id: optional — filter to a specific installation
- *
- * Security:
- *   - client_id is ALWAYS from the authenticated session (DB-revalidated).
- *   - license_id filter is validated to belong to this client. Client A cannot
- *     submit Client B's license_id.
- *
- * Financial formulas (canonical — per correction #14):
- *   Net Sales = Gross Sales - Sales Returns
- *   Net COGS = Sale COGS - Returned COGS
- *   Gross Profit = Net Sales - Net COGS
- *   Expenses = sum of non-deleted CloudExpense in period
- *   Net Profit = Gross Profit - Expenses
+ * Includes both Historical bootstrap data and Live event data, split
+ * perfectly at the cutover boundary per license.
  */
 export async function GET(req: NextRequest) {
   try {
     const user = await requirePortalSession(req);
-
     await connectToDatabase();
 
-    const clientId = user.client_id; // ALWAYS from session — never from request
+    const clientId = user.client_id;
     const periodParam = req.nextUrl.searchParams.get("period") ?? "today";
     const licenseIdParam = req.nextUrl.searchParams.get("license_id");
 
-    // Validate period
     if (!["today", "7d", "30d"].includes(periodParam)) {
       return NextResponse.json({ error: "Invalid period. Use: today, 7d, 30d" }, { status: 400 });
     }
-
     const period = periodParam as "today" | "7d" | "30d";
 
-    // Get client timezone for correct date boundaries
-    const client = await Client.findOne({ id: clientId })
-      .select("timezone")
-      .lean<{ timezone?: string }>();
+    const client = await Client.findOne({ id: clientId }).select("timezone").lean<{ timezone?: string }>();
     const timezone = client?.timezone ?? "Asia/Karachi";
-
-    // Compute date range in client's local timezone
     const { start, end } = getClientDateRange(timezone, period);
 
-    // Build match filter — always scoped by client_id from session
-    const matchFilter: Record<string, any> = {
-      client_id: clientId,
-      occurred_at: { $gte: start, $lte: end },
-    };
-
-    // Optional license filter — MUST be validated to belong to this client
+    // 1. Resolve licenses
+    let targetLicenses: string[] = [];
     if (licenseIdParam) {
-      const licenseCheck = await License.findOne({
-        id: licenseIdParam,
-        client_id: clientId, // ensures Client A cannot access Client B license
-      }).lean();
+      const licenseCheck = await License.findOne({ id: licenseIdParam, client_id: clientId }).lean();
+      if (!licenseCheck) return NextResponse.json({ error: "License not found or access denied" }, { status: 403 });
+      targetLicenses = [licenseIdParam];
+    } else {
+      const licenses = await License.find({ client_id: clientId }).select("id").lean<{ id: string }[]>();
+      targetLicenses = licenses.map((l) => l.id);
+    }
 
-      if (!licenseCheck) {
-        return NextResponse.json({ error: "License not found or access denied" }, { status: 403 });
+    // 2. Fetch bootstraps
+    const bootstraps = await AnalyticsBootstrap.find({
+      client_id: clientId,
+      license_id: { $in: targetLicenses },
+      status: "completed",
+    }).lean();
+    
+    // We only care about the latest bootstrap version per license (usually 1, but handled just in case)
+    const bootstrapMap = new Map<string, any>();
+    for (const b of bootstraps) {
+      const existing = bootstrapMap.get(b.license_id);
+      if (!existing || b.bootstrap_version > existing.bootstrap_version) {
+        bootstrapMap.set(b.license_id, b);
       }
-      matchFilter.license_id = licenseIdParam;
     }
 
-    // ── Aggregate events by type ──────────────────────────────────────────
-    const eventAgg: EventTypeAgg[] = await AnalyticsEvent.aggregate([
-      { $match: matchFilter },
-      {
-        $group: {
-          _id: "$type",
-          gross_sales: { $sum: "$payload.gross_sales" },
-          cogs: { $sum: "$payload.cogs" },
-          return_amount: { $sum: "$payload.return_amount" },
-          cogs_reversed: { $sum: "$payload.cogs_reversed" },
-          purchase_total: { $sum: "$payload.purchase_total" },
-          cash_sales: {
-            $sum: {
-              $cond: [{ $eq: ["$payload.payment_method", "cash"] }, "$payload.net_sales", 0],
-            },
-          },
-          credit_sales: {
-            $sum: {
-              $cond: [{ $ne: ["$payload.payment_method", "cash"] }, "$payload.net_sales", 0],
-            },
-          },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    let finalSummary = { ...ZERO_FINANCIAL_SUMMARY };
 
-    // ── Expense total from CloudExpense projection ─────────────────────────
-    const expenseFilter: Record<string, any> = {
-      client_id: clientId,
-      is_deleted: false,
-      occurred_at: { $gte: start, $lte: end },
-    };
-    if (licenseIdParam) {
-      expenseFilter.license_id = licenseIdParam;
+    // 3. Process each license to respect its exact cutover boundary
+    for (const licId of targetLicenses) {
+      const bootstrap = bootstrapMap.get(licId);
+      const cutoffUtc = bootstrap ? bootstrap.bootstrap_cutoff_utc : null;
+      
+      const { historical, live } = splitDateRange(start, end, cutoffUtc, timezone);
+
+      // --- Historical ---
+      if (historical) {
+        const histAgg = await HistoricalDailyAnalytics.aggregate([
+          {
+            $match: {
+              client_id: clientId,
+              license_id: licId,
+              date: { $gte: historical.startDate, $lte: historical.endDate },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              gross_sales: { $sum: "$gross_sales" },
+              sales_returns: { $sum: "$sales_returns" },
+              cogs: { $sum: "$cogs" },
+              cogs_reversed: { $sum: "$cogs_reversed" },
+              gross_profit: { $sum: "$gross_profit" },
+              net_profit: { $sum: "$net_profit" },
+              expenses: { $sum: "$expenses" },
+              purchases: { $sum: "$purchases" },
+            },
+          },
+        ]);
+
+        if (histAgg.length > 0) {
+          const hSum = historicalToFinancialSummary(histAgg[0]);
+          finalSummary = mergeFinancialSummaries(finalSummary, hSum);
+        }
+      }
+
+      // --- Live ---
+      if (live) {
+        const matchFilter = {
+          client_id: clientId,
+          license_id: licId,
+          occurred_at: { $gte: live.start, $lte: live.end },
+        };
+
+        const eventAgg: EventTypeAgg[] = await AnalyticsEvent.aggregate([
+          { $match: matchFilter },
+          {
+            $group: {
+              _id: "$type",
+              gross_sales: { $sum: "$payload.gross_sales" },
+              cogs: { $sum: "$payload.cogs" },
+              return_amount: { $sum: "$payload.return_amount" },
+              cogs_reversed: { $sum: "$payload.cogs_reversed" },
+              purchase_total: { $sum: "$payload.purchase_total" },
+              cash_sales: {
+                $sum: { $cond: [{ $eq: ["$payload.payment_method", "cash"] }, "$payload.net_sales", 0] },
+              },
+              credit_sales: {
+                $sum: { $cond: [{ $ne: ["$payload.payment_method", "cash"] }, "$payload.net_sales", 0] },
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ]);
+
+        const expenseAgg = await CloudExpense.aggregate([
+          { $match: { ...matchFilter, is_deleted: false } },
+          { $group: { _id: null, total: { $sum: "$amount" } } },
+        ]);
+
+        const lSum = computeFinancialSummary(eventAgg, expenseAgg[0]?.total ?? 0);
+        finalSummary = mergeFinancialSummaries(finalSummary, lSum);
+      }
     }
-
-    const expenseAgg = await CloudExpense.aggregate([
-      { $match: expenseFilter },
-      { $group: { _id: null, total: { $sum: "$amount" } } },
-    ]);
-    const expenseTotal = expenseAgg[0]?.total ?? 0;
-
-    // ── Compute canonical financial summary ───────────────────────────────
-    const summary = computeFinancialSummary(eventAgg, expenseTotal);
 
     return NextResponse.json({
       ok: true,
       period,
       timezone,
       date_range: { start: start.toISOString(), end: end.toISOString() },
-      summary,
+      summary: finalSummary,
     });
   } catch (err) {
     if (err instanceof PortalAuthError) return portalAuthErrorResponse(err);

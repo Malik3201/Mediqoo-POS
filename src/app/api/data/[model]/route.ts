@@ -14,6 +14,10 @@ import Project from "@/models/Project";
 import ReleaseInstall from "@/models/ReleaseInstall";
 import Release from "@/models/Release";
 import UserRole from "@/models/UserRole";
+import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
+import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
+import HistoricalTopProduct from "@/models/HistoricalTopProduct";
+import HistoricalRecentSale from "@/models/HistoricalRecentSale";
 
 const modelsMap: Record<string, any> = {
   "audit_logs": AuditLog,
@@ -29,6 +33,10 @@ const modelsMap: Record<string, any> = {
   "release_installs": ReleaseInstall,
   "releases": Release,
   "user_roles": UserRole,
+  "analytics_bootstraps": AnalyticsBootstrap,
+  "historical_daily_analytics": HistoricalDailyAnalytics,
+  "historical_top_products": HistoricalTopProduct,
+  "historical_recent_sales": HistoricalRecentSale,
 };
 
 // Fields that must not be modified via the generic PATCH API.

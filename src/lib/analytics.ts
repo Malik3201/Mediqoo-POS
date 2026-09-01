@@ -291,3 +291,153 @@ export function getDailyBuckets(
 
   return buckets;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bootstrap cutover helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Converts a UTC Date to a local "YYYY-MM-DD" string in a given timezone.
+ * Used to convert UTC event timestamps to local business dates for bucketing.
+ */
+export function formatLocalDate(date: Date, timezone: string): string {
+  const parts = getDatePartsInTz(date, timezone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+/**
+ * Given a UTC [start, end] range and a bootstrap cutoff UTC boundary,
+ * returns the portions that should be served from historical data
+ * vs live AnalyticsEvent data.
+ *
+ * Historical = dates <= bootstrap_cutoff_date (in client timezone)
+ *   → use HistoricalDailyAnalytics (date string comparison)
+ *
+ * Live = dates > bootstrap_cutoff_date
+ *   → use AnalyticsEvent.occurred_at (UTC timestamp comparison)
+ *
+ * cutoffUtc = start of (cutoff_date + 1 day) in client timezone.
+ * Example: cutoff_date = "2026-08-31", cutoffUtc = 2026-09-01T00:00:00+05:00 as UTC.
+ *
+ * @param start        - UTC start of query range
+ * @param end          - UTC end of query range
+ * @param cutoffUtc    - UTC boundary (null if no bootstrap exists)
+ * @param timezone     - Client IANA timezone (for date-string conversion)
+ */
+export function splitDateRange(
+  start: Date,
+  end: Date,
+  cutoffUtc: Date | null,
+  timezone: string
+): {
+  historical: { startDate: string; endDate: string } | null;
+  live: { start: Date; end: Date } | null;
+} {
+  if (!cutoffUtc) {
+    // No bootstrap → all data from live AnalyticsEvent
+    return { historical: null, live: { start, end } };
+  }
+
+  const cutoffMs = cutoffUtc.getTime();
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+
+  if (endMs <= cutoffMs) {
+    // Entire range is before cutoff → all historical
+    return {
+      historical: {
+        startDate: formatLocalDate(start, timezone),
+        endDate: formatLocalDate(new Date(endMs), timezone),
+      },
+      live: null,
+    };
+  }
+
+  if (startMs >= cutoffMs) {
+    // Entire range is after cutoff → all live
+    return { historical: null, live: { start, end } };
+  }
+
+  // Range spans the cutoff — split into historical + live
+  const cutoffMinus1ms = new Date(cutoffMs - 1); // last ms before cutoff = last instant of cutoff_date
+  return {
+    historical: {
+      startDate: formatLocalDate(start, timezone),
+      endDate: formatLocalDate(cutoffMinus1ms, timezone),
+    },
+    live: { start: cutoffUtc, end },
+  };
+}
+
+/**
+ * Merges two FinancialSummary objects (adds all fields).
+ * Used to combine historical + live dashboard contributions.
+ */
+export function mergeFinancialSummaries(
+  a: FinancialSummary,
+  b: FinancialSummary
+): FinancialSummary {
+  return {
+    gross_sales: round2(a.gross_sales + b.gross_sales),
+    sales_returns: round2(a.sales_returns + b.sales_returns),
+    net_sales: round2(a.net_sales + b.net_sales),
+    sale_cogs: round2(a.sale_cogs + b.sale_cogs),
+    returned_cogs: round2(a.returned_cogs + b.returned_cogs),
+    net_cogs: round2(a.net_cogs + b.net_cogs),
+    gross_profit: round2(a.gross_profit + b.gross_profit),
+    purchases: round2(a.purchases + b.purchases),
+    cash_sales: round2(a.cash_sales + b.cash_sales),
+    credit_sales: round2(a.credit_sales + b.credit_sales),
+    expenses: round2(a.expenses + b.expenses),
+    net_profit: round2(a.net_profit + b.net_profit),
+  };
+}
+
+export const ZERO_FINANCIAL_SUMMARY: FinancialSummary = {
+  gross_sales: 0,
+  sales_returns: 0,
+  net_sales: 0,
+  sale_cogs: 0,
+  returned_cogs: 0,
+  net_cogs: 0,
+  gross_profit: 0,
+  purchases: 0,
+  cash_sales: 0,
+  credit_sales: 0,
+  expenses: 0,
+  net_profit: 0,
+};
+
+/**
+ * Builds a FinancialSummary from HistoricalDailyAnalytics aggregate result.
+ * Note: historical data does not distinguish cash_sales vs credit_sales.
+ */
+export function historicalToFinancialSummary(agg: {
+  gross_sales: number;
+  sales_returns: number;
+  cogs: number;
+  cogs_reversed: number;
+  gross_profit: number;
+  net_profit: number;
+  expenses: number;
+  purchases: number;
+}): FinancialSummary {
+  const net_cogs = round2((agg.cogs ?? 0) - (agg.cogs_reversed ?? 0));
+  return {
+    gross_sales: round2(agg.gross_sales ?? 0),
+    sales_returns: round2(agg.sales_returns ?? 0),
+    net_sales: round2((agg.gross_sales ?? 0) - (agg.sales_returns ?? 0)),
+    sale_cogs: round2(agg.cogs ?? 0),
+    returned_cogs: round2(agg.cogs_reversed ?? 0),
+    net_cogs,
+    gross_profit: round2(agg.gross_profit ?? 0),
+    purchases: round2(agg.purchases ?? 0),
+    cash_sales: 0,   // not available in historical daily summaries
+    credit_sales: 0, // not available in historical daily summaries
+    expenses: round2(agg.expenses ?? 0),
+    net_profit: round2(agg.net_profit ?? 0),
+  };
+}
+
+
+
