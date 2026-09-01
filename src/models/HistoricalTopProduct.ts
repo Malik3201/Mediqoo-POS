@@ -52,7 +52,7 @@ const HistoricalTopProductSchema = new Schema<IHistoricalTopProduct>(
     timestamps: { createdAt: "created_at", updatedAt: "updated_at" },
     toJSON: {
       virtuals: true,
-      transform: function (doc, ret) {
+      transform: function (doc: any, ret: Record<string, any>) {
         delete ret._id;
         delete ret.__v;
         return ret;

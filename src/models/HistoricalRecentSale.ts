@@ -45,7 +45,7 @@ const HistoricalRecentSaleSchema = new Schema<IHistoricalRecentSale>(
     timestamps: { createdAt: "created_at", updatedAt: false },
     toJSON: {
       virtuals: true,
-      transform: function (doc, ret) {
+      transform: function (doc: any, ret: Record<string, any>) {
         delete ret._id;
         delete ret.__v;
         return ret;
