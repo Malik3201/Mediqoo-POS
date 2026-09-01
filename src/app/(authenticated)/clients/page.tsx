@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Pencil, Trash2, Building2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Pencil, Trash2, Building2, Users, RefreshCw, UserX, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 
@@ -42,7 +42,17 @@ type Client = {
   address: string | null;
   notes: string | null;
   status: string;
+  timezone: string;
   created_at: string;
+};
+
+type PortalUserRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  last_login_at?: string | null;
 };
 
 const empty = {
@@ -53,6 +63,7 @@ const empty = {
   address: "",
   notes: "",
   status: "active",
+  timezone: "Asia/Karachi",
 };
 
 export default function ClientsPage() {
@@ -62,6 +73,7 @@ export default function ClientsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [form, setForm] = useState(empty);
+  const [portalClient, setPortalClient] = useState<Client | null>(null);
 
   function openNew() {
     setEditing(null);
@@ -79,6 +91,7 @@ export default function ClientsPage() {
       address: row.address ?? "",
       notes: row.notes ?? "",
       status: row.status,
+      timezone: row.timezone ?? "Asia/Karachi",
     });
     setOpen(true);
   }
@@ -177,6 +190,9 @@ export default function ClientsPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
+                    <Button size="icon" variant="ghost" onClick={() => { setPortalClient(r); }} title="Portal Access">
+                      <Users className="h-4 w-4" />
+                    </Button>
                     <Button size="icon" variant="ghost" onClick={() => openEdit(r)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -249,6 +265,15 @@ export default function ClientsPage() {
               </div>
             </div>
             <div className="grid gap-1.5">
+              <Label>Timezone (IANA)</Label>
+              <Input
+                value={form.timezone}
+                onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+                placeholder="Asia/Karachi"
+              />
+              <p className="text-xs text-muted-foreground">Used for portal dashboard date ranges. Default: Asia/Karachi</p>
+            </div>
+            <div className="grid gap-1.5">
               <Label>Address</Label>
               <Textarea
                 rows={2}
@@ -273,6 +298,183 @@ export default function ClientsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Portal Users Modal */}
+      {portalClient && (
+        <PortalUsersModal
+          client={portalClient}
+          onClose={() => setPortalClient(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Portal Users Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PortalUsersModal({ client, onClose }: { client: { id: string; name: string }; onClose: () => void }) {
+  const [users, setUsers] = useState<PortalUserRow[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "owner" });
+  const [inviting, setInviting] = useState(false);
+
+  const fetchUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const res = await fetch(`/api/admin/portal-users?client_id=${client.id}`);
+      if (res.ok) setUsers(await res.json());
+    } catch {}
+    finally { setLoadingUsers(false); }
+  };
+
+  useEffect(() => { fetchUsers(); }, [client.id]);
+
+  const invite = async () => {
+    if (!inviteForm.name || !inviteForm.email) { toast.error("Name and email required"); return; }
+    setInviting(true);
+    try {
+      const res = await fetch("/api/admin/portal-users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: client.id, ...inviteForm }),
+      });
+      if (!res.ok) { const d = await res.json(); toast.error(d.error ?? "Failed"); return; }
+      toast.success("Invite sent!");
+      setInviteOpen(false);
+      setInviteForm({ name: "", email: "", role: "owner" });
+      fetchUsers();
+    } catch { toast.error("Network error"); }
+    finally { setInviting(false); }
+  };
+
+  const resend = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/portal-users/${id}/resend-invite`, { method: "POST" });
+      if (res.ok) toast.success("Invite resent");
+      else { const d = await res.json(); toast.error(d.error ?? "Failed"); }
+    } catch { toast.error("Network error"); }
+  };
+
+  const toggleStatus = async (u: PortalUserRow) => {
+    const newStatus = u.status === "disabled" ? "active" : "disabled";
+    try {
+      const res = await fetch(`/api/admin/portal-users/${u.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) { toast.success(`User ${newStatus === "disabled" ? "disabled" : "enabled"}`); fetchUsers(); }
+      else { const d = await res.json(); toast.error(d.error ?? "Failed"); }
+    } catch { toast.error("Network error"); }
+  };
+
+  const statusBadge = (s: string) => {
+    const cls = s === "active" ? "bg-emerald-100 text-emerald-800" : s === "invited" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800";
+    return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{s}</span>;
+  };
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-primary" />
+            Portal Access — {client.name}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setInviteOpen(!inviteOpen)}>
+              <Plus className="h-3.5 w-3.5" />
+              Create Portal User
+            </Button>
+          </div>
+
+          {inviteOpen && (
+            <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+              <p className="text-sm font-medium">New Portal User</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1.5">
+                  <Label>Name *</Label>
+                  <Input value={inviteForm.name} onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })} placeholder="Ali Raza" />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>Email *</Label>
+                  <Input type="email" value={inviteForm.email} onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })} placeholder="ali@pharmacy.com" />
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Role</Label>
+                <Select value={inviteForm.role} onValueChange={(v) => setInviteForm({ ...inviteForm, role: v })}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="owner">Owner</SelectItem>
+                    <SelectItem value="manager">Manager</SelectItem>
+                    <SelectItem value="viewer">Viewer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={invite} disabled={inviting}>{inviting ? "Sending…" : "Send Invite"}</Button>
+                <Button size="sm" variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
+              </div>
+            </div>
+          )}
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Last Login</TableHead>
+                <TableHead className="w-[100px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loadingUsers ? (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Loading…</TableCell></TableRow>
+              ) : users.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">No portal users yet. Create the first one above.</TableCell></TableRow>
+              ) : (
+                users.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell className="font-medium">{u.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{u.email}</TableCell>
+                    <TableCell><Badge variant="secondary">{u.role}</Badge></TableCell>
+                    <TableCell>{statusBadge(u.status)}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : "Never"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {u.status !== "active" && (
+                        <Button size="icon" variant="ghost" onClick={() => resend(u.id)} title="Resend invite">
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => toggleStatus(u)}
+                        title={u.status === "disabled" ? "Enable" : "Disable"}
+                      >
+                        {u.status === "disabled" ? <UserCheck className="h-3.5 w-3.5" /> : <UserX className="h-3.5 w-3.5" />}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

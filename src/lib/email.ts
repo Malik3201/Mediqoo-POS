@@ -211,3 +211,54 @@ export async function sendCustomMessage(name: string, email: string, customMessa
     throw err;
   }
 }
+
+/**
+ * Send portal invite email to a pharmacy owner/manager.
+ * The raw token is included in the link — only the hash is stored in DB.
+ *
+ * @param name - portal user's name
+ * @param email - portal user's email
+ * @param clientName - pharmacy/business name
+ * @param inviteUrl - full URL including raw token, e.g. https://mediqoo.vercel.app/portal/accept-invite?token=abc123
+ * @param expiresInDays - token validity in days (display only)
+ */
+export async function sendPortalInvite(
+  name: string,
+  email: string,
+  clientName: string,
+  inviteUrl: string,
+  expiresInDays: number = 7
+) {
+  const subject = `You're invited to ${clientName} Owner Portal — AivraSol`;
+
+  const content = `
+    <h1>Welcome to AivraSol Owner Portal</h1>
+    <p>Hello <strong>${name}</strong>,</p>
+    <p>You have been invited to access the <strong>${clientName}</strong> owner portal on AivraSol.</p>
+    <p>The portal gives you real-time visibility into your pharmacy's sales, inventory, and financial performance.</p>
+    <p>To get started, click the button below to set your password and activate your account:</p>
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="${inviteUrl}" class="btn" style="display: inline-block; background-color: #009A4D; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;">
+        Set Password &amp; Activate Account
+      </a>
+    </div>
+    <div class="quote">
+      This invitation link expires in <strong>${expiresInDays} days</strong> and can only be used once.
+    </div>
+    <p>If you did not expect this invitation, please ignore this email. If you have questions, contact your AivraSol administrator.</p>
+    <p style="margin-top: 32px;">Best regards,<br><strong>The AivraSol Team</strong></p>
+    <p style="font-size: 13px; color: #64748b; margin-top: 16px;">
+      If the button above doesn't work, copy and paste this link into your browser:<br>
+      <a href="${inviteUrl}" style="color: #009A4D; word-break: break-all;">${inviteUrl}</a>
+    </p>
+  `;
+
+  const transporter = getTransporter();
+  await transporter.sendMail({
+    from: FROM_OBJECT,
+    to: email,
+    subject,
+    html: baseTemplate(content),
+  });
+}
+

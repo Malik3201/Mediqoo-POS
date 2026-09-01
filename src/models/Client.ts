@@ -10,6 +10,13 @@ export interface IClient extends Document {
   contact_phone?: string;
   address?: string;
   notes?: string;
+  /**
+   * IANA timezone string, e.g. "Asia/Karachi", "Asia/Dubai", "UTC".
+   * Used by the portal dashboard to compute business-day date boundaries.
+   * Portal ranges (Today, 7 Days, 30 Days) use this timezone.
+   * POS event timestamps remain absolute UTC.
+   */
+  timezone: string;
   created_by?: string;
   created_at: Date;
   updated_at: Date;
@@ -25,6 +32,7 @@ const ClientSchema = new Schema<IClient>(
     contact_phone: { type: String },
     address: { type: String },
     notes: { type: String },
+    timezone: { type: String, default: "Asia/Karachi" },
     created_by: { type: String },
   },
   {
