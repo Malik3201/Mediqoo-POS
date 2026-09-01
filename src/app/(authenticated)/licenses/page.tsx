@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw } from "lucide-react";
+import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useSession } from "next-auth/react";
@@ -98,6 +98,7 @@ export default function LicensesPage() {
   const [form, setForm] = useState<Form>(emptyForm);
   const [revokeTarget, setRevokeTarget] = useState<License | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
+  const [terminalLicense, setTerminalLicense] = useState<License | null>(null);
 
   const selectedProject = useMemo(
     () => projects.find((p: Project) => p.id === form.project_id) ?? null,
@@ -265,6 +266,14 @@ export default function LicensesPage() {
                     <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
                   </TableCell>
                   <TableCell className="text-right">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title="View terminals"
+                      onClick={() => setTerminalLicense(r)}
+                    >
+                      <Monitor className="h-4 w-4" />
+                    </Button>
                     {r.status === "active" ? (
                       <Button
                         size="icon"
@@ -407,6 +416,144 @@ export default function LicensesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {terminalLicense && (
+        <TerminalsModal
+          license={terminalLicense}
+          onClose={() => setTerminalLicense(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Terminals Modal — shows all seats (terminals) for a given license.
+// Read-only. Admin can delete individual seats to free them.
+// ─────────────────────────────────────────────────────────────────────────────
+type Seat = {
+  id: string;
+  license_id: string;
+  machine_id: string;
+  hostname?: string;
+  role: string;
+  terminal_number?: number;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
+function TerminalsModal({ license, onClose }: { license: License; onClose: () => void }) {
+  const { data: seats = [], isLoading, refetch } = useDataQuery("license_seats", {
+    license_id: license.id,
+  });
+  const { mutateAsync: mutateSeat } = useDataMutation("license_seats");
+
+  async function revokeSeat(seat: Seat) {
+    if (
+      !confirm(
+        `Remove Terminal ${seat.terminal_number ?? "(no number)"} (${seat.hostname ?? seat.machine_id})?\n\nThe machine will need to re-register. Its terminal_number will NOT be reused — the next new terminal on this license will receive a higher number.`
+      )
+    )
+      return;
+    try {
+      await mutateSeat({ method: "DELETE", id: seat.id });
+      toast.success("Terminal removed");
+      refetch();
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  }
+
+  const sortedSeats = useMemo(
+    () => [...seats].sort((a: Seat, b: Seat) => (a.terminal_number ?? 9999) - (b.terminal_number ?? 9999)),
+    [seats]
+  );
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Monitor className="h-5 w-5" />
+            Terminals — {license.projects?.name ?? license.id}
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          Seat capacity: <strong>{sortedSeats.length}</strong> / {license.seats} used.
+          Deleting a terminal does <strong>not</strong> reuse its number — the next terminal receives a higher number.
+        </p>
+        <div className="rounded-lg border overflow-auto max-h-[50vh]">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[60px]">#</TableHead>
+                <TableHead>Hostname / Machine</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>First Seen</TableHead>
+                <TableHead>Last Seen</TableHead>
+                <TableHead className="w-[100px]">seat_id</TableHead>
+                <TableHead className="w-[60px]" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-6 text-muted-foreground">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : sortedSeats.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-6 text-muted-foreground">
+                    No terminals registered yet.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                sortedSeats.map((seat: Seat) => (
+                  <TableRow key={seat.id}>
+                    <TableCell>
+                      <span className="font-mono font-bold text-primary">
+                        {seat.terminal_number ?? <span className="text-muted-foreground">—</span>}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{seat.hostname ?? "—"}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{seat.machine_id}</div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={seat.role === "main" ? "default" : "secondary"}>
+                        {seat.role}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(seat.first_seen_at).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(seat.last_seen_at).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {seat.id.slice(0, 8)}…
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        title="Remove terminal"
+                        onClick={() => revokeSeat(seat)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

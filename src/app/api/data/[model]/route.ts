@@ -5,6 +5,7 @@ import AuditLog from "@/models/AuditLog";
 import BusinessTemplate from "@/models/BusinessTemplate";
 import ClientTemplate from "@/models/ClientTemplate";
 import Client from "@/models/Client";
+import LicenseCounter from "@/models/LicenseCounter";
 import LicenseSeat from "@/models/LicenseSeat";
 import License from "@/models/License";
 import Package from "@/models/Package";
@@ -19,6 +20,7 @@ const modelsMap: Record<string, any> = {
   "business_templates": BusinessTemplate,
   "client_templates": ClientTemplate,
   "clients": Client,
+  "license_counters": LicenseCounter,
   "license_seats": LicenseSeat,
   "licenses": License,
   "packages": Package,
@@ -27,6 +29,16 @@ const modelsMap: Record<string, any> = {
   "release_installs": ReleaseInstall,
   "releases": Release,
   "user_roles": UserRole,
+};
+
+// Fields that must not be modified via the generic PATCH API.
+// Structural changes to identity fields must go through dedicated endpoints.
+const PATCH_PROTECTED_FIELDS: Record<string, string[]> = {
+  license_seats:    ["id", "license_id", "terminal_number", "machine_id", "first_seen_at"],
+  license_counters: ["id", "license_id"],  // counter value managed by register-seat only
+  licenses:         ["id", "license_key", "client_id", "project_id"],
+  clients:          ["id"],
+  projects:         ["id", "slug"],
 };
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ model: string }> }) {
@@ -99,6 +111,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ mo
     const id = req.nextUrl.searchParams.get("id");
     
     if (!id) return NextResponse.json({ error: "ID required for PATCH" }, { status: 400 });
+
+    // Strip identity-critical fields using module-level PATCH_PROTECTED_FIELDS map.
+    if (PATCH_PROTECTED_FIELDS[model]) {
+      for (const field of PATCH_PROTECTED_FIELDS[model]) {
+        delete body[field];
+      }
+    }
     
     const updatedData = await Model.findOneAndUpdate({ id }, body, { new: true }).lean();
     return NextResponse.json(updatedData);
