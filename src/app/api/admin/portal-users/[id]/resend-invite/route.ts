@@ -26,14 +26,14 @@ function generateInviteToken(): { raw: string; hash: string } {
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const adminToken = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!adminToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id } = params;
+  const { id } = await params;
   await connectToDatabase();
 
   const user = await PortalUser.findOne({ id });

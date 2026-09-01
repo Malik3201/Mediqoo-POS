@@ -31,14 +31,14 @@ function generateInviteToken(): { raw: string; hash: string } {
  */
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const adminToken = await requireAdmin(req);
   if (!adminToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id } = params;
+  const { id } = await params;
   let body: any;
   try {
     body = await req.json();
@@ -90,14 +90,14 @@ export async function PATCH(
  */
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const adminToken = await requireAdmin(req);
   if (!adminToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { id } = params;
+  const { id } = await params;
   await connectToDatabase();
 
   const user = await PortalUser.findOne({ id });

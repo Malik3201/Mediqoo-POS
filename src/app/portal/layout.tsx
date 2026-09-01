@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 interface PortalUser {
   id: string;
@@ -16,7 +16,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const [user, setUser] = useState<PortalUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const pathname = usePathname();
+
   useEffect(() => {
+    // Do not run auth check on public pages
+    if (pathname === "/portal/login" || pathname.startsWith("/portal/accept-invite")) {
+      setLoading(false);
+      return;
+    }
+
     fetch("/api/portal/auth/me")
       .then((r) => {
         if (!r.ok) {
@@ -30,7 +38,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       })
       .catch(() => router.replace("/portal/login"))
       .finally(() => setLoading(false));
-  }, [router]);
+  }, [router, pathname]);
 
   const logout = async () => {
     await fetch("/api/portal/auth/logout", { method: "POST" });
