@@ -173,6 +173,22 @@ export default function LicensesPage() {
     }
   }
 
+  async function toggleCloud(lic: License) {
+    const currentVal = lic.features?.cloud_dashboard === true;
+    const newFeatures = { ...(lic.features || {}), cloud_dashboard: !currentVal };
+    
+    try {
+      await mutateLicense({
+        method: "PATCH",
+        id: lic.id,
+        data: { features: newFeatures }
+      });
+      toast.success(`Cloud Dashboard ${!currentVal ? "enabled" : "disabled"}`);
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  }
+
   async function remove(id: string) {
     if (!confirm("Delete this license permanently?")) return;
     try {
@@ -224,19 +240,20 @@ export default function LicensesPage() {
               <TableHead>Seats</TableHead>
               <TableHead>Expires</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Cloud</TableHead>
               <TableHead className="w-[140px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   No licenses found. Issue one to get started.
                 </TableCell>
               </TableRow>
@@ -264,6 +281,16 @@ export default function LicensesPage() {
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-7 text-xs px-2"
+                      onClick={() => toggleCloud(r)}
+                    >
+                      {r.features?.cloud_dashboard ? "Enabled" : "Disabled"}
+                    </Button>
                   </TableCell>
                   <TableCell className="text-right">
                     <Button

@@ -182,15 +182,21 @@ export async function POST(req: NextRequest) {
     const existingSeat = await LicenseSeat.findOne({
       license_id: lic.id,
       machine_id: body.machine_id,
-    });
+    }).lean();
 
     if (existingSeat) {
       // ── 3a. Seat exists WITH terminal_number (normal heartbeat) ──────────
       if (existingSeat.terminal_number != null) {
-        existingSeat.role = body.role;
-        if (body.hostname) existingSeat.hostname = body.hostname;
-        existingSeat.last_seen_at = new Date();
-        await existingSeat.save();
+        await LicenseSeat.updateOne(
+          { id: existingSeat.id },
+          {
+            $set: {
+              role: body.role,
+              last_seen_at: new Date(),
+              ...(body.hostname ? { hostname: body.hostname } : {}),
+            }
+          }
+        );
 
         return NextResponse.json(
           {
