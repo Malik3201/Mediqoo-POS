@@ -106,8 +106,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     <div className="min-h-screen flex bg-slate-50 text-slate-900 font-sans">
       {/* ─── DESKTOP SIDEBAR ─── */}
       <aside className="hidden lg:flex flex-col w-64 fixed inset-y-0 bg-white border-r border-slate-200 z-30">
-        <div className="h-16 flex items-center px-6 border-b border-slate-100">
-          <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol Owner Portal" className="h-8 w-auto object-contain" />
+        <div className="h-20 flex items-center px-6 border-b border-slate-100 gap-3">
+          <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol" className="h-11 w-auto object-contain" />
+          <div className="flex flex-col justify-center border-l-2 border-slate-200 pl-3">
+            <span className="font-bold text-slate-800 text-sm leading-none tracking-tight">Pharmacy</span>
+            <span className="font-bold text-emerald-600 text-sm leading-none tracking-tight mt-0.5">POS</span>
+          </div>
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
@@ -147,9 +151,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
           <aside className="fixed inset-y-0 left-0 w-72 bg-white shadow-xl flex flex-col z-50">
-            <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100">
-              <div className="flex items-center">
-                <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol Owner Portal" className="h-8 w-auto object-contain" />
+            <div className="h-20 flex items-center justify-between px-6 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol" className="h-11 w-auto object-contain" />
+                <div className="flex flex-col justify-center border-l-2 border-slate-200 pl-3">
+                  <span className="font-bold text-slate-800 text-sm leading-none tracking-tight">Pharmacy</span>
+                  <span className="font-bold text-emerald-600 text-sm leading-none tracking-tight mt-0.5">POS</span>
+                </div>
               </div>
               <button onClick={() => setMobileMenuOpen(false)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg">
                 <X className="w-5 h-5" />

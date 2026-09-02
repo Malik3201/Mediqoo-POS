@@ -45,8 +45,12 @@ export default function PortalLoginPage() {
         </div>
 
         <div className="relative z-10 p-12">
-          <div className="mb-16">
-            <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol Pharmacy POS" className="h-12 w-auto object-contain" />
+          <div className="flex items-center gap-4 mb-12">
+            <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol Logo" className="h-20 w-auto object-contain" />
+            <div className="flex flex-col justify-center border-l-2 border-slate-700 pl-4">
+              <span className="text-2xl font-bold text-white tracking-tight leading-tight">Pharmacy</span>
+              <span className="text-2xl font-light text-emerald-400 tracking-tight leading-tight">POS</span>
+            </div>
           </div>
           <div className="max-w-md">
             <h2 className="text-4xl font-bold text-white leading-tight mb-6">
@@ -64,8 +68,12 @@ export default function PortalLoginPage() {
       {/* ─── RIGHT PANEL (LOGIN) ─── */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative bg-white">
         {/* Mobile Logo */}
-        <div className="absolute top-6 left-6 lg:hidden flex items-center">
-          <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol Owner Portal" className="h-8 w-auto object-contain" />
+        <div className="absolute top-6 left-6 lg:hidden flex items-center gap-3">
+          <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol" className="h-10 w-auto object-contain" />
+          <div className="flex flex-col justify-center border-l-2 border-slate-200 pl-3 h-10">
+            <span className="font-bold text-slate-800 text-xs leading-none tracking-tight">Pharmacy</span>
+            <span className="font-bold text-emerald-600 text-xs leading-none tracking-tight mt-0.5">POS</span>
+          </div>
         </div>
 
         <div className="w-full max-w-md">
