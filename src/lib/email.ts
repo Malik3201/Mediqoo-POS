@@ -262,3 +262,113 @@ export async function sendPortalInvite(
   });
 }
 
+/**
+ * Send renewal reminder to Admin.
+ */
+export async function sendAdminRenewalReminder(
+  clientName: string,
+  licenseKey: string,
+  feeAmount: number,
+  currency: string,
+  expiryDate: Date
+) {
+  const subject = `Renewal Due: ${clientName} - AivraSol`;
+  const content = `
+    <h2>License Renewal Reminder</h2>
+    <p>The license for <strong>${clientName}</strong> is approaching its renewal date.</p>
+    <ul>
+      <li><strong>License Key:</strong> ${licenseKey.substring(0, 16)}...</li>
+      <li><strong>Renewal Fee:</strong> ${currency} ${feeAmount}</li>
+      <li><strong>Expiry Date:</strong> ${expiryDate.toLocaleDateString()}</li>
+    </ul>
+    <p>Please coordinate with the client to collect the payment and record it in the admin panel to avoid service interruption.</p>
+  `;
+
+  try {
+    const transporter = getTransporter();
+    const recipient = process.env.RENEWAL_ADMIN_EMAIL || ADMIN_EMAIL;
+    await transporter.sendMail({
+      from: FROM_OBJECT,
+      to: recipient,
+      subject,
+      html: baseTemplate(content),
+    });
+  } catch (err) {
+    console.error("Failed to send admin renewal reminder", err);
+  }
+}
+
+/**
+ * Send renewal reminder to Client.
+ */
+export async function sendClientRenewalReminder(
+  contactName: string,
+  contactEmail: string,
+  clientName: string,
+  feeAmount: number,
+  currency: string,
+  expiryDate: Date
+) {
+  const subject = `Your AivraSol License Renewal is Due`;
+  const content = `
+    <h1>Hello ${contactName || clientName},</h1>
+    <p>This is a friendly reminder that your AivraSol POS subscription for <strong>${clientName}</strong> is due for renewal soon.</p>
+    <div style="background-color: #f8fafc; padding: 16px; border-radius: 6px; margin: 20px 0; color: #334155;">
+      <p><strong>Renewal Amount:</strong> ${currency} ${feeAmount}</p>
+      <p><strong>Due Date:</strong> ${expiryDate.toLocaleDateString()}</p>
+    </div>
+    <p>To ensure uninterrupted service for your POS terminals, please arrange payment before the due date. Contact our support team if you have any questions or need payment instructions.</p>
+    <p>Best regards,<br>The AivraSol Team</p>
+  `;
+
+  try {
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: FROM_OBJECT,
+      to: contactEmail,
+      subject,
+      html: baseTemplate(content),
+    });
+  } catch (err) {
+    console.error("Failed to send client renewal reminder", err);
+    throw err;
+  }
+}
+
+/**
+ * Send payment confirmation and new expiry to Client.
+ */
+export async function sendClientPaymentConfirmation(
+  contactName: string,
+  contactEmail: string,
+  clientName: string,
+  amountPaid: number,
+  currency: string,
+  newExpiryDate: Date
+) {
+  const subject = `Payment Confirmation - AivraSol`;
+  const content = `
+    <h1>Hello ${contactName || clientName},</h1>
+    <p>Thank you! We have successfully received your payment for the AivraSol POS subscription.</p>
+    <div style="background-color: #f8fafc; padding: 16px; border-radius: 6px; margin: 20px 0; color: #334155;">
+      <p><strong>Amount Paid:</strong> ${currency} ${amountPaid}</p>
+      <p><strong>New Expiry Date:</strong> ${newExpiryDate.toLocaleDateString()}</p>
+    </div>
+    <p>Your POS terminals will automatically synchronize this updated subscription within the next few hours.</p>
+    <p>Best regards,<br>The AivraSol Team</p>
+  `;
+
+  try {
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: FROM_OBJECT,
+      to: contactEmail,
+      subject,
+      html: baseTemplate(content),
+    });
+  } catch (err) {
+    console.error("Failed to send client payment confirmation", err);
+    throw err;
+  }
+}
+

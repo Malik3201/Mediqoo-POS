@@ -195,6 +195,7 @@ export default function PortalDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [timezone, setTimezone] = useState<string>("Asia/Karachi");
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
+  const [subscriptions, setSubscriptions] = useState<any[]>([]);
 
   // Pagination states
   const [recentSalesPage, setRecentSalesPage] = useState(1);
@@ -233,6 +234,7 @@ export default function PortalDashboardPage() {
         setSummary(summaryRes.summary);
         setTimezone(summaryRes.timezone ?? "Asia/Karachi");
         setLastSyncAt(summaryRes.last_sync_at ?? null);
+        setSubscriptions(summaryRes.subscriptions ?? []);
       }
       if (inventoryRes.ok) setInventory(inventoryRes.totals);
       if (trendsRes.ok) setTrends(trendsRes.trend ?? []);
@@ -351,6 +353,51 @@ export default function PortalDashboardPage() {
                 <span className="text-slate-500 mb-1 flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Address</span>
                 <span className="font-medium text-slate-900 max-w-[200px] truncate" title={user.client.address}>{user.client.address || "Not specified"}</span>
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── SUBSCRIPTIONS CARD ── */}
+      {subscriptions.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <CreditCard className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-lg font-bold text-slate-900">Subscriptions</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {subscriptions.map((sub: any) => (
+              <div key={sub.license_id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 flex flex-col justify-between gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-900">{sub.project_name}</span>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    sub.effective_status === "active" ? "bg-emerald-100 text-emerald-700" :
+                    sub.effective_status === "grace" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                  }`}>
+                    {sub.effective_status.toUpperCase()}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="text-slate-500 block text-xs">Fee ({sub.cycle})</span>
+                    <span className="font-medium text-slate-900">{sub.currency} {sub.amount}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block text-xs">Expires</span>
+                    <span className="font-medium text-slate-900">{sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : "—"}</span>
+                  </div>
+                </div>
+                {sub.payment_status && (
+                  <div className={`mt-2 pt-2 border-t border-slate-200 text-xs font-medium flex justify-between items-center ${
+                    sub.payment_status === "paid" ? "text-emerald-600" : "text-amber-600"
+                  }`}>
+                    <span>Payment: {sub.payment_status.replace("_", " ").toUpperCase()}</span>
+                    {sub.payment_status !== "paid" && sub.due_at && (
+                      <span>Due: {new Date(sub.due_at).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

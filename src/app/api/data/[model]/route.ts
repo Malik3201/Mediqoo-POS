@@ -18,6 +18,9 @@ import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
 import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
 import HistoricalTopProduct from "@/models/HistoricalTopProduct";
 import HistoricalRecentSale from "@/models/HistoricalRecentSale";
+import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
+import LicensePayment from "@/models/LicensePayment";
+import RenewalNotification from "@/models/RenewalNotification";
 
 const modelsMap: Record<string, any> = {
   "audit_logs": AuditLog,
@@ -37,6 +40,9 @@ const modelsMap: Record<string, any> = {
   "historical_daily_analytics": HistoricalDailyAnalytics,
   "historical_top_products": HistoricalTopProduct,
   "historical_recent_sales": HistoricalRecentSale,
+  "license_billing_periods": LicenseBillingPeriod,
+  "license_payments": LicensePayment,
+  "renewal_notifications": RenewalNotification,
 };
 
 // Fields that must not be modified via the generic PATCH API.

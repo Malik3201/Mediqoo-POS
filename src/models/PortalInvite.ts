@@ -25,7 +25,7 @@ const PortalInviteSchema = new Schema<IPortalInvite>(
       transform: function (doc, ret) {
         delete (ret as any)._id;
         delete (ret as any).__v;
-        delete ret.token_hash; // NEVER expose hash
+        delete (ret as any).token_hash; // NEVER expose hash
         return ret;
       },
     },

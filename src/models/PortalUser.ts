@@ -57,9 +57,9 @@ const PortalUserSchema = new Schema<IPortalUser>(
       transform: function (doc, ret) {
         delete (ret as any)._id;
         delete (ret as any).__v;
-        delete ret.password_hash; // NEVER leak password_hash in JSON
-        delete ret.login_attempts;
-        delete ret.locked_until;
+        delete (ret as any).password_hash; // NEVER leak password_hash in JSON
+        delete (ret as any).login_attempts;
+        delete (ret as any).locked_until;
         return ret;
       },
     },

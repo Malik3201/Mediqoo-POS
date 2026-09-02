@@ -6,6 +6,7 @@ import Client from "@/models/Client";
 import License from "@/models/License";
 import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
 import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
+import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import {
   requirePortalSession,
   PortalAuthError,
@@ -171,6 +172,40 @@ export async function GET(req: NextRequest) {
       last_sync_at = new Date(Math.max(t1, t2)).toISOString();
     }
 
+    // 5. Subscription info
+    const subscriptions = [];
+    for (const lic of targetLicenses) {
+      const fullLic = await License.findOne({ id: lic }).populate("projects", "name").lean<any>();
+      if (fullLic && fullLic.billing?.enabled) {
+        const currentPeriod = await LicenseBillingPeriod.findOne({
+          license_id: lic,
+          status: { $nin: ["paid", "waived"] }
+        }).sort({ due_at: 1 }).lean();
+        
+        const nowTime = new Date();
+        let effective_status = fullLic.status;
+        if (effective_status === "active" && fullLic.expires_at) {
+          const expiresAt = new Date(fullLic.expires_at);
+          if (nowTime > expiresAt) {
+            const graceUntil = fullLic.grace_until ? new Date(fullLic.grace_until) : expiresAt;
+            effective_status = nowTime > graceUntil ? "blocked" : "grace";
+          }
+        }
+
+        subscriptions.push({
+          license_id: lic,
+          project_name: fullLic.projects?.name || "Primary POS",
+          effective_status,
+          cycle: fullLic.billing.cycle,
+          amount: fullLic.billing.amount,
+          currency: fullLic.billing.currency,
+          expires_at: fullLic.expires_at,
+          payment_status: currentPeriod ? currentPeriod.status : "paid",
+          due_at: currentPeriod ? currentPeriod.due_at : null
+        });
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       period,
@@ -178,6 +213,7 @@ export async function GET(req: NextRequest) {
       last_sync_at,
       date_range: { start: start.toISOString(), end: end.toISOString() },
       summary: finalSummary,
+      subscriptions,
     });
   } catch (err) {
     if (err instanceof PortalAuthError) return portalAuthErrorResponse(err);

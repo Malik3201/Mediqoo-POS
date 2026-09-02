@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Rocket,
   MessageSquare,
+  CreditCard,
 } from "lucide-react";
 
 import {
@@ -37,6 +38,7 @@ const primary = [
   { title: "Clients", url: "/clients", icon: Building2 },
   { title: "Projects", url: "/projects", icon: FolderKanban },
   { title: "Licenses", url: "/licenses", icon: KeyRound },
+  { title: "Billing & Renewals", url: "/billing", icon: CreditCard },
   { title: "Packages", url: "/packages", icon: Package },
   { title: "Releases", url: "/releases", icon: Rocket },
   { title: "Business Templates", url: "/templates", icon: Boxes },

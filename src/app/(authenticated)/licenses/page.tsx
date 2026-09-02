@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor } from "lucide-react";
+import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useSession } from "next-auth/react";
@@ -58,6 +58,13 @@ type License = {
   revoked_at: string | null;
   revoked_reason: string | null;
   notes: string | null;
+  billing?: {
+    enabled: boolean;
+    amount: number;
+    currency: string;
+    cycle: string;
+    grace_days: number;
+  };
   projects?: { name: string; slug: string } | null;
   clients?: { name: string } | null;
 };
@@ -99,6 +106,14 @@ export default function LicensesPage() {
   const [revokeTarget, setRevokeTarget] = useState<License | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
   const [terminalLicense, setTerminalLicense] = useState<License | null>(null);
+  const [billingTarget, setBillingTarget] = useState<License | null>(null);
+  const [billingForm, setBillingForm] = useState({
+    enabled: false,
+    amount: 1500,
+    currency: "PKR",
+    cycle: "monthly",
+    grace_days: 3,
+  });
 
   const selectedProject = useMemo(
     () => projects.find((p: Project) => p.id === form.project_id) ?? null,
@@ -196,6 +211,41 @@ export default function LicensesPage() {
       toast.success("License deleted");
     } catch (error: any) {
       toast.error(error.message);
+    }
+  }
+
+  function openBilling(lic: License) {
+    setBillingTarget(lic);
+    setBillingForm({
+      enabled: lic.billing?.enabled ?? false,
+      amount: lic.billing?.amount ?? 1500,
+      currency: lic.billing?.currency ?? "PKR",
+      cycle: (lic.billing?.cycle ?? "monthly") as "monthly" | "yearly",
+      grace_days: lic.billing?.grace_days ?? 3,
+    });
+  }
+
+  async function saveBilling() {
+    if (!billingTarget) return;
+    try {
+      await mutateLicense({
+        method: "PATCH",
+        id: billingTarget.id,
+        data: {
+          billing: {
+            enabled: billingForm.enabled,
+            amount: Number(billingForm.amount) || 0,
+            currency: billingForm.currency,
+            cycle: billingForm.cycle,
+            grace_days: Number(billingForm.grace_days) || 3,
+            reminder_days: [1],
+          }
+        }
+      });
+      toast.success("Billing configuration saved");
+      setBillingTarget(null);
+    } catch (e: any) {
+      toast.error(e.message);
     }
   }
 
@@ -300,6 +350,14 @@ export default function LicensesPage() {
                       onClick={() => setTerminalLicense(r)}
                     >
                       <Monitor className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title="Billing Config"
+                      onClick={() => openBilling(r)}
+                    >
+                      <CreditCard className="h-4 w-4" />
                     </Button>
                     {r.status === "active" ? (
                       <Button
@@ -444,6 +502,78 @@ export default function LicensesPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!billingTarget} onOpenChange={(v) => !v && setBillingTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Billing Configuration</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="flex items-center gap-2">
+              <input 
+                type="checkbox" 
+                checked={billingForm.enabled}
+                onChange={(e) => setBillingForm({ ...billingForm, enabled: e.target.checked })}
+                id="billingEnabled" 
+                className="h-4 w-4"
+              />
+              <Label htmlFor="billingEnabled">Enable Recurring Billing</Label>
+            </div>
+            {billingForm.enabled && (
+              <>
+                <div className="grid gap-2">
+                  <Label>Amount</Label>
+                  <Input
+                    type="number"
+                    value={billingForm.amount}
+                    onChange={(e) => setBillingForm({ ...billingForm, amount: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Currency</Label>
+                    <Select
+                      value={billingForm.currency}
+                      onValueChange={(v) => setBillingForm({ ...billingForm, currency: v })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="PKR">PKR</SelectItem>
+                        <SelectItem value="USD">USD</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Cycle</Label>
+                    <Select
+                      value={billingForm.cycle}
+                      onValueChange={(v) => setBillingForm({ ...billingForm, cycle: v })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Grace Days</Label>
+                  <Input
+                    type="number"
+                    value={billingForm.grace_days}
+                    onChange={(e) => setBillingForm({ ...billingForm, grace_days: Number(e.target.value) })}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBillingTarget(null)}>Cancel</Button>
+            <Button onClick={saveBilling}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {terminalLicense && (
         <TerminalsModal
           license={terminalLicense}
@@ -475,16 +605,16 @@ function TerminalsModal({ license, onClose }: { license: License; onClose: () =>
   });
   const { mutateAsync: mutateSeat } = useDataMutation("license_seats");
 
-  async function revokeSeat(seat: Seat) {
+  async function releaseTerminal(seat: Seat) {
     if (
       !confirm(
-        `Remove Terminal ${seat.terminal_number ?? "(no number)"} (${seat.hostname ?? seat.machine_id})?\n\nThe machine will need to re-register. Its terminal_number will NOT be reused — the next new terminal on this license will receive a higher number.`
+        `Release Terminal ${seat.terminal_number ?? "(no number)"} (${seat.hostname ?? seat.machine_id})?\n\nReleasing a terminal will:\n- Free this slot for a new PC.\n- Keep the license, billing history, and analytics intact.\n- Not affect other terminals.\n\nAre you sure you want to release this terminal?`
       )
     )
       return;
     try {
       await mutateSeat({ method: "DELETE", id: seat.id });
-      toast.success("Terminal removed");
+      toast.success("Terminal released successfully");
       refetch();
     } catch (e: any) {
       toast.error(e.message);
@@ -563,12 +693,13 @@ function TerminalsModal({ license, onClose }: { license: License; onClose: () =>
                     </TableCell>
                     <TableCell>
                       <Button
-                        size="icon"
-                        variant="ghost"
-                        title="Remove terminal"
-                        onClick={() => revokeSeat(seat)}
+                        size="sm"
+                        variant="outline"
+                        title="Release terminal"
+                        onClick={() => releaseTerminal(seat)}
+                        className="text-destructive hover:bg-destructive hover:text-white"
                       >
-                        <Trash2 className="h-4 w-4 text-destructive" />
+                        Release
                       </Button>
                     </TableCell>
                   </TableRow>
