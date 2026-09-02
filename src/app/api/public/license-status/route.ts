@@ -53,16 +53,29 @@ async function ed25519Sign(seedInput: string, message: Uint8Array) {
   return { publicKey, signature };
 }
 
+function canonicalSerialize(payload: any): string {
+  // Extract keys and sort them to guarantee stable JSON representation
+  const sortedPayload: any = {};
+  Object.keys(payload).sort().forEach(key => {
+    sortedPayload[key] = payload[key];
+  });
+  return JSON.stringify(sortedPayload);
+}
+
 async function signPayload(payload: any) {
-  const seedInput = process.env.PACKAGE_SIGNING_SEED || "fallback_signing_seed_1234567890";
-  const dataString = JSON.stringify(payload);
+  const seedInput = process.env.LICENSE_STATUS_SIGNING_SEED;
+  if (!seedInput) {
+    throw new Error("Server configuration error: missing LICENSE_STATUS_SIGNING_SEED");
+  }
+
+  const dataString = canonicalSerialize(payload);
   const dataBytes = toBytes(dataString);
-  const { publicKey, signature } = await ed25519Sign(seedInput, dataBytes);
+  const { signature } = await ed25519Sign(seedInput, dataBytes);
   
   return {
+    format: "aivrasol-license-status/1",
     metadata: payload,
     signature: b64encode(signature as Uint8Array),
-    public_key: b64encode(publicKey as Uint8Array),
   };
 }
 
@@ -115,17 +128,19 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+    } else if (effective_status === "suspended" || effective_status === "revoked") {
+      // Keep as suspended/revoked
     }
 
     const payload = {
+      effective_status,
+      expires_at: license.expires_at ? license.expires_at.toISOString() : null,
+      grace_until: license.grace_until ? license.grace_until.toISOString() : null,
+      issued_at: license.issued_at ? license.issued_at.toISOString() : null,
       license_id: license.id,
+      license_version: license.license_version || 1,
       machine_id: seat.machine_id,
       seat_id: seat.id,
-      effective_status,
-      expires_at: license.expires_at,
-      grace_until: license.grace_until,
-      issued_at: license.issued_at,
-      license_version: license.license_version || 1,
     };
 
     const signedResponse = await signPayload(payload);
