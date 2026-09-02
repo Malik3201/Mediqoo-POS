@@ -46,7 +46,7 @@ export default function PortalLoginPage() {
 
         <div className="relative z-10 p-12">
           <div className="mb-16">
-            <img src="/logo-pharmacy-pos.png" alt="AivraSol Pharmacy POS" className="h-12 w-auto object-contain" />
+            <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol Pharmacy POS" className="h-12 w-auto object-contain" />
           </div>
           <div className="max-w-md">
             <h2 className="text-4xl font-bold text-white leading-tight mb-6">
@@ -65,7 +65,7 @@ export default function PortalLoginPage() {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative bg-white">
         {/* Mobile Logo */}
         <div className="absolute top-6 left-6 lg:hidden flex items-center">
-          <img src="/logo-owner-portal.png" alt="AivraSol Owner Portal" className="h-8 w-auto object-contain" />
+          <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol Owner Portal" className="h-8 w-auto object-contain" />
         </div>
 
         <div className="w-full max-w-md">
