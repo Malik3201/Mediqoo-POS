@@ -187,13 +187,19 @@ export async function POST(req: NextRequest) {
     try {
       // ── Step 4: Ingest Daily Records ───────────────────────────────────────
       let dailyInserted = 0;
+      let defaultPeriodStart = cutoff_date;
+
       if (Array.isArray(daily) && daily.length > 0) {
+        // Sort dates to find the earliest date for top_products period_start
+        const sortedDates = daily.map((d: any) => d.date).filter(Boolean).sort();
+        if (sortedDates.length > 0) defaultPeriodStart = sortedDates[0];
+
         const dailyDocs = daily.map((d: any) => ({
           client_id: license.client_id,
           license_id: license.id,
           date: d.date,
           gross_sales: Number(d.gross_sales) || 0,
-          discounts: Number(d.discounts) || 0,
+          discounts: Number(d.discounts ?? d.discount) || 0,
           tax: Number(d.tax) || 0,
           net_sales: Number(d.net_sales) || 0,
           sales_returns: Number(d.sales_returns) || 0,
@@ -221,8 +227,8 @@ export async function POST(req: NextRequest) {
           license_id: license.id,
           product_id: p.product_id,
           product_name: p.product_name || p.product_id,
-          period_start: p.period_start,
-          period_end: p.period_end,
+          period_start: p.period_start || defaultPeriodStart,
+          period_end: p.period_end || cutoff_date,
           qty: Number(p.qty) || 0,
           revenue: Number(p.revenue) || 0,
           cogs: Number(p.cogs) || 0,
@@ -238,18 +244,26 @@ export async function POST(req: NextRequest) {
       // ── Step 6: Ingest Recent Sales ────────────────────────────────────────
       let recentInserted = 0;
       if (Array.isArray(recent_sales) && recent_sales.length > 0) {
+        // Clear previous partial writes for this license to guarantee idempotency on retry
+        await HistoricalRecentSale.deleteMany({ license_id: license.id });
+
         // Limit to 100 for safety
         const limitedSales = recent_sales.slice(0, 100);
-        const saleDocs = limitedSales.map((s: any) => ({
-          client_id: license.client_id,
-          license_id: license.id,
-          occurred_at: new Date(s.occurred_at),
-          invoice_number: s.invoice_number,
-          gross_sales: Number(s.gross_sales) || 0,
-          net_sales: Number(s.net_sales) || 0,
-          payment_method: s.payment_method,
-          customer_name: s.customer_name,
-        }));
+        const saleDocs = limitedSales.map((s: any) => {
+          let occurred = new Date(s.occurred_at);
+          if (isNaN(occurred.getTime())) occurred = new Date();
+          
+          return {
+            client_id: license.client_id,
+            license_id: license.id,
+            occurred_at: occurred,
+            invoice_number: s.invoice_number,
+            gross_sales: Number(s.gross_sales) || 0,
+            net_sales: Number(s.net_sales) || 0,
+            payment_method: s.payment_method,
+            customer_name: s.customer_name,
+          };
+        });
         const result = await HistoricalRecentSale.insertMany(saleDocs, { ordered: false }).catch((e) => {
            if (e.code === 11000) return e.insertedDocs || [];
            throw e;
@@ -306,12 +320,20 @@ export async function POST(req: NextRequest) {
     } catch (e: any) {
       // If ingestion fails, mark bootstrap as failed so it can be retried.
       await AnalyticsBootstrap.deleteOne({ _id: bootstrapRecord._id }).catch(console.error);
+      
+      if (e.name === "ValidationError") {
+        return NextResponse.json(
+          { error: "validation_error", message: e.message },
+          { status: 400, headers: CORS }
+        );
+      }
+      
       throw e;
     }
   } catch (e: any) {
     console.error("Bootstrap error:", e);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Internal server error", details: e.message },
       { status: 500, headers: CORS }
     );
   }

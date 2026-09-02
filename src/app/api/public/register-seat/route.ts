@@ -439,7 +439,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 5. Handle concurrent-reuse case (txResult.reused = true from recheck)
-    if (txResult.reused) {
+    const result = txResult as { seat_id: string; terminal_number: number; reused: boolean };
+    if (result.reused) {
       // Heartbeat: update last_seen_at and role outside the transaction.
       await LicenseSeat.findOneAndUpdate(
         { license_id: lic.id, machine_id: body.machine_id },
@@ -456,9 +457,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         ok: true,
-        seat_id: txResult.seat_id,
-        terminal_number: txResult.terminal_number,
-        reused: txResult.reused,
+        seat_id: result.seat_id,
+        terminal_number: result.terminal_number,
+        reused: result.reused,
       },
       { headers: CORS }
     );
