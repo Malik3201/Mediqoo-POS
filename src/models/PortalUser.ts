@@ -55,8 +55,8 @@ const PortalUserSchema = new Schema<IPortalUser>(
     toJSON: {
       virtuals: true,
       transform: function (doc, ret) {
-        delete ret._id;
-        delete ret.__v;
+        delete (ret as any)._id;
+        delete (ret as any).__v;
         delete ret.password_hash; // NEVER leak password_hash in JSON
         delete ret.login_attempts;
         delete ret.locked_until;

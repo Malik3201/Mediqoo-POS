@@ -71,8 +71,8 @@ const AnalyticsBootstrapSchema = new Schema<IAnalyticsBootstrap>(
     toJSON: {
       virtuals: true,
       transform: function (doc: any, ret: Record<string, any>) {
-        delete ret._id;
-        delete ret.__v;
+        delete (ret as any)._id;
+        delete (ret as any).__v;
         return ret;
       },
     },

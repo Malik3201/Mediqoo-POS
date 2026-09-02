@@ -4,6 +4,7 @@ import {
   PortalAuthError,
   portalAuthErrorResponse,
 } from "@/lib/portal-auth";
+import Client from "@/models/Client";
 
 /**
  * GET /api/portal/auth/me
@@ -15,6 +16,8 @@ import {
 export async function GET(req: NextRequest) {
   try {
     const user = await requirePortalSession(req);
+    const client = await Client.findOne({ id: user.client_id }).lean();
+    
     return NextResponse.json({
       ok: true,
       user: {
@@ -24,6 +27,14 @@ export async function GET(req: NextRequest) {
         role: user.role,
         client_id: user.client_id,
         last_login_at: user.last_login_at,
+        client: client ? {
+          name: client.name,
+          contact_name: client.contact_name,
+          contact_email: client.contact_email,
+          contact_phone: client.contact_phone,
+          address: client.address,
+          timezone: client.timezone,
+        } : null,
       },
     });
   } catch (err) {

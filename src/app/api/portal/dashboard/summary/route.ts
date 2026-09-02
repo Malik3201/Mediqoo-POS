@@ -152,10 +152,30 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // 4. Determine last sync time
+    const latestEvent = await AnalyticsEvent.findOne({ client_id: clientId })
+      .sort({ occurred_at: -1 })
+      .select("occurred_at")
+      .lean<{ occurred_at: Date }>();
+      
+    const latestBootstrap = await AnalyticsBootstrap.findOne({ client_id: clientId, status: "completed" })
+      .sort({ completed_at: -1 })
+      .select("completed_at")
+      .lean<{ completed_at: Date }>();
+      
+    let last_sync_at: string | null = null;
+    const t1 = latestEvent?.occurred_at?.getTime() ?? 0;
+    const t2 = latestBootstrap?.completed_at?.getTime() ?? 0;
+    
+    if (t1 > 0 || t2 > 0) {
+      last_sync_at = new Date(Math.max(t1, t2)).toISOString();
+    }
+
     return NextResponse.json({
       ok: true,
       period,
       timezone,
+      last_sync_at,
       date_range: { start: start.toISOString(), end: end.toISOString() },
       summary: finalSummary,
     });

@@ -44,8 +44,8 @@ const LicenseSeatSchema = new Schema<ILicenseSeat>(
     toJSON: {
       virtuals: true,
       transform: function (doc, ret) {
-        delete ret._id;
-        delete ret.__v;
+        delete (ret as any)._id;
+        delete (ret as any).__v;
         return ret;
       },
     },
