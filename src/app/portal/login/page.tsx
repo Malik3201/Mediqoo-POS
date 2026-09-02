@@ -45,13 +45,8 @@ export default function PortalLoginPage() {
         </div>
 
         <div className="relative z-10 p-12">
-          <div className="flex items-center gap-3 mb-16">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/30">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">AivraSol <span className="font-light text-slate-300">Pharmacy POS</span></h1>
+          <div className="mb-16">
+            <img src="/logo-pharmacy-pos.png" alt="AivraSol Pharmacy POS" className="h-12 w-auto object-contain" />
           </div>
           <div className="max-w-md">
             <h2 className="text-4xl font-bold text-white leading-tight mb-6">
@@ -63,22 +58,14 @@ export default function PortalLoginPage() {
           </div>
         </div>
         
-        {/* Abstract Dashboard Graphic or Image */}
-        <div className="relative z-10 px-12 pb-12 mt-auto">
-          <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol Dashboard" className="rounded-2xl shadow-2xl border border-slate-700/50 opacity-90" />
-        </div>
+
       </div>
 
       {/* ─── RIGHT PANEL (LOGIN) ─── */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative bg-white">
         {/* Mobile Logo */}
-        <div className="absolute top-6 left-6 lg:hidden flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
-          <span className="font-bold text-slate-900 tracking-tight">AivraSol</span>
+        <div className="absolute top-6 left-6 lg:hidden flex items-center">
+          <img src="/logo-owner-portal.png" alt="AivraSol Owner Portal" className="h-8 w-auto object-contain" />
         </div>
 
         <div className="w-full max-w-md">
@@ -155,10 +142,7 @@ export default function PortalLoginPage() {
             </button>
           </form>
 
-          <div className="mt-10 pt-6 border-t border-slate-100 flex items-center justify-center gap-2 text-sm text-slate-500">
-            <Building2 className="w-4 h-4" />
-            <span>Secure Owner Access • Powered by AivraSol</span>
-          </div>
+
         </div>
       </div>
     </div>
