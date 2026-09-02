@@ -22,7 +22,7 @@ import crypto from "crypto";
  *   bootstrap_cutoff_utc: precomputed UTC boundary = start of (cutoff_date + 1 day) in client timezone.
  *   Dashboard query splits at this boundary to avoid double-counting.
  */
-export type BootstrapStatus = "completed" | "failed";
+export type BootstrapStatus = "completed" | "failed" | "in_progress";
 
 export interface IAnalyticsBootstrap extends Document {
   id: string;
@@ -55,7 +55,7 @@ const AnalyticsBootstrapSchema = new Schema<IAnalyticsBootstrap>(
     seat_id: { type: String },
     terminal_number: { type: Number },
     bootstrap_version: { type: Number, required: true, default: 1 },
-    status: { type: String, enum: ["completed", "failed"], default: "completed" },
+    status: { type: String, enum: ["completed", "failed", "in_progress"], default: "completed" },
     bootstrap_cutoff_date: { type: String, required: true },
     bootstrap_cutoff_utc: { type: Date, required: true },
     daily_records_count: { type: Number, default: 0 },
