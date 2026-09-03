@@ -8,6 +8,7 @@ import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
 import HistoricalTopProduct from "@/models/HistoricalTopProduct";
 import HistoricalRecentSale from "@/models/HistoricalRecentSale";
 import InventorySnapshot from "@/models/InventorySnapshot";
+import { isCloudDashboardEnabled } from "@/lib/status";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "invalid_license" }, { status: 401, headers: CORS });
     }
 
-    if (license.status !== "active" || !license.features?.cloud_dashboard) {
+    if (license.status !== "active" || !isCloudDashboardEnabled(license)) {
       return NextResponse.json({ error: "feature_disabled" }, { status: 403, headers: CORS });
     }
 

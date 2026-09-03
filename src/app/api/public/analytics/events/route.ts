@@ -4,6 +4,7 @@ import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import AnalyticsEvent from "@/models/AnalyticsEvent";
 import CloudExpense from "@/models/CloudExpense";
+import { isCloudDashboardEnabled } from "@/lib/status";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Step 2: Feature flag check ────────────────────────────────────────
-    if (!license.features?.cloud_dashboard) {
+    if (!isCloudDashboardEnabled(license)) {
       return NextResponse.json(
         { error: "feature_disabled", message: "Cloud dashboard is not enabled for this license." },
         { status: 403, headers: CORS }

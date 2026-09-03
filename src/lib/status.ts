@@ -74,3 +74,6 @@ export function deriveBillingStatus(license: any, currentPeriod?: any, previousP
   return previousPeriodsExist ? "Paid" : "Not Due Yet";
 }
 
+export function isCloudDashboardEnabled(license: any): boolean {
+  return license?.features?.cloud_dashboard === true;
+}

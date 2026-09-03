@@ -3,6 +3,7 @@ import { webcrypto } from "node:crypto";
 import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
+import { isCloudDashboardEnabled } from "@/lib/status";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -133,6 +134,7 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = {
+      cloud_dashboard_enabled: isCloudDashboardEnabled(license),
       effective_status,
       expires_at: license.expires_at ? license.expires_at.toISOString() : null,
       grace_until: license.grace_until ? license.grace_until.toISOString() : null,

@@ -97,16 +97,16 @@ function shouldIncrementVersion(update: any) {
 }
 
 LicenseSchema.pre("findOneAndUpdate", function () {
-  const update = this.getUpdate();
+  const update = this.getUpdate() as any;
   if (shouldIncrementVersion(update)) {
-    this.updateOne({}, { $inc: { license_version: 1 } });
+    this.setUpdate({ ...update, $inc: { ...(update.$inc || {}), license_version: 1 } });
   }
 });
 
 LicenseSchema.pre("updateOne", function () {
-  const update = this.getUpdate();
+  const update = this.getUpdate() as any;
   if (shouldIncrementVersion(update)) {
-    this.updateOne({}, { $inc: { license_version: 1 } });
+    this.setUpdate({ ...update, $inc: { ...(update.$inc || {}), license_version: 1 } });
   }
 });
 
