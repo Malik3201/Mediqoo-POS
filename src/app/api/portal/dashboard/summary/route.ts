@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import connectToDatabase from "@/lib/db";
 import AnalyticsEvent from "@/models/AnalyticsEvent";
 import CloudExpense from "@/models/CloudExpense";
@@ -200,11 +201,12 @@ export async function GET(req: NextRequest) {
     if (t1 > 0 || t2 > 0) {
       last_sync_at = new Date(Math.max(t1, t2)).toISOString();
     }
-
+    
     // 5. Subscription info
     const subscriptions = [];
     for (const lic of targetLicenses) {
-      const fullLic = await License.findOne({ id: lic }).populate("projects", "name").lean<any>();
+      console.log("Dashboard model registry:", { hasProject: mongoose.modelNames().includes("Project"), models: mongoose.modelNames() });
+      const fullLic = await License.findOne({ id: lic }).populate({ path: "projects", select: "name", model: Project }).lean<any>();
       if (fullLic && fullLic.billing?.enabled) {
         const currentPeriod = await LicenseBillingPeriod.findOne({
           license_id: lic,
