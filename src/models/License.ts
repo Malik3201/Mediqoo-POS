@@ -84,6 +84,8 @@ LicenseSchema.virtual('projects', {
   justOne: true
 });
 
+import { calculateGraceUntil } from "@/lib/billing";
+
 function shouldIncrementVersion(update: any) {
   if (!update) return false;
   // If the update already explicitly increments or sets license_version, don't double-increment
@@ -93,30 +95,68 @@ function shouldIncrementVersion(update: any) {
   const unsetObj = update.$unset || {};
 
   const sensitiveFields = ["status", "expires_at", "grace_until", "seats", "features", "revoked_at"];
-  return sensitiveFields.some(field => setObj[field] !== undefined || unsetObj[field] !== undefined);
+  const hasBillingChange = Object.keys(setObj).some(k => k === "billing" || k.startsWith("billing."));
+  
+  return sensitiveFields.some(field => setObj[field] !== undefined || unsetObj[field] !== undefined) || hasBillingChange;
 }
 
-LicenseSchema.pre("findOneAndUpdate", function () {
-  const update = this.getUpdate() as any;
-  if (shouldIncrementVersion(update)) {
-    this.setUpdate({ ...update, $inc: { ...(update.$inc || {}), license_version: 1 } });
+async function recalculateGraceForUpdate(thisCtx: any) {
+  const update = thisCtx.getUpdate();
+  if (!update) return;
+  const setObj = update.$set || {};
+  
+  const hasExpiryChange = setObj.expires_at !== undefined;
+  const hasBillingChange = Object.keys(setObj).some(k => k === "billing" || k.startsWith("billing."));
+
+  if (hasExpiryChange || hasBillingChange) {
+    const doc = await thisCtx.model.findOne(thisCtx.getQuery());
+    if (doc) {
+      const expiresAt = hasExpiryChange ? setObj.expires_at : doc.expires_at;
+      
+      let graceDays = 0;
+      if (setObj.billing !== undefined) {
+         graceDays = setObj.billing.enabled ? (setObj.billing.grace_days || 0) : 0;
+      } else if (setObj["billing.grace_days"] !== undefined || setObj["billing.enabled"] !== undefined) {
+         const enabled = setObj["billing.enabled"] !== undefined ? setObj["billing.enabled"] : doc.billing?.enabled;
+         const days = setObj["billing.grace_days"] !== undefined ? setObj["billing.grace_days"] : doc.billing?.grace_days;
+         graceDays = enabled ? (days || 0) : 0;
+      } else {
+         graceDays = doc.billing?.enabled ? (doc.billing.grace_days || 0) : 0;
+      }
+
+      const newGraceUntil = calculateGraceUntil(expiresAt, graceDays);
+      
+      if (!update.$set) update.$set = {};
+      update.$set.grace_until = newGraceUntil;
+    }
   }
+
+  if (shouldIncrementVersion(update)) {
+    thisCtx.setUpdate({ ...update, $inc: { ...(update.$inc || {}), license_version: 1 } });
+  }
+}
+
+LicenseSchema.pre("findOneAndUpdate", async function () {
+  await recalculateGraceForUpdate(this);
 });
 
-LicenseSchema.pre("updateOne", function () {
-  const update = this.getUpdate() as any;
-  if (shouldIncrementVersion(update)) {
-    this.setUpdate({ ...update, $inc: { ...(update.$inc || {}), license_version: 1 } });
-  }
+LicenseSchema.pre("updateOne", async function () {
+  await recalculateGraceForUpdate(this);
 });
 
 LicenseSchema.pre("save", function () {
+  if (this.isNew || this.isModified("expires_at") || this.isModified("billing")) {
+    const graceDays = this.billing?.enabled ? (this.billing.grace_days || 0) : 0;
+    this.grace_until = calculateGraceUntil(this.expires_at, graceDays) as any;
+  }
+
   if (
     this.isModified("status") ||
     this.isModified("expires_at") ||
     this.isModified("grace_until") ||
     this.isModified("seats") ||
     this.isModified("features") ||
+    this.isModified("billing") ||
     this.isModified("revoked_at")
   ) {
     if (!this.isNew && !this.isModified("license_version")) {
