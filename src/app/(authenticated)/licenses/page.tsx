@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
 
@@ -97,6 +98,7 @@ function generateLicenseKey() {
 
 export default function LicensesPage() {
   const { data: session } = useSession();
+  const queryClient = useQueryClient();
   
   const { data: rows = [], isLoading: loadingLicenses } = useDataQuery("licenses", { populate: "clients,projects" });
   const { data: projects = [], isLoading: loadingProjects } = useDataQuery("projects");
@@ -192,15 +194,22 @@ export default function LicensesPage() {
 
   async function toggleCloud(lic: License) {
     const currentVal = lic.features?.cloud_dashboard === true;
-    const newFeatures = { ...(lic.features || {}), cloud_dashboard: !currentVal };
-    
     try {
-      await mutateLicense({
-        method: "PATCH",
-        id: lic.id,
-        data: { features: newFeatures }
+      const res = await fetch(`/api/admin/licenses/${lic.id}/cloud`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !currentVal })
       });
-      toast.success(`Cloud Dashboard ${!currentVal ? "enabled" : "disabled"}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to toggle cloud dashboard");
+      
+      await queryClient.invalidateQueries({ queryKey: ["licenses"] });
+      
+      toast.success(
+        data.changed 
+          ? `Cloud Dashboard ${!currentVal ? "enabled" : "disabled"}` 
+          : "Cloud Dashboard state already matches"
+      );
     } catch (error: any) {
       toast.error(error.message);
     }
