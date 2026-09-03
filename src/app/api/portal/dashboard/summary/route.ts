@@ -123,21 +123,48 @@ export async function GET(req: NextRequest) {
           occurred_at: { $gte: live.start, $lte: live.end },
         };
 
+        // Helper to safely normalize numeric fields from both camelCase and snake_case
+        const getNum = (camel: string, snake: string) => ({
+          $convert: {
+            input: { $ifNull: [`$payload.${camel}`, `$payload.${snake}`] },
+            to: "double",
+            onError: 0,
+            onNull: 0
+          }
+        });
+
+        // Helper to safely fallback string fields (like paymentMethod)
+        const getStr = (camel: string, snake: string) => ({
+          $ifNull: [`$payload.${camel}`, `$payload.${snake}`]
+        });
+
         const eventAgg: EventTypeAgg[] = await AnalyticsEvent.aggregate([
           { $match: matchFilter },
           {
             $group: {
               _id: "$type",
-              gross_sales: { $sum: "$payload.gross_sales" },
-              cogs: { $sum: "$payload.cogs" },
-              return_amount: { $sum: "$payload.return_amount" },
-              cogs_reversed: { $sum: "$payload.cogs_reversed" },
-              purchase_total: { $sum: "$payload.purchase_total" },
+              gross_sales: { $sum: getNum("grossSales", "gross_sales") },
+              cogs: { $sum: getNum("cogs", "cogs") },
+              return_amount: { $sum: getNum("returnAmount", "return_amount") },
+              cogs_reversed: { $sum: getNum("cogsReversed", "cogs_reversed") },
+              purchase_total: { $sum: getNum("purchaseTotal", "purchase_total") },
               cash_sales: {
-                $sum: { $cond: [{ $eq: ["$payload.payment_method", "cash"] }, "$payload.net_sales", 0] },
+                $sum: {
+                  $cond: [
+                    { $eq: [getStr("paymentMethod", "payment_method"), "cash"] },
+                    getNum("netSales", "net_sales"),
+                    0
+                  ]
+                }
               },
               credit_sales: {
-                $sum: { $cond: [{ $ne: ["$payload.payment_method", "cash"] }, "$payload.net_sales", 0] },
+                $sum: {
+                  $cond: [
+                    { $ne: [getStr("paymentMethod", "payment_method"), "cash"] },
+                    getNum("netSales", "net_sales"),
+                    0
+                  ]
+                }
               },
               count: { $sum: 1 },
             },
