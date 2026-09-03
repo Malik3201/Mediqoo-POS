@@ -59,17 +59,25 @@ export default function BillingPage() {
     return licenses.filter((l: any) => l.billing?.enabled).map((l: any) => {
       // Find the most recent/relevant unpaid billing period, or the latest paid one
       const periodsForLicense = billingPeriods.filter((bp: any) => bp.license_id === l.id);
-      periodsForLicense.sort((a: any, b: any) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
       
-      const currentPeriod = periodsForLicense.find((bp: any) => bp.status !== "paid" && bp.status !== "waived") 
-        || periodsForLicense[0] || null;
+      // Sort ASCENDING (oldest due date first) so we address oldest arrears first
+      periodsForLicense.sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
+      
+      const unpaidPeriods = periodsForLicense.filter((bp: any) => bp.status !== "paid" && bp.status !== "waived");
+      
+      // The "current" obligation is the oldest unpaid period.
+      // If fully paid up, it's the latest future pre-created period.
+      const currentPeriod = unpaidPeriods[0] || periodsForLicense[periodsForLicense.length - 1] || null;
+
+      const previousPeriodsExist = periodsForLicense.length > 1 || (periodsForLicense[0] && (periodsForLicense[0].status === "paid" || periodsForLicense[0].status === "waived"));
 
       const operationalStatus = deriveOperationalStatus(l);
-      const billingStatus = deriveBillingStatus(l, currentPeriod);
+      const billingStatus = deriveBillingStatus(l, currentPeriod, previousPeriodsExist);
 
       return {
         license: l,
         currentPeriod,
+        unpaidPeriods,
         operationalStatus,
         billingStatus
       };
@@ -181,7 +189,8 @@ export default function BillingPage() {
     });
 
     try {
-      const res = await fetch(`/api/admin/licenses/${item.license.id}/renew/preview`);
+      const ids = item.unpaidPeriods.map((p:any) => p.id).join(",");
+      const res = await fetch(`/api/admin/licenses/${item.license.id}/renew/preview?billing_period_ids=${ids}`);
       if (res.ok) {
         const preview = await res.json();
         setRenewalPreview(preview);
@@ -219,7 +228,7 @@ export default function BillingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          billing_period_id: paymentTarget.currentPeriod.id,
+          billing_period_ids: paymentTarget.unpaidPeriods.map((p:any) => p.id),
           amount_paid: paymentForm.amount_paid,
           payment_method: paymentForm.payment_method,
           payment_reference: paymentForm.payment_reference,
@@ -236,6 +245,7 @@ export default function BillingPage() {
       toast.success("Payment recorded and license renewed successfully!");
       
       // Update local state without full reload
+      const data = await res.json();
       refetchLicenses().then((latestData: any) => {
         const updatedLicense = latestData?.find((l: any) => l.id === paymentTarget.license.id);
         if (updatedLicense) {
@@ -244,6 +254,9 @@ export default function BillingPage() {
             previous_expiry: paymentTarget.license.expires_at,
             new_expiry: updatedLicense.expires_at,
             grace_until: updatedLicense.grace_until,
+            invoice_number: data.invoice.invoice_number,
+            invoice_id: data.invoice._id,
+            email_status: data.invoice.email_status
           });
         }
       });
@@ -452,17 +465,26 @@ export default function BillingPage() {
                     <CheckCircle2 className="h-4 w-4" /> Payment Recorded
                   </h4>
                   <div className="grid grid-cols-2 gap-2 mt-4">
+                    <div className="text-muted-foreground">Invoice Number:</div>
+                    <div className="font-medium text-primary">{renewalSuccess.invoice_number}</div>
+                    
+                    <div className="text-muted-foreground">Email Receipt:</div>
+                    <div className="font-medium capitalize">{renewalSuccess.email_status === 'sent' ? 'Sent to Client' : 'Pending/Failed'}</div>
+                    
                     <div className="text-muted-foreground">Previous Expiry:</div>
                     <div className="font-medium">{renewalSuccess.previous_expiry ? new Date(renewalSuccess.previous_expiry).toLocaleDateString() : "Never"}</div>
                     
                     <div className="text-muted-foreground">New Expiry:</div>
                     <div className="font-medium text-primary">{new Date(renewalSuccess.new_expiry).toLocaleDateString()}</div>
                     
-                    <div className="text-muted-foreground">Grace Until:</div>
-                    <div className="font-medium">{new Date(renewalSuccess.grace_until).toLocaleDateString()}</div>
-                    
                     <div className="text-muted-foreground">Amount Paid:</div>
                     <div className="font-medium">{paymentTarget?.license.billing?.currency} {renewalSuccess.amount_paid}</div>
+                    
+                    <div className="col-span-2 pt-2 text-center">
+                      <a href={`/api/admin/invoices/${renewalSuccess.invoice_id}/pdf`} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-blue-600 hover:underline">
+                        ⬇ Download PDF Invoice
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -484,12 +506,10 @@ export default function BillingPage() {
                         <span>Current Ledger</span>
                      </div>
                      <div className="grid grid-cols-2 gap-1 text-xs">
-                        <span className="text-muted-foreground">Period Due Date:</span>
-                        <span className="text-right">{paymentTarget.currentPeriod?.due_at ? new Date(paymentTarget.currentPeriod.due_at).toLocaleDateString() : "—"}</span>
+                        <span className="text-muted-foreground">Outstanding Periods:</span>
+                        <span className="text-right">{paymentTarget.unpaidPeriods.length} period(s)</span>
                         <span className="text-muted-foreground">Amount Due:</span>
-                        <span className="text-right">{paymentTarget.license.billing?.currency} {paymentTarget.currentPeriod?.amount_due}</span>
-                        <span className="text-muted-foreground">Amount Paid:</span>
-                        <span className="text-right">{paymentTarget.license.billing?.currency} {paymentTarget.currentPeriod?.amount_paid || 0}</span>
+                        <span className="text-right">{paymentTarget.license.billing?.currency} {paymentTarget.unpaidPeriods.reduce((sum:any, p:any) => sum + p.amount_due, 0)}</span>
                      </div>
                   </div>
                 )}
@@ -579,24 +599,32 @@ export default function BillingPage() {
                   <TableHead>Amount</TableHead>
                   <TableHead>Method</TableHead>
                   <TableHead>Reference</TableHead>
+                  <TableHead className="text-right">Invoice</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {historyLoading ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">Loading...</TableCell>
+                    <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">Loading...</TableCell>
                   </TableRow>
                 ) : historyData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">No payments found.</TableCell>
+                    <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">No payments found.</TableCell>
                   </TableRow>
                 ) : (
-                  historyData.map((p) => (
+                  historyData.map((p: any) => (
                     <TableRow key={p.id}>
-                      <TableCell>{new Date(p.created_at).toLocaleString()}</TableCell>
+                      <TableCell>{new Date(p.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>{p.currency} {p.amount_paid}</TableCell>
                       <TableCell>{p.payment_method}</TableCell>
                       <TableCell>{p.payment_reference || "—"}</TableCell>
+                      <TableCell className="text-right">
+                        {p.invoice_id ? (
+                          <a href={`/api/admin/invoices/${p.invoice_id}/pdf`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Download PDF</a>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">No Invoice</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}

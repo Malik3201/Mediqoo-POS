@@ -328,10 +328,14 @@ export default function LicensesPage() {
                 
                 // Find the relevant current billing period for this license
                 const periodsForLicense = billingPeriods.filter((bp: any) => bp.license_id === r.id);
-                periodsForLicense.sort((a: any, b: any) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
-                const currentPeriod = periodsForLicense.find((bp: any) => bp.status !== "paid" && bp.status !== "waived") || periodsForLicense[0];
+                periodsForLicense.sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
+                
+                const unpaidPeriods = periodsForLicense.filter((bp: any) => bp.status !== "paid" && bp.status !== "waived");
+                const currentPeriod = unpaidPeriods[0] || periodsForLicense[periodsForLicense.length - 1] || null;
 
-                const billingStatus = deriveBillingStatus(r, currentPeriod);
+                const previousPeriodsExist = periodsForLicense.length > 1 || (periodsForLicense[0] && (periodsForLicense[0].status === "paid" || periodsForLicense[0].status === "waived"));
+
+                const billingStatus = deriveBillingStatus(r, currentPeriod, previousPeriodsExist);
 
                 return (
                   <TableRow key={r.id}>

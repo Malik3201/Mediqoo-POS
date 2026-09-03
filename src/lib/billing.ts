@@ -1,4 +1,4 @@
-import { addMonths, addYears, isBefore } from "date-fns";
+import { addMonths, addYears } from "date-fns";
 
 export type BillingCycle = "monthly" | "yearly";
 
@@ -11,7 +11,7 @@ export interface LicenseBillingState {
 }
 
 export interface RenewalCalculationResult {
-  renewalType: "early" | "late";
+  renewalType: "fixed";
   baseDate: Date;
   newExpiry: Date;
   newGraceUntil: Date;
@@ -19,33 +19,19 @@ export interface RenewalCalculationResult {
 
 /**
  * Canonically calculates the next expiry and grace_until dates for a license renewal.
- * Early renewal: before expiry -> extends from current expiry.
- * Late renewal: after expiry -> extends from today.
+ * FIXED ANNIVERSARY RULE: The new expiry precisely becomes the period_end of the settled billing period.
+ * Payment date does NOT reset the billing anniversary.
  */
-export function calculateRenewalDates(license: LicenseBillingState): RenewalCalculationResult {
-  const now = new Date();
-  let baseDate = license.expires_at ? new Date(license.expires_at) : now;
+export function calculateRenewalDates(license: LicenseBillingState, settledPeriodEnd: Date): RenewalCalculationResult {
+  const newExpiry = new Date(settledPeriodEnd);
   
-  let renewalType: "early" | "late" = "early";
-  if (isBefore(baseDate, now)) {
-    baseDate = now;
-    renewalType = "late";
-  }
-  
-  let newExpiry: Date;
-  if (license.billing.cycle === "yearly") {
-    newExpiry = addYears(baseDate, 1);
-  } else {
-    newExpiry = addMonths(baseDate, 1);
-  }
-
   const graceDays = license.billing.grace_days ?? 3;
   const newGraceUntil = new Date(newExpiry);
   newGraceUntil.setDate(newGraceUntil.getDate() + graceDays);
 
   return {
-    renewalType,
-    baseDate,
+    renewalType: "fixed",
+    baseDate: new Date(license.expires_at || new Date()),
     newExpiry,
     newGraceUntil,
   };

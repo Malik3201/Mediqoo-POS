@@ -18,7 +18,8 @@ export type BillingStatus =
   | "Waived"
   | "Unpaid"
   | "Billing Disabled"
-  | "No Period";
+  | "No Period"
+  | "Not Due Yet";
 
 export function deriveOperationalStatus(license: any): OperationalStatus {
   if (license.status === "suspended") return "Suspended";
@@ -41,7 +42,7 @@ export function deriveOperationalStatus(license: any): OperationalStatus {
   return "Renewal Required";
 }
 
-export function deriveBillingStatus(license: any, currentPeriod?: any): BillingStatus {
+export function deriveBillingStatus(license: any, currentPeriod?: any, previousPeriodsExist: boolean = true): BillingStatus {
   if (!license.billing?.enabled) return "Billing Disabled";
   if (!currentPeriod) return "No Period";
 
@@ -66,5 +67,10 @@ export function deriveBillingStatus(license: any, currentPeriod?: any): BillingS
     return "Due Soon";
   }
 
-  return status === "partially_paid" ? "Partially Paid" : "Unpaid";
+  // If the next obligation is comfortably in the future (> 7 days)
+  if (status === "partially_paid") return "Partially Paid";
+  
+  // If it's a completely future period, the customer is in good standing.
+  return previousPeriodsExist ? "Paid" : "Not Due Yet";
 }
+
