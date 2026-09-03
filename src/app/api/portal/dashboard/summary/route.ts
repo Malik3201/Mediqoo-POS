@@ -4,6 +4,7 @@ import AnalyticsEvent from "@/models/AnalyticsEvent";
 import CloudExpense from "@/models/CloudExpense";
 import Client from "@/models/Client";
 import License from "@/models/License";
+import Project from "@/models/Project";
 import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
 import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
