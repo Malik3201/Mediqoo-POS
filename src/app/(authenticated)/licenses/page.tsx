@@ -228,10 +228,10 @@ export default function LicensesPage() {
   async function saveBilling() {
     if (!billingTarget) return;
     try {
-      await mutateLicense({
+      const res = await fetch(`/api/admin/licenses/${billingTarget.id}/billing`, {
         method: "PATCH",
-        id: billingTarget.id,
-        data: {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           billing: {
             enabled: billingForm.enabled,
             amount: Number(billingForm.amount) || 0,
@@ -240,8 +240,12 @@ export default function LicensesPage() {
             grace_days: Number(billingForm.grace_days) || 3,
             reminder_days: [1],
           }
-        }
+        })
       });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to save billing configuration");
+      }
       toast.success("Billing configuration saved");
       setBillingTarget(null);
     } catch (e: any) {
@@ -289,9 +293,10 @@ export default function LicensesPage() {
               <TableHead>Client</TableHead>
               <TableHead>Seats</TableHead>
               <TableHead>Expires</TableHead>
+              <TableHead>Billing</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Cloud</TableHead>
-              <TableHead className="w-[140px]" />
+              <TableHead className="w-[180px] text-right" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -330,6 +335,16 @@ export default function LicensesPage() {
                     {r.expires_at ? new Date(r.expires_at).toLocaleDateString() : "Never"}
                   </TableCell>
                   <TableCell>
+                    {r.billing?.enabled ? (
+                      <div className="flex flex-col gap-1 text-xs">
+                        <span className="font-semibold text-primary">{r.billing.currency} {r.billing.amount} / {r.billing.cycle}</span>
+                        <span className="text-muted-foreground">Grace: {r.billing.grace_days}d</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
                   </TableCell>
                   <TableCell>
@@ -343,44 +358,59 @@ export default function LicensesPage() {
                     </Button>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      title="View terminals"
-                      onClick={() => setTerminalLicense(r)}
-                    >
-                      <Monitor className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      title="Billing Config"
-                      onClick={() => openBilling(r)}
-                    >
-                      <CreditCard className="h-4 w-4" />
-                    </Button>
-                    {r.status === "active" ? (
+                    <div className="flex justify-end gap-1">
                       <Button
                         size="icon"
                         variant="ghost"
-                        title="Revoke license"
-                        onClick={() => setRevokeTarget(r)}
+                        title="View terminals"
+                        onClick={() => setTerminalLicense(r)}
                       >
-                        <Ban className="h-4 w-4 text-destructive" />
+                        <Monitor className="h-4 w-4" />
                       </Button>
-                    ) : (
                       <Button
                         size="icon"
                         variant="ghost"
-                        title="Reactivate license"
-                        onClick={() => reactivate(r.id)}
+                        title="Billing Settings"
+                        onClick={() => openBilling(r)}
                       >
-                        <RefreshCw className="h-4 w-4" />
+                        <CreditCard className="h-4 w-4" />
                       </Button>
-                    )}
-                    <Button size="icon" variant="ghost" onClick={() => remove(r.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                      {r.billing?.enabled && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          title="Record Payment & Renew"
+                          className="h-8 ml-2"
+                          onClick={() => window.location.href = "/billing"}
+                        >
+                          Renew
+                        </Button>
+                      )}
+                    </div>
+                    <div className="mt-2 flex justify-end gap-1">
+                      {r.status === "active" ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Revoke license"
+                          onClick={() => setRevokeTarget(r)}
+                        >
+                          <Ban className="h-4 w-4 text-destructive" />
+                        </Button>
+                      ) : (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Reactivate license"
+                          onClick={() => reactivate(r.id)}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button size="icon" variant="ghost" onClick={() => remove(r.id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

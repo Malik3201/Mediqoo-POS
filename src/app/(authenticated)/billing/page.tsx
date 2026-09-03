@@ -39,6 +39,13 @@ export default function BillingPage() {
   const { data: payments = [], isLoading: loadingPayments, refetch: refetchPayments } = useDataQuery("license_payments");
 
   const [paymentTarget, setPaymentTarget] = useState<any | null>(null);
+  const [renewalPreview, setRenewalPreview] = useState<any | null>(null);
+  const [renewalSuccess, setRenewalSuccess] = useState<any | null>(null);
+  
+  const [historyTarget, setHistoryTarget] = useState<any | null>(null);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   const [paymentForm, setPaymentForm] = useState({
     amount_paid: 0,
     payment_method: "Bank Transfer",
@@ -104,23 +111,56 @@ export default function BillingPage() {
 
   const loading = loadingLicenses || loadingPeriods || loadingPayments;
 
-  function openPayment(item: any) {
+  async function openPayment(item: any) {
     if (!item.currentPeriod) {
       toast.error("No active billing period found. Please ensure billing is fully configured.");
       return;
     }
+    
     setPaymentTarget(item);
+    setRenewalSuccess(null);
+    setRenewalPreview(null);
     setPaymentForm({
       amount_paid: item.currentPeriod.amount_due - (item.currentPeriod.amount_paid || 0),
       payment_method: "Bank Transfer",
       payment_reference: "",
       notes: ""
     });
+
+    try {
+      const res = await fetch(`/api/admin/licenses/${item.license.id}/renew/preview`);
+      if (res.ok) {
+        const preview = await res.json();
+        setRenewalPreview(preview);
+      }
+    } catch (e) {
+      console.error("Failed to load renewal preview", e);
+    }
+  }
+
+  async function openHistory(item: any) {
+    setHistoryTarget(item);
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/admin/licenses/${item.license.id}/payments`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryData(data.items || []);
+      }
+    } catch (e) {
+      toast.error("Failed to load payment history");
+    } finally {
+      setHistoryLoading(false);
+    }
   }
 
   async function recordPayment() {
     if (!paymentTarget || !paymentTarget.currentPeriod) return;
     setSubmitting(true);
+    
+    // Generate idempotency key for this payment attempt
+    const idempotencyKey = `pay_${paymentTarget.currentPeriod.id}_${Date.now()}`;
+    
     try {
       const res = await fetch(`/api/admin/licenses/${paymentTarget.license.id}/renew`, {
         method: "POST",
@@ -130,6 +170,7 @@ export default function BillingPage() {
           amount_paid: paymentForm.amount_paid,
           payment_method: paymentForm.payment_method,
           payment_reference: paymentForm.payment_reference,
+          idempotency_key: idempotencyKey,
           notes: paymentForm.notes
         })
       });
@@ -140,8 +181,19 @@ export default function BillingPage() {
       }
 
       toast.success("Payment recorded and license renewed successfully!");
-      setPaymentTarget(null);
-      refetchLicenses();
+      
+      // Update local state without full reload
+      refetchLicenses().then((latestData: any) => {
+        const updatedLicense = latestData?.find((l: any) => l.id === paymentTarget.license.id);
+        if (updatedLicense) {
+          setRenewalSuccess({
+            ...paymentForm,
+            previous_expiry: paymentTarget.license.expires_at,
+            new_expiry: updatedLicense.expires_at,
+            grace_until: updatedLicense.grace_until,
+          });
+        }
+      });
       refetchPeriods();
       refetchPayments();
     } catch (e: any) {
@@ -244,13 +296,22 @@ export default function BillingPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      onClick={() => openPayment(item)}
-                      disabled={!item.currentPeriod || item.currentPeriod.status === "paid"}
-                    >
-                      Record Payment
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openHistory(item)}
+                      >
+                        History
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => openPayment(item)}
+                        disabled={!item.currentPeriod || item.currentPeriod.status === "paid"}
+                      >
+                        Record Payment & Renew
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -265,9 +326,49 @@ export default function BillingPage() {
             <DialogTitle>Record Payment & Renew</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              Recording this payment will settle the selected billing period and automatically extend the license expiry.
-            </p>
+            {renewalSuccess ? (
+              <div className="space-y-4 text-sm">
+                <div className="rounded border p-4 bg-green-50/50 dark:bg-green-900/10 border-green-200 dark:border-green-800">
+                  <h4 className="font-semibold text-green-700 dark:text-green-400 mb-2 flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" /> Payment Recorded
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2 mt-4">
+                    <div className="text-muted-foreground">Previous Expiry:</div>
+                    <div className="font-medium">{renewalSuccess.previous_expiry ? new Date(renewalSuccess.previous_expiry).toLocaleDateString() : "Never"}</div>
+                    
+                    <div className="text-muted-foreground">New Expiry:</div>
+                    <div className="font-medium text-primary">{new Date(renewalSuccess.new_expiry).toLocaleDateString()}</div>
+                    
+                    <div className="text-muted-foreground">Grace Until:</div>
+                    <div className="font-medium">{new Date(renewalSuccess.grace_until).toLocaleDateString()}</div>
+                    
+                    <div className="text-muted-foreground">Amount Paid:</div>
+                    <div className="font-medium">{paymentTarget?.license.billing?.currency} {renewalSuccess.amount_paid}</div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Recording this payment will settle the selected billing period and automatically extend the license expiry.
+                </p>
+                
+                {renewalPreview && (
+                  <div className="rounded border bg-muted/50 p-3 text-sm">
+                    <div className="flex justify-between font-semibold text-primary mb-2">
+                      <span>Renewal Preview</span>
+                      <span className="capitalize">{renewalPreview.renewal_type} Renewal</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <span className="text-muted-foreground">Current Expiry:</span>
+                      <span className="text-right">{renewalPreview.current_expiry ? new Date(renewalPreview.current_expiry).toLocaleDateString() : "Never"}</span>
+                      <span className="text-muted-foreground">New Expiry:</span>
+                      <span className="text-right font-medium">{new Date(renewalPreview.new_expiry).toLocaleDateString()}</span>
+                      <span className="text-muted-foreground">New Grace Until:</span>
+                      <span className="text-right">{new Date(renewalPreview.new_grace_until).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                )}
             <div className="grid gap-2">
               <Label>Amount Paid</Label>
               <Input
@@ -306,12 +407,63 @@ export default function BillingPage() {
                 onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
               />
             </div>
+              </>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPaymentTarget(null)}>Cancel</Button>
-            <Button onClick={recordPayment} disabled={submitting}>
-              {submitting ? "Processing..." : "Confirm Payment"}
-            </Button>
+            {renewalSuccess ? (
+              <Button onClick={() => setPaymentTarget(null)}>Close</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setPaymentTarget(null)}>Cancel</Button>
+                <Button onClick={recordPayment} disabled={submitting}>
+                  {submitting ? "Processing..." : "Confirm Payment"}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Payment History — {historyTarget?.license.projects?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 max-h-[60vh] overflow-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead>Reference</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {historyLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">Loading...</TableCell>
+                  </TableRow>
+                ) : historyData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">No payments found.</TableCell>
+                  </TableRow>
+                ) : (
+                  historyData.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell>{new Date(p.created_at).toLocaleString()}</TableCell>
+                      <TableCell>{p.currency} {p.amount_paid}</TableCell>
+                      <TableCell>{p.payment_method}</TableCell>
+                      <TableCell>{p.payment_reference || "—"}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHistoryTarget(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

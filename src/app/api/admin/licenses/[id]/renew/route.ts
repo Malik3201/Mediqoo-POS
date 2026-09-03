@@ -5,7 +5,7 @@ import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import LicensePayment from "@/models/LicensePayment";
-import { addMonths, addYears, isBefore } from "date-fns";
+import { calculateRenewalDates, calculatePeriodDates } from "@/lib/billing";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -67,37 +67,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // 3. If fully paid, calculate new expiry according to early/late logic
     if (billingPeriod.status === "paid") {
-      const now = new Date();
-      let baseDate = license.expires_at ? new Date(license.expires_at) : now;
-      
-      // If late (now is past baseDate), renew from payment date
-      if (isBefore(baseDate, now)) {
-        baseDate = now;
-      }
-      
-      let nextExpiry: Date;
-      if (license.billing.cycle === "yearly") {
-        nextExpiry = addYears(baseDate, 1);
-      } else {
-        nextExpiry = addMonths(baseDate, 1);
-      }
+      const dates = calculateRenewalDates(license);
 
-      license.expires_at = nextExpiry;
-      // Calculate grace_until
-      const graceDays = license.billing.grace_days ?? 3;
-      const graceUntil = new Date(nextExpiry);
-      graceUntil.setDate(graceUntil.getDate() + graceDays);
-      license.grace_until = graceUntil;
+      license.expires_at = dates.newExpiry;
+      license.grace_until = dates.newGraceUntil;
       
       await license.save({ session });
 
       // Generate the next billing period proactively
+      const periodDates = calculatePeriodDates(dates.newExpiry, license.billing.cycle);
+      
       await LicenseBillingPeriod.create([{
         client_id: license.client_id,
         license_id: license.id,
-        period_start: nextExpiry,
-        period_end: license.billing.cycle === "yearly" ? addYears(nextExpiry, 1) : addMonths(nextExpiry, 1),
-        due_at: nextExpiry,
+        period_start: periodDates.period_start,
+        period_end: periodDates.period_end,
+        due_at: periodDates.due_at,
         amount_due: license.billing.amount,
         currency: license.billing.currency,
         status: "unpaid"
