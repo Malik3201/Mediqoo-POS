@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { CreditCard, DollarSign, AlertCircle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery } from "@/hooks/use-data";
+import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,7 +54,27 @@ export default function BillingPage() {
     notes: ""
   });
   const [submitting, setSubmitting] = useState(false);
+  // Master Table Data: Combine License with its active Billing Period
+  const activeBillingData = useMemo(() => {
+    return licenses.filter((l: any) => l.billing?.enabled).map((l: any) => {
+      // Find the most recent/relevant unpaid billing period, or the latest paid one
+      const periodsForLicense = billingPeriods.filter((bp: any) => bp.license_id === l.id);
+      periodsForLicense.sort((a: any, b: any) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
+      
+      const currentPeriod = periodsForLicense.find((bp: any) => bp.status !== "paid" && bp.status !== "waived") 
+        || periodsForLicense[0] || null;
 
+      const operationalStatus = deriveOperationalStatus(l);
+      const billingStatus = deriveBillingStatus(l, currentPeriod);
+
+      return {
+        license: l,
+        currentPeriod,
+        operationalStatus,
+        billingStatus
+      };
+    });
+  }, [licenses, billingPeriods]);
   // Derived KPIs
   const kpis = useMemo(() => {
     const now = new Date();
@@ -63,7 +84,10 @@ export default function BillingPage() {
     let expected = 0;
     let collected = 0;
     let outstanding = 0;
+
     let dueSoonCount = 0;
+    let overdueCount = 0;
+    let expiringTomorrowCount = 0;
 
     // Expected: periods due this month
     billingPeriods.forEach((bp: any) => {
@@ -73,11 +97,18 @@ export default function BillingPage() {
       }
       if (bp.status === "unpaid" || bp.status === "partially_paid") {
         outstanding += (bp.amount_due - (bp.amount_paid || 0));
-        
-        // Due soon if unpaid and due date is within 7 days
-        if (due >= now && due <= addDays(now, 7)) {
-          dueSoonCount++;
-        }
+      }
+    });
+
+    activeBillingData.forEach((item: any) => {
+      if (item.billingStatus === "Due Soon" || item.billingStatus === "Due Today" || item.billingStatus === "Due Tomorrow") {
+        dueSoonCount++;
+      }
+      if (item.billingStatus === "Due Tomorrow") {
+        expiringTomorrowCount++;
+      }
+      if (item.billingStatus === "Overdue") {
+        overdueCount++;
       }
     });
 
@@ -89,25 +120,47 @@ export default function BillingPage() {
       }
     });
 
-    return { expected, collected, outstanding, dueSoonCount };
-  }, [billingPeriods, payments]);
+    return { expected, collected, outstanding, dueSoonCount, overdueCount, expiringTomorrowCount };
+  }, [billingPeriods, payments, activeBillingData]);
 
-  // Master Table Data: Combine License with its active Billing Period
-  const activeBillingData = useMemo(() => {
-    return licenses.filter((l: any) => l.billing?.enabled).map((l: any) => {
-      // Find the most recent/relevant unpaid billing period, or the latest paid one
-      const periodsForLicense = billingPeriods.filter((bp: any) => bp.license_id === l.id);
-      periodsForLicense.sort((a: any, b: any) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
-      
-      const currentPeriod = periodsForLicense.find((bp: any) => bp.status !== "paid" && bp.status !== "waived") 
-        || periodsForLicense[0] || null;
+  // Filters
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [searchFilter, setSearchFilter] = useState("");
 
-      return {
-        license: l,
-        currentPeriod
-      };
+  const filteredData = useMemo(() => {
+    return activeBillingData.filter((item: any) => {
+      // Search match
+      const s = searchFilter.toLowerCase();
+      const matchesSearch = !s || 
+        item.license.projects?.name?.toLowerCase().includes(s) ||
+        item.license.clients?.name?.toLowerCase().includes(s) ||
+        item.license.clients?.contact_name?.toLowerCase().includes(s) ||
+        item.license.license_key?.toLowerCase().includes(s);
+
+      if (!matchesSearch) return false;
+
+      if (statusFilter === "All") return true;
+      if (statusFilter === "Paid" && item.billingStatus === "Paid") return true;
+      if (statusFilter === "Due Soon" && (item.billingStatus === "Due Soon" || item.billingStatus === "Due Today" || item.billingStatus === "Due Tomorrow")) return true;
+      if (statusFilter === "Overdue" && item.billingStatus === "Overdue") return true;
+      if (statusFilter === "Grace" && item.operationalStatus === "Grace Period") return true;
+      if (statusFilter === "Renewal Required" && item.operationalStatus === "Renewal Required") return true;
+
+      return false;
+    }).sort((a: any, b: any) => {
+       // Sorting priority: Overdue > Grace > Due Today > Due Soon > Active/Paid
+       const priority = (s: string) => {
+         if (s === "Overdue") return 0;
+         if (s === "Renewal Required") return 1;
+         if (s === "Grace Period") return 2;
+         if (s === "Due Today") return 3;
+         if (s === "Due Tomorrow") return 4;
+         if (s === "Due Soon") return 5;
+         return 6;
+       };
+       return priority(a.billingStatus) - priority(b.billingStatus) || priority(a.operationalStatus) - priority(b.operationalStatus);
     });
-  }, [licenses, billingPeriods]);
+  }, [activeBillingData, statusFilter, searchFilter]);
 
   const loading = loadingLicenses || loadingPeriods || loadingPayments;
 
@@ -246,16 +299,65 @@ export default function BillingPage() {
         </div>
       </div>
 
+      {/* ACTION CENTER */}
+      {(kpis.dueSoonCount > 0 || kpis.overdueCount > 0) && (
+        <div className="flex flex-col gap-2">
+          {activeBillingData.filter((item: any) => item.billingStatus === "Due Tomorrow" || item.billingStatus === "Due Today" || item.billingStatus === "Overdue").map((item: any) => (
+            <div key={item.license.id} className={`flex items-center justify-between p-4 rounded-xl border shadow-sm ${
+              item.billingStatus === "Overdue" ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"
+            }`}>
+              <div className="flex items-center gap-3">
+                <AlertCircle className={`h-5 w-5 ${item.billingStatus === "Overdue" ? "text-red-500" : "text-amber-500"}`} />
+                <div>
+                  <h4 className={`font-semibold ${item.billingStatus === "Overdue" ? "text-red-800" : "text-amber-800"}`}>
+                    {item.license.projects?.name} — {item.billingStatus === "Overdue" ? "Overdue" : "Expires Tomorrow"}
+                  </h4>
+                  <p className={`text-sm ${item.billingStatus === "Overdue" ? "text-red-600" : "text-amber-700"}`}>
+                    {item.license.billing?.currency} {item.currentPeriod?.amount_due} due
+                  </p>
+                </div>
+              </div>
+              <Button size="sm" onClick={() => openPayment(item)} variant={item.billingStatus === "Overdue" ? "destructive" : "default"}>
+                Record Payment & Renew
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* FILTERS */}
+      <div className="flex flex-col sm:flex-row items-center gap-4">
+        <Input 
+          placeholder="Search projects, clients..." 
+          className="max-w-xs"
+          value={searchFilter}
+          onChange={(e) => setSearchFilter(e.target.value)}
+        />
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="All">All Licenses</SelectItem>
+            <SelectItem value="Paid">Paid</SelectItem>
+            <SelectItem value="Due Soon">Due Soon</SelectItem>
+            <SelectItem value="Overdue">Overdue</SelectItem>
+            <SelectItem value="Grace">Grace Period</SelectItem>
+            <SelectItem value="Renewal Required">Renewal Required</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Project</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Cycle</TableHead>
-              <TableHead>Fee</TableHead>
-              <TableHead>Expiry</TableHead>
-              <TableHead>Payment Status</TableHead>
+              <TableHead>Client & Contact</TableHead>
+              <TableHead>Cycle & Fee</TableHead>
+              <TableHead>Current Expiry</TableHead>
+              <TableHead>Operational Status</TableHead>
+              <TableHead>Billing Status</TableHead>
               <TableHead className="w-[140px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -266,33 +368,50 @@ export default function BillingPage() {
                   Loading billing data...
                 </TableCell>
               </TableRow>
-            ) : activeBillingData.length === 0 ? (
+            ) : filteredData.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                  No licenses have billing enabled.
+                  No billing-enabled licenses match filters.
                 </TableCell>
               </TableRow>
             ) : (
-              activeBillingData.map((item: any) => (
+              filteredData.map((item: any) => (
                 <TableRow key={item.license.id}>
                   <TableCell className="font-medium">{item.license.projects?.name}</TableCell>
-                  <TableCell>{item.license.clients?.name}</TableCell>
-                  <TableCell className="capitalize">{item.license.billing?.cycle}</TableCell>
-                  <TableCell>{item.license.billing?.currency} {item.license.billing?.amount}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span>{item.license.clients?.name}</span>
+                      {item.license.clients?.contact_name && <span className="text-xs text-muted-foreground">{item.license.clients?.contact_name} ({item.license.clients?.contact_phone})</span>}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="capitalize">{item.license.billing?.cycle}</span>
+                      <span className="text-xs text-muted-foreground">{item.license.billing?.currency} {item.license.billing?.amount}</span>
+                    </div>
+                  </TableCell>
                   <TableCell>
                     {item.license.expires_at ? new Date(item.license.expires_at).toLocaleDateString() : "—"}
                   </TableCell>
                   <TableCell>
+                    <Badge variant={
+                      item.operationalStatus === "Active" ? "default" :
+                      item.operationalStatus === "Grace Period" ? "secondary" : "destructive"
+                    }>
+                      {item.operationalStatus}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
                     {item.currentPeriod ? (
                       <Badge variant={
-                        item.currentPeriod.status === "paid" ? "default" :
-                        item.currentPeriod.status === "overdue" ? "destructive" :
-                        item.currentPeriod.status === "partially_paid" ? "secondary" : "outline"
+                        item.billingStatus === "Paid" ? "default" :
+                        item.billingStatus === "Overdue" ? "destructive" :
+                        item.billingStatus === "Due Tomorrow" || item.billingStatus === "Due Today" || item.billingStatus === "Due Soon" ? "secondary" : "outline"
                       }>
-                        {item.currentPeriod.status.replace("_", " ")}
+                        {item.billingStatus}
                       </Badge>
                     ) : (
-                      <span className="text-xs text-muted-foreground">No period generated</span>
+                      <Badge variant="outline" className="text-muted-foreground border-dashed">No Period</Badge>
                     )}
                   </TableCell>
                   <TableCell className="text-right">
@@ -307,9 +426,9 @@ export default function BillingPage() {
                       <Button
                         size="sm"
                         onClick={() => openPayment(item)}
-                        disabled={!item.currentPeriod || item.currentPeriod.status === "paid"}
+                        variant={item.billingStatus === "Overdue" ? "destructive" : "default"}
                       >
-                        Record Payment & Renew
+                        Renew
                       </Button>
                     </div>
                   </TableCell>
@@ -353,8 +472,30 @@ export default function BillingPage() {
                   Recording this payment will settle the selected billing period and automatically extend the license expiry.
                 </p>
                 
+                {paymentTarget && (
+                  <div className="rounded border bg-muted/50 p-4 text-sm mb-4">
+                     <div className="grid grid-cols-2 gap-2 text-xs mb-3 pb-3 border-b border-muted-foreground/10">
+                        <span className="text-muted-foreground">Operational Status:</span>
+                        <span className="font-semibold text-right">{paymentTarget.operationalStatus}</span>
+                        <span className="text-muted-foreground">Billing Status:</span>
+                        <span className={`font-semibold text-right ${paymentTarget.billingStatus === "Overdue" ? "text-red-600" : ""}`}>{paymentTarget.billingStatus}</span>
+                     </div>
+                     <div className="flex justify-between font-semibold text-primary mb-2">
+                        <span>Current Ledger</span>
+                     </div>
+                     <div className="grid grid-cols-2 gap-1 text-xs">
+                        <span className="text-muted-foreground">Period Due Date:</span>
+                        <span className="text-right">{paymentTarget.currentPeriod?.due_at ? new Date(paymentTarget.currentPeriod.due_at).toLocaleDateString() : "—"}</span>
+                        <span className="text-muted-foreground">Amount Due:</span>
+                        <span className="text-right">{paymentTarget.license.billing?.currency} {paymentTarget.currentPeriod?.amount_due}</span>
+                        <span className="text-muted-foreground">Amount Paid:</span>
+                        <span className="text-right">{paymentTarget.license.billing?.currency} {paymentTarget.currentPeriod?.amount_paid || 0}</span>
+                     </div>
+                  </div>
+                )}
+                
                 {renewalPreview && (
-                  <div className="rounded border bg-muted/50 p-3 text-sm">
+                  <div className="rounded border bg-muted/50 p-4 text-sm mb-4">
                     <div className="flex justify-between font-semibold text-primary mb-2">
                       <span>Renewal Preview</span>
                       <span className="capitalize">{renewalPreview.renewal_type} Renewal</span>

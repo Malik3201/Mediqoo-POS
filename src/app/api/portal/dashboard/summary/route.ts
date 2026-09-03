@@ -7,6 +7,7 @@ import License from "@/models/License";
 import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
 import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
+import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
 import {
   requirePortalSession,
   PortalAuthError,
@@ -182,20 +183,14 @@ export async function GET(req: NextRequest) {
           status: { $nin: ["paid", "waived"] }
         }).sort({ due_at: 1 }).lean();
         
-        const nowTime = new Date();
-        let effective_status = fullLic.status;
-        if (effective_status === "active" && fullLic.expires_at) {
-          const expiresAt = new Date(fullLic.expires_at);
-          if (nowTime > expiresAt) {
-            const graceUntil = fullLic.grace_until ? new Date(fullLic.grace_until) : expiresAt;
-            effective_status = nowTime > graceUntil ? "blocked" : "grace";
-          }
-        }
+        const effective_status = deriveOperationalStatus(fullLic);
+        const billing_status = deriveBillingStatus(fullLic, currentPeriod);
 
         subscriptions.push({
           license_id: lic,
           project_name: fullLic.projects?.name || "Primary POS",
           effective_status,
+          billing_status,
           cycle: fullLic.billing.cycle,
           amount: fullLic.billing.amount,
           currency: fullLic.billing.currency,

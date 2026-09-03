@@ -370,8 +370,8 @@ export default function PortalDashboardPage() {
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-slate-900">{sub.project_name}</span>
                   <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    sub.effective_status === "active" ? "bg-emerald-100 text-emerald-700" :
-                    sub.effective_status === "grace" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                    sub.effective_status === "Active" ? "bg-emerald-100 text-emerald-700" :
+                    sub.effective_status === "Grace Period" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
                   }`}>
                     {sub.effective_status.toUpperCase()}
                   </span>
@@ -386,12 +386,13 @@ export default function PortalDashboardPage() {
                     <span className="font-medium text-slate-900">{sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : "—"}</span>
                   </div>
                 </div>
-                {sub.payment_status && (
+                {sub.billing_status && (
                   <div className={`mt-2 pt-2 border-t border-slate-200 text-xs font-medium flex justify-between items-center ${
-                    sub.payment_status === "paid" ? "text-emerald-600" : "text-amber-600"
+                    sub.billing_status === "Paid" ? "text-emerald-600" :
+                    (sub.billing_status === "Overdue" || sub.billing_status === "Unpaid") ? "text-red-600" : "text-amber-600"
                   }`}>
-                    <span>Payment: {sub.payment_status.replace("_", " ").toUpperCase()}</span>
-                    {sub.payment_status !== "paid" && sub.due_at && (
+                    <span>Payment: {sub.billing_status.toUpperCase()}</span>
+                    {sub.billing_status !== "Paid" && sub.due_at && (
                       <span>Due: {new Date(sub.due_at).toLocaleDateString()}</span>
                     )}
                   </div>

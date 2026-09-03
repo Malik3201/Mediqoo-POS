@@ -5,6 +5,7 @@ import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard } fro
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useSession } from "next-auth/react";
+import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,6 +100,7 @@ export default function LicensesPage() {
   
   const { data: rows = [], isLoading: loadingLicenses } = useDataQuery("licenses", { populate: "clients,projects" });
   const { data: projects = [], isLoading: loadingProjects } = useDataQuery("projects");
+  const { data: billingPeriods = [], isLoading: loadingPeriods } = useDataQuery("license_billing_periods");
   const { mutateAsync: mutateLicense } = useDataMutation("licenses");
 
   const [open, setOpen] = useState(false);
@@ -258,13 +260,21 @@ export default function LicensesPage() {
     toast.success("License key copied");
   }
 
-  function statusVariant(s: License["status"]) {
-    if (s === "active") return "default";
-    if (s === "revoked") return "destructive";
-    return "secondary";
+  function statusVariant(s: string) {
+    if (s === "Active") return "default";
+    if (s === "Grace Period") return "secondary";
+    if (s === "Renewal Required" || s === "Revoked" || s === "Suspended") return "destructive";
+    return "outline";
+  }
+
+  function billingVariant(s: string) {
+    if (s === "Paid") return "default";
+    if (s === "Due Tomorrow" || s === "Due Soon" || s === "Partially Paid") return "secondary";
+    if (s === "Overdue" || s === "Unpaid") return "destructive";
+    return "outline";
   }
   
-  const loading = loadingLicenses || loadingProjects;
+  const loading = loadingLicenses || loadingProjects || loadingPeriods;
 
   return (
     <div className="space-y-6">
@@ -313,107 +323,135 @@ export default function LicensesPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((r: License) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs">
-                    {r.license_key.substring(0, 16)}…
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="ml-2 h-6 w-6"
-                      onClick={() => copyKey(r.license_key)}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </TableCell>
-                  <TableCell>
-                    {r.projects?.name}
-                  </TableCell>
-                  <TableCell>{r.clients?.name ?? "—"}</TableCell>
-                  <TableCell>{r.seats}</TableCell>
-                  <TableCell>
-                    {r.expires_at ? new Date(r.expires_at).toLocaleDateString() : "Never"}
-                  </TableCell>
-                  <TableCell>
-                    {r.billing?.enabled ? (
-                      <div className="flex flex-col gap-1 text-xs">
-                        <span className="font-semibold text-primary">{r.billing.currency} {r.billing.amount} / {r.billing.cycle}</span>
-                        <span className="text-muted-foreground">Grace: {r.billing.grace_days}d</span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="h-7 text-xs px-2"
-                      onClick={() => toggleCloud(r)}
-                    >
-                      {r.features?.cloud_dashboard ? "Enabled" : "Disabled"}
-                    </Button>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
+              rows.map((r: any) => {
+                const operationalStatus = deriveOperationalStatus(r);
+                
+                // Find the relevant current billing period for this license
+                const periodsForLicense = billingPeriods.filter((bp: any) => bp.license_id === r.id);
+                periodsForLicense.sort((a: any, b: any) => new Date(b.due_at).getTime() - new Date(a.due_at).getTime());
+                const currentPeriod = periodsForLicense.find((bp: any) => bp.status !== "paid" && bp.status !== "waived") || periodsForLicense[0];
+
+                const billingStatus = deriveBillingStatus(r, currentPeriod);
+
+                return (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-mono text-xs">
+                      {r.license_key.substring(0, 16)}…
                       <Button
-                        size="icon"
                         variant="ghost"
-                        title="View terminals"
-                        onClick={() => setTerminalLicense(r)}
-                      >
-                        <Monitor className="h-4 w-4" />
-                      </Button>
-                      <Button
                         size="icon"
-                        variant="ghost"
-                        title="Billing Settings"
-                        onClick={() => openBilling(r)}
+                        className="ml-2 h-6 w-6"
+                        onClick={() => copyKey(r.license_key)}
                       >
-                        <CreditCard className="h-4 w-4" />
+                        <Copy className="h-3 w-3" />
                       </Button>
-                      {r.billing?.enabled && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          title="Record Payment & Renew"
-                          className="h-8 ml-2"
-                          onClick={() => window.location.href = "/billing"}
-                        >
-                          Renew
-                        </Button>
-                      )}
-                    </div>
-                    <div className="mt-2 flex justify-end gap-1">
-                      {r.status === "active" ? (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          title="Revoke license"
-                          onClick={() => setRevokeTarget(r)}
-                        >
-                          <Ban className="h-4 w-4 text-destructive" />
-                        </Button>
+                    </TableCell>
+                    <TableCell>
+                      {r.projects?.name}
+                    </TableCell>
+                    <TableCell>{r.clients?.name ?? "—"}</TableCell>
+                    <TableCell>{r.seats}</TableCell>
+                    <TableCell>
+                      {r.expires_at ? new Date(r.expires_at).toLocaleDateString() : "Never"}
+                    </TableCell>
+                    <TableCell>
+                      {r.billing?.enabled ? (
+                        <div className="flex flex-col gap-1 text-xs">
+                          <span className="font-semibold text-primary">{r.billing.currency} {r.billing.amount} / {r.billing.cycle}</span>
+                          <span className="text-muted-foreground">Grace: {r.billing.grace_days}d</span>
+                        </div>
                       ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge variant={statusVariant(operationalStatus)}>{operationalStatus}</Badge>
+                        {r.billing?.enabled && (
+                          <Badge variant={billingVariant(billingStatus)} className="text-[10px] uppercase opacity-90 tracking-wider">
+                            {billingStatus}
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-7 text-xs px-2"
+                        onClick={() => toggleCloud(r)}
+                      >
+                        {r.features?.cloud_dashboard ? "Enabled" : "Disabled"}
+                      </Button>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Reactivate license"
-                          onClick={() => reactivate(r.id)}
+                          title="View terminals"
+                          onClick={() => setTerminalLicense(r)}
                         >
-                          <RefreshCw className="h-4 w-4" />
+                          <Monitor className="h-4 w-4" />
                         </Button>
-                      )}
-                      <Button size="icon" variant="ghost" onClick={() => remove(r.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Billing Settings"
+                          onClick={() => openBilling(r)}
+                        >
+                          <CreditCard className="h-4 w-4" />
+                        </Button>
+                        {r.billing?.enabled ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Record Payment & Renew"
+                            className="h-8 ml-2"
+                            onClick={() => window.location.href = "/billing"}
+                          >
+                            Renew
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Enable Billing"
+                            className="h-8 ml-2"
+                            onClick={() => openBilling(r)}
+                          >
+                            Enable Billing
+                          </Button>
+                        )}
+                      </div>
+                      <div className="mt-2 flex justify-end gap-1">
+                        {r.status === "active" ? (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="Revoke license"
+                            onClick={() => setRevokeTarget(r)}
+                          >
+                            <Ban className="h-4 w-4 text-destructive" />
+                          </Button>
+                        ) : (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="Reactivate license"
+                            onClick={() => reactivate(r.id)}
+                          >
+                            <RefreshCw className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button size="icon" variant="ghost" onClick={() => remove(r.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
