@@ -215,6 +215,29 @@ export default function LicensesPage() {
     }
   }
 
+  async function toggleCloudBackup(lic: License) {
+    const currentVal = lic.features?.cloud_backup === true;
+    try {
+      const res = await fetch(`/api/admin/licenses/${lic.id}/cloud-backup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !currentVal })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to toggle cloud backup");
+      
+      await queryClient.invalidateQueries({ queryKey: ["licenses"] });
+      
+      toast.success(
+        data.changed 
+          ? `Cloud Backup ${!currentVal ? "enabled" : "disabled"}` 
+          : "Cloud Backup state already matches"
+      );
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  }
+
   async function remove(id: string) {
     if (!confirm("Delete this license permanently?")) return;
     try {
@@ -315,13 +338,14 @@ export default function LicensesPage() {
               <TableHead>Billing</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Cloud</TableHead>
+              <TableHead>Backup</TableHead>
               <TableHead className="w-[180px] text-right" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                   Loading…
                 </TableCell>
               </TableRow>
@@ -395,6 +419,16 @@ export default function LicensesPage() {
                         onClick={() => toggleCloud(r)}
                       >
                         {r.features?.cloud_dashboard ? "Enabled" : "Disabled"}
+                      </Button>
+                    </TableCell>
+                    <TableCell>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="h-7 text-xs px-2"
+                        onClick={() => toggleCloudBackup(r)}
+                      >
+                        {r.features?.cloud_backup ? "Enabled" : "Disabled"}
                       </Button>
                     </TableCell>
                     <TableCell className="text-right">

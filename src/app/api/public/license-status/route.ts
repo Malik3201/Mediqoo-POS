@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
 
     const payload = {
       cloud_dashboard_enabled: isCloudDashboardEnabled(license),
+      cloud_backup_enabled: license.features?.cloud_backup === true,
       effective_status,
       expires_at: license.expires_at ? license.expires_at.toISOString() : null,
       grace_until: license.grace_until ? license.grace_until.toISOString() : null,
