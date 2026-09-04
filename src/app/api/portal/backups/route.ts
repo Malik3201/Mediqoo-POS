@@ -1,24 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import {
+  requirePortalSession,
+  PortalAuthError,
+  portalAuthErrorResponse,
+} from "@/lib/portal-auth";
 import connectToDatabase from "@/lib/db";
 import CloudBackup from "@/models/CloudBackup";
-import PortalUser from "@/models/PortalUser";
 import License from "@/models/License";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-    if (!token || !token.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    const user = await requirePortalSession(req);
     await connectToDatabase();
+    
+    // Check cloud backup feature entitlement for this client to verify navigation entitlement matches data access
+    const hasCloudBackup = await License.exists({ 
+      client_id: user.client_id, 
+      "features.cloud_backup": true 
+    });
 
-    const user = await PortalUser.findOne({ email: token.email }).lean();
-    if (!user || !user.client_id) {
-      return NextResponse.json({ error: "Client identity not found" }, { status: 403 });
+    if (!hasCloudBackup) {
+      return NextResponse.json({ error: "Feature disabled for this client" }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -63,6 +67,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ backups: enriched });
   } catch (error: any) {
+    if (error instanceof PortalAuthError) return portalAuthErrorResponse(error);
     console.error("Portal Backup list error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

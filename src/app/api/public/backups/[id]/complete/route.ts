@@ -110,7 +110,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           size_bytes: actualSize
         }
       },
-      { new: true }
+      { returnDocument: "after" }
     ).lean();
 
     if (!updated) {

@@ -1,27 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
+import {
+  requirePortalSession,
+  PortalAuthError,
+  portalAuthErrorResponse,
+} from "@/lib/portal-auth";
 import connectToDatabase from "@/lib/db";
 import CloudBackup from "@/models/CloudBackup";
-import PortalUser from "@/models/PortalUser";
 import License from "@/models/License";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-    if (!token || !token.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    const user = await requirePortalSession(req);
     const { id } = await params;
 
     await connectToDatabase();
-
-    const user = await PortalUser.findOne({ email: token.email }).lean();
-    if (!user || !user.client_id) {
-      return NextResponse.json({ error: "Client identity not found" }, { status: 403 });
-    }
 
     const backup = await CloudBackup.findOne({ id, client_id: user.client_id, status: "uploaded" }).lean();
     if (!backup) {
@@ -61,6 +55,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     });
 
   } catch (error: any) {
+    if (error instanceof PortalAuthError) return portalAuthErrorResponse(error);
     console.error("Portal Backup download error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
