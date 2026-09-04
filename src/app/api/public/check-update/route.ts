@@ -1,28 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
-import Release from "@/models/Release";
 import ReleaseInstall from "@/models/ReleaseInstall";
+import { getLatestPublishedHotRelease } from "@/lib/release";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
-
-/** Compare semantic versions "1.2.3". Returns 1 if a>b, -1 if a<b, 0 equal. */
-function cmpVer(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
-  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const x = pa[i] ?? 0;
-    const y = pb[i] ?? 0;
-    if (x > y) return 1;
-    if (x < y) return -1;
-  }
-  return 0;
-}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
@@ -49,19 +35,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ update: null, reason: "expired_license" }, { headers: CORS });
     }
 
-    // Latest published release applicable to this client
-    const releases = await Release.find({ status: "published" })
-      .sort({ published_at: -1 })
-      .limit(50)
-      .lean();
+    // Latest published hot release applicable to this client
+    const applicable = await getLatestPublishedHotRelease(currentVersion, lic.client_id);
 
-    const applicable = releases.find((r: any) => {
-      if (r.rollout_type === "specific") {
-        const targets: string[] = r.target_client_ids ?? [];
-        if (!lic.client_id || !targets.includes(lic.client_id)) return false;
-      }
-      return cmpVer(r.version, currentVersion) > 0;
-    });
+    console.log("Update Check", JSON.stringify({
+      installed_version: currentVersion,
+      selected_hot_version: applicable ? applicable.version : null,
+      update_available: !!applicable
+    }));
 
     if (!applicable) {
       return NextResponse.json({ update: null }, { headers: CORS });

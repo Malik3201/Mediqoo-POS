@@ -15,7 +15,7 @@ export default async function DownloadPage() {
   const latestRelease = await Release.findOne({ 
     is_prerelease: { $ne: true },
     status: "published",
-    release_type: { $ne: "hot" }
+    release_type: "full"
   }).sort({ published_at: -1 }).lean();
 
   const formattedDate = latestRelease?.published_at 
