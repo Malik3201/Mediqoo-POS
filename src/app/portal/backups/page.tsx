@@ -45,7 +45,7 @@ export default function PortalBackupsPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/portal/backups");
+      const res = await fetch("/api/portal/backups", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load backups");
       setBackups(data.backups || []);
@@ -126,8 +126,8 @@ export default function PortalBackupsPage() {
             </Select>
           </div>
 
-          <div className="rounded-lg border bg-card">
-            <Table>
+          <div className="rounded-lg border bg-card overflow-x-auto">
+            <Table className="min-w-[800px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>
@@ -151,10 +151,10 @@ export default function PortalBackupsPage() {
                     <TableCell colSpan={7} className="text-center py-12">
                       <div className="flex flex-col items-center gap-2">
                         <Cloud className="h-8 w-8 text-muted-foreground/50" />
-                        <h3 className="font-semibold text-lg">No cloud backups found</h3>
+                        <h3 className="font-semibold text-lg">No cloud backups have been created yet.</h3>
                         <p className="text-sm text-muted-foreground">
                           {backups.length === 0 
-                            ? "No cloud backups have been created yet."
+                            ? "Create a cloud backup from AivraSol POS to see it here."
                             : "No backups match the selected filter."}
                         </p>
                       </div>

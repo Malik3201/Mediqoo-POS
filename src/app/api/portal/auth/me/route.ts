@@ -18,6 +18,13 @@ export async function GET(req: NextRequest) {
     const user = await requirePortalSession(req);
     const client = await Client.findOne({ id: user.client_id }).lean();
     
+    // Check cloud backup feature entitlement for this client
+    const License = require("@/models/License").default;
+    const hasCloudBackup = await License.exists({ 
+      client_id: user.client_id, 
+      "features.cloud_backup": true 
+    });
+
     return NextResponse.json({
       ok: true,
       user: {
@@ -34,6 +41,7 @@ export async function GET(req: NextRequest) {
           contact_phone: client.contact_phone,
           address: client.address,
           timezone: client.timezone,
+          has_cloud_backup: !!hasCloudBackup,
         } : null,
       },
     });

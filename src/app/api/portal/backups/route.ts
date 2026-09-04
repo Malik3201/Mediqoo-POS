@@ -5,6 +5,8 @@ import CloudBackup from "@/models/CloudBackup";
 import PortalUser from "@/models/PortalUser";
 import License from "@/models/License";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });

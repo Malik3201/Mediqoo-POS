@@ -39,8 +39,11 @@ interface PortalUser {
     contact_phone?: string;
     address?: string;
     timezone?: string;
+    has_cloud_backup?: boolean;
   } | null;
 }
+
+import { Database } from "lucide-react";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/portal/dashboard", icon: LayoutDashboard },
@@ -133,6 +136,20 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </Link>
             );
           })}
+          
+          {user?.client?.has_cloud_backup && (
+            <Link
+              href="/portal/backups"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                pathname.startsWith("/portal/backups")
+                  ? "bg-emerald-50 text-emerald-700" 
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              }`}
+            >
+              <Database className={`w-5 h-5 ${pathname.startsWith("/portal/backups") ? "text-emerald-600" : "text-slate-400"}`} />
+              Backup & Recovery
+            </Link>
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-100">
@@ -179,6 +196,17 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   </Link>
                 );
               })}
+              
+              {user?.client?.has_cloud_backup && (
+                <Link
+                  href="/portal/backups"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
+                >
+                  <Database className="w-5 h-5 text-slate-400" />
+                  Backup & Recovery
+                </Link>
+              )}
             </nav>
             <div className="p-4 border-t border-slate-100">
               <button
