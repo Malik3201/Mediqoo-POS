@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
 import ReleaseInstall from "@/models/ReleaseInstall";
-import { getLatestPublishedHotRelease } from "@/lib/release";
+import { getLatestPublishedHotRelease, serializeHotUpdateResponse } from "@/lib/release";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -66,18 +66,7 @@ export async function POST(req: NextRequest) {
       status: "checked",
     });
 
-    return NextResponse.json({
-      update: {
-        id: applicable.id,
-        version: applicable.version,
-        changelog: applicable.changelog ?? "",
-        mandatory: !!applicable.mandatory,
-        size: applicable.installer_size ?? 0,
-        sha256: applicable.sha256 ?? null,
-        download_url: downloadUrl,
-        published_at: applicable.published_at,
-      },
-    }, { headers: CORS });
+    return NextResponse.json(serializeHotUpdateResponse(applicable, currentVersion), { headers: CORS });
   } catch (e: any) {
     console.error("Check update API Error:", e);
     return NextResponse.json(

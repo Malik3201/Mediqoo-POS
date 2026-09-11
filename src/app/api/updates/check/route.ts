@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import connectToDatabase from "@/lib/db";
 import Release from "@/models/Release";
 import License from "@/models/License";
-import { getLatestPublishedHotRelease, cmpVer } from "@/lib/release";
+import { getLatestPublishedHotRelease, cmpVer, serializeHotUpdateResponse } from "@/lib/release";
 
 export async function GET(req: NextRequest) {
   try {
@@ -37,13 +37,7 @@ export async function GET(req: NextRequest) {
     }));
 
     if (latestRelease) {
-      return NextResponse.json({
-        updateAvailable: true,
-        latestVersion: latestRelease.version,
-        downloadUrl: latestRelease.asar_url, // Guaranteed hot
-        sha256: latestRelease.sha256 || "",
-        releaseType: "hot"
-      });
+      return NextResponse.json(serializeHotUpdateResponse(latestRelease, version));
     }
 
     return NextResponse.json({

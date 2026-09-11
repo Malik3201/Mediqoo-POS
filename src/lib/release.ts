@@ -40,3 +40,43 @@ export async function getLatestPublishedHotRelease(currentVersion: string, clien
 
   return applicable || null;
 }
+
+/**
+ * Shared serializer to preserve backward compatibility for old 1.4.0 POS clients 
+ * while serving the new 1.4.1+ POS clients.
+ */
+export function serializeHotUpdateResponse(release: any, installedVersion: string) {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3001";
+  
+  const rawUrl = release.storage_path || release.asar_url || "";
+  const downloadUrl = rawUrl.startsWith("http")
+    ? rawUrl
+    : `${baseUrl}${rawUrl}`;
+
+  return {
+    updateAvailable: true,
+    update_available: true,
+    latestVersion: release.version,
+    version: release.version,
+    downloadUrl: downloadUrl,
+    download_url: downloadUrl,
+    sha256: release.sha256 ?? "",
+    checksum: release.sha256 ?? "",
+    size: release.installer_size ?? 0,
+    releaseType: "hot",
+    release_type: "hot",
+    update: {
+      id: release.id || release._id?.toString(),
+      version: release.version,
+      latestVersion: release.version,
+      changelog: release.changelog ?? "",
+      mandatory: !!release.mandatory,
+      size: release.installer_size ?? 0,
+      sha256: release.sha256 ?? null,
+      checksum: release.sha256 ?? null,
+      download_url: downloadUrl,
+      downloadUrl: downloadUrl,
+      published_at: release.published_at,
+    }
+  };
+}
