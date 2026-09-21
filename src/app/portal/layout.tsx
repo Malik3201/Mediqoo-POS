@@ -14,7 +14,8 @@ import {
   X,
   LogOut,
   User,
-  ChevronDown
+  ChevronDown,
+  CreditCard
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -52,6 +53,7 @@ const NAV_ITEMS = [
   { label: "Purchases", href: "/portal/dashboard#purchases", icon: ShoppingCart },
   { label: "Expenses", href: "/portal/dashboard#expenses", icon: Receipt },
   { label: "Reports", href: "/portal/dashboard#reports", icon: FileText },
+  { label: "Billing", href: "/portal/billing", icon: CreditCard },
 ];
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {

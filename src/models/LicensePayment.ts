@@ -13,6 +13,8 @@ export interface ILicensePayment extends Document {
   payment_reference?: string;
   idempotency_key: string;
   notes?: string;
+  /** Admin identity (email/name from JWT) who recorded this payment */
+  recorded_by?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -30,6 +32,7 @@ const LicensePaymentSchema = new Schema<ILicensePayment>(
     payment_reference: { type: String },
     idempotency_key: { type: String, required: true },
     notes: { type: String },
+    recorded_by: { type: String },
   },
   {
     timestamps: { createdAt: "created_at", updatedAt: "updated_at" },

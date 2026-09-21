@@ -6,12 +6,12 @@ import License from "@/models/License";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import LicensePayment from "@/models/LicensePayment";
 import LicenseRenewalInvoice from "@/models/LicenseRenewalInvoice";
+import BillingUsage from "@/models/BillingUsage";
+import BillingAdjustment from "@/models/BillingAdjustment";
 import Counter from "@/models/Counter";
 import Client from "@/models/Client";
 import Project from "@/models/Project";
-import { calculateRenewalDates, calculatePeriodDates } from "@/lib/billing";
-// We'll import a mailer utility to be defined
-// import { sendRenewalInvoiceEmail } from "@/lib/mailer";
+import { calculateRenewalDates, calculatePeriodDates, resolveBillingModel, deriveOutstanding } from "@/lib/billing";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -22,14 +22,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   await connectToDatabase();
 
   const body = await req.json();
-  const { billing_period_ids, amount_paid, payment_method, payment_reference, idempotency_key, notes } = body;
+  const { billing_period_ids, amount_paid, payment_method, payment_reference, idempotency_key, notes, override_renewal, override_reason } = body;
 
   if (!billing_period_ids || !Array.isArray(billing_period_ids) || billing_period_ids.length === 0) {
     return NextResponse.json({ error: "billing_period_ids array required" }, { status: 400 });
   }
   if (!idempotency_key) return NextResponse.json({ error: "idempotency_key required" }, { status: 400 });
 
-  // Early idempotency check
   const existingInvoice = await LicenseRenewalInvoice.findOne({ license_id: id, idempotency_key }).lean();
   if (existingInvoice) {
     return NextResponse.json({ success: true, invoice: existingInvoice, idempotent: true });
@@ -52,9 +51,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const client = await Client.findOne({ id: license.client_id }).session(session);
     if (!client) throw new Error("Client not found");
 
-    const project = await Project.findOne({ id: license.project_id }).session(session);
-
-    // Fetch periods requested
     const periods = await LicenseBillingPeriod.find({ 
       id: { $in: billing_period_ids },
       license_id: license.id
@@ -64,50 +60,58 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       throw new Error("One or more billing periods not found or do not belong to this license");
     }
 
-    // Sort chronologically by period_start
     periods.sort((a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime());
 
-    // Validation: Enforce contiguous and unsettled
     let totalDue = 0;
-    for (let i = 0; i < periods.length; i++) {
-      if (periods[i].status === "paid" || periods[i].status === "waived") {
-        throw new Error(`Billing period ${periods[i].id} is already settled`);
+    const billingModel = resolveBillingModel(license.billing);
+
+    if (billingModel === "per_invoice") {
+      const usages = await BillingUsage.find({ license_id: id, billing_period_id: { $in: billing_period_ids } }).session(session);
+      const payments = await LicensePayment.find({ license_id: id, billing_period_id: { $in: billing_period_ids } }).session(session);
+      const adjustments = await BillingAdjustment.find({ license_id: id, billing_period_id: { $in: billing_period_ids } }).session(session);
+
+      const usage_amount = usages.reduce((sum, u) => sum + u.amount, 0);
+      const payment_amount = payments.reduce((sum, p) => sum + p.amount_paid, 0);
+      totalDue = deriveOutstanding(usage_amount, adjustments, payment_amount);
+      totalDue = Math.max(0, totalDue); // Don't let totalDue be negative for payment requirement checks
+    } else {
+      for (let i = 0; i < periods.length; i++) {
+        if (periods[i].status === "paid" || periods[i].status === "waived") {
+          throw new Error(`Billing period ${periods[i].id} is already settled`);
+        }
+        totalDue += periods[i].amount_due;
       }
-      totalDue += periods[i].amount_due;
-      
-      // If we are settling multiple periods, we should ideally verify they are contiguous.
-      // But visually the user can just select checkboxes. We'll trust the array order is contiguous for now.
     }
 
-    if (Number(amount_paid) < totalDue) {
-       // Allow partial payment only on a single period, otherwise throw error.
-       if (periods.length > 1) {
-         throw new Error("Amount paid is insufficient to cover multiple periods. Partial payments require settling one period at a time.");
-       }
+    if (Number(amount_paid) < totalDue && !override_renewal) {
+      throw new Error("Amount paid is insufficient to cover outstanding debt. Full payment required to renew.");
+    }
+    
+    if (override_renewal && !override_reason) {
+      throw new Error("Override reason is required when bypassing debt.");
     }
 
-    // Generate Invoice Number atomically
     const currentYear = new Date().getFullYear();
     const counterId = `invoice_${currentYear}`;
-    const counter = await Counter.findByIdAndUpdate(
-      counterId,
-      { $inc: { seq: 1 } },
-      { new: true, upsert: true, session }
-    );
+    const counter = await Counter.findByIdAndUpdate(counterId, { $inc: { seq: 1 } }, { new: true, upsert: true, session });
     const invoiceNumber = `AVR-REN-${currentYear}-${String(counter.seq).padStart(6, '0')}`;
 
-    // 1. Create the LicensePayment
-    const payment = await LicensePayment.create([{
-      client_id: license.client_id,
-      license_id: license.id,
-      billing_period_id: periods[0].id, // we map to the first/primary period for legacy reasons
-      amount_paid: Number(amount_paid),
-      currency: periods[0].currency,
-      payment_method,
-      payment_reference,
-      idempotency_key,
-      notes,
-    }], { session });
+    let paymentId = null;
+    if (Number(amount_paid) > 0) {
+      const payment = await LicensePayment.create([{
+        client_id: license.client_id,
+        license_id: license.id,
+        billing_period_id: periods[0].id,
+        amount_paid: Number(amount_paid),
+        currency: periods[0].currency,
+        payment_method,
+        payment_reference,
+        idempotency_key,
+        notes,
+        recorded_by: token.email || token.name || "admin"
+      }], { session });
+      paymentId = payment[0].id;
+    }
 
     let amountRemaining = Number(amount_paid);
     let lastSettledPeriod = null;
@@ -115,27 +119,45 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     // 2. Settle the billing periods
     for (const bp of periods) {
-      if (amountRemaining <= 0) break;
+      if (amountRemaining <= 0 && !override_renewal) break;
       
-      const needed = bp.amount_due - (bp.amount_paid || 0);
+      let amountDueForPeriod = bp.amount_due;
+      if (billingModel === "per_invoice") {
+        const usages = await BillingUsage.find({ billing_period_id: bp.id }).session(session);
+        const payments = await LicensePayment.find({ billing_period_id: bp.id }).session(session);
+        const adjustments = await BillingAdjustment.find({ billing_period_id: bp.id }).session(session);
+        
+        const usageAmount = usages.reduce((sum, u) => sum + u.amount, 0);
+        const priorPayments = payments.filter(p => p.id !== paymentId).reduce((sum, p) => sum + p.amount_paid, 0);
+        amountDueForPeriod = deriveOutstanding(usageAmount, adjustments, priorPayments);
+      }
+
+      const needed = Math.max(0, amountDueForPeriod - (bp.amount_paid || 0));
       const allocation = Math.min(amountRemaining, needed);
       
       bp.amount_paid = (bp.amount_paid || 0) + allocation;
-      amountRemaining -= allocation;
+      amountRemaining = Math.max(0, amountRemaining - allocation);
       
-      if (bp.amount_paid >= bp.amount_due) {
+      if (bp.amount_paid >= amountDueForPeriod && amountDueForPeriod > 0) {
         bp.status = "paid";
         lastSettledPeriod = bp;
         anyPeriodPaid = true;
       } else {
         bp.status = "partially_paid";
       }
+
+      // If override_renewal is true, we force it to be considered for renewal dates
+      if (override_renewal) {
+         lastSettledPeriod = bp;
+         anyPeriodPaid = true;
+      }
+
       await bp.save({ session });
     }
 
     const previousExpiry = license.expires_at;
 
-    // 3. If any periods were fully paid, update expiry
+    // 3. If any periods were fully paid (or overridden), update expiry
     if (anyPeriodPaid && lastSettledPeriod) {
       const dates = calculateRenewalDates(license, lastSettledPeriod.period_end);
 
@@ -155,6 +177,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       if (futurePeriods === 0) {
         const periodDates = calculatePeriodDates(dates.newExpiry, license.billing.cycle);
+        // Snapshot the pending rate/model if applicable
         await LicenseBillingPeriod.create([{
           client_id: license.client_id,
           license_id: license.id,
@@ -163,7 +186,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           due_at: periodDates.due_at,
           amount_due: license.billing.amount,
           currency: license.billing.currency,
-          status: "unpaid"
+          status: "unpaid",
+          billing_model: resolveBillingModel(license.billing),
+          rate_snapshot: license.billing.amount,
         }], { session });
       }
     }
@@ -173,7 +198,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       invoice_number: invoiceNumber,
       client_id: license.client_id,
       license_id: license.id,
-      payment_id: payment[0].id,
+      payment_id: paymentId,
       periods_settled: anyPeriodPaid ? periods.length : 0,
       billing_periods: periods.map(p => p.id),
       currency: periods[0].currency,
@@ -195,8 +220,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         email: client.contact_email,
         phone: client.contact_phone,
       },
-      status: anyPeriodPaid ? "paid" : "partially_paid",
+      status: override_renewal ? "overridden" : (anyPeriodPaid ? "paid" : "partially_paid"),
       idempotency_key,
+      notes: override_renewal ? `OVERRIDE RENEWAL: ${override_reason} (${token.email})` : "",
     }], { session });
 
     invoiceRecord = invoice[0];

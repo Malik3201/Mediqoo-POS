@@ -16,6 +16,7 @@ export interface ILicenseSeat extends Document {
    * - Never reused after seat deletion (counter only increments).
    */
   terminal_number?: number;
+  last_seen_version?: string;
   first_seen_at: Date;
   last_seen_at: Date;
   created_at: Date;
@@ -35,7 +36,8 @@ const LicenseSeatSchema = new Schema<ILicenseSeat>(
      * to all existing seats. New seats always receive a terminal_number
      * from the register-seat API.
      */
-    terminal_number: { type: Number, min: 1 },
+    terminal_number: { type: Number, index: true },
+    last_seen_version: { type: String },
     first_seen_at: { type: Date, default: Date.now },
     last_seen_at: { type: Date, default: Date.now },
   },

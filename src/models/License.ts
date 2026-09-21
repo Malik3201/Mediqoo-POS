@@ -20,11 +20,24 @@ export interface ILicense extends Document {
   grace_until?: Date;
   billing?: {
     enabled: boolean;
+    /** 'fixed' = current subscription model; 'per_invoice' = pay per finalized invoice */
+    model?: "fixed" | "per_invoice";
     amount?: number;
+    /** Rate per billable invoice (PKR). Only meaningful when model='per_invoice'. */
+    rate_per_invoice?: number;
     currency: string;
     cycle?: "monthly" | "yearly";
     grace_days: number;
     reminder_days: number[];
+    /** Minimum POS app version required for per_invoice metering (semver string). */
+    min_app_version?: string;
+    /** Pending config changes scheduled for the next billing cycle. */
+    pending_changes?: {
+      model?: "fixed" | "per_invoice";
+      amount?: number;
+      rate_per_invoice?: number;
+      effective_from?: Date;
+    } | null;
   };
   created_at: Date;
   updated_at: Date;
@@ -50,11 +63,23 @@ const LicenseSchema = new Schema<ILicense>(
     grace_until: { type: Date },
     billing: {
       enabled: { type: Boolean, default: false },
+      model: { type: String, enum: ["fixed", "per_invoice"], default: "fixed" },
       amount: { type: Number },
+      rate_per_invoice: { type: Number },
       currency: { type: String, default: "PKR" },
       cycle: { type: String, enum: ["monthly", "yearly"] },
       grace_days: { type: Number, default: 3 },
-      reminder_days: { type: [Number], default: [1] }
+      reminder_days: { type: [Number], default: [1] },
+      min_app_version: { type: String },
+      pending_changes: {
+        type: new Schema({
+          model: { type: String, enum: ["fixed", "per_invoice"] },
+          amount: { type: Number },
+          rate_per_invoice: { type: Number },
+          effective_from: { type: Date },
+        }, { _id: false }),
+        default: null,
+      },
     },
   },
   {

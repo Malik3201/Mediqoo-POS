@@ -21,6 +21,8 @@ import HistoricalRecentSale from "@/models/HistoricalRecentSale";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import LicensePayment from "@/models/LicensePayment";
 import RenewalNotification from "@/models/RenewalNotification";
+import BillingUsage from "@/models/BillingUsage";
+import BillingAdjustment from "@/models/BillingAdjustment";
 
 const modelsMap: Record<string, any> = {
   "audit_logs": AuditLog,
@@ -43,6 +45,8 @@ const modelsMap: Record<string, any> = {
   "license_billing_periods": LicenseBillingPeriod,
   "license_payments": LicensePayment,
   "renewal_notifications": RenewalNotification,
+  "billing_usage": BillingUsage,
+  "billing_adjustments": BillingAdjustment,
 };
 
 // Fields that must not be modified via the generic PATCH API.
@@ -53,6 +57,9 @@ const PATCH_PROTECTED_FIELDS: Record<string, string[]> = {
   licenses:         ["id", "license_key", "client_id", "project_id"],
   clients:          ["id"],
   projects:         ["id", "slug"],
+  // Billing records are immutable — no PATCH allowed
+  billing_usage:       ["id", "license_id", "client_id", "invoice_uuid", "billing_period_id", "rate_snapshot", "amount", "occurred_at", "received_at", "unit_count", "billing_cycle_start", "billing_cycle_end", "terminal_id", "terminal_number", "invoice_number_snapshot", "created_at"],
+  billing_adjustments: ["id", "license_id", "client_id", "billing_period_id", "type", "amount", "currency", "reason", "recorded_by", "reverses_adjustment_id", "created_at"],
 };
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ model: string }> }) {

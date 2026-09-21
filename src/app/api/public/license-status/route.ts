@@ -133,6 +133,13 @@ export async function POST(req: NextRequest) {
       // Keep as suspended/revoked
     }
 
+    // Update seat heartbeat and version
+    const updateFields: any = { last_seen_at: now };
+    if (body.app_version && typeof body.app_version === "string") {
+      updateFields.last_seen_version = body.app_version;
+    }
+    await LicenseSeat.updateOne({ _id: seat._id }, { $set: updateFields });
+
     const payload = {
       cloud_dashboard_enabled: isCloudDashboardEnabled(license),
       cloud_backup_enabled: license.features?.cloud_backup === true,
@@ -144,6 +151,8 @@ export async function POST(req: NextRequest) {
       license_version: license.license_version || 1,
       machine_id: seat.machine_id,
       seat_id: seat.id,
+      billing_model: license.billing?.model || "fixed",
+      billing_rate_per_invoice: license.billing?.rate_per_invoice || 0,
     };
 
     const signedResponse = await signPayload(payload);

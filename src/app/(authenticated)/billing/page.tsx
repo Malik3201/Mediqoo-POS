@@ -147,7 +147,10 @@ export default function BillingPage() {
 
       if (!matchesSearch) return false;
 
-      if (statusFilter === "All") return true;
+      if (statusFilter === "Per Invoice" && item.license.billing?.model !== "per_invoice") return false;
+      if (statusFilter === "Fixed" && item.license.billing?.model === "per_invoice") return false;
+
+      if (statusFilter === "All" || statusFilter === "Per Invoice" || statusFilter === "Fixed") return true;
       if (statusFilter === "Paid" && item.billingStatus === "Paid") return true;
       if (statusFilter === "Due Soon" && (item.billingStatus === "Due Soon" || item.billingStatus === "Due Today" || item.billingStatus === "Due Tomorrow")) return true;
       if (statusFilter === "Overdue" && item.billingStatus === "Overdue") return true;
@@ -182,10 +185,13 @@ export default function BillingPage() {
     setRenewalSuccess(null);
     setRenewalPreview(null);
     setPaymentForm({
-      amount_paid: item.currentPeriod.amount_due - (item.currentPeriod.amount_paid || 0),
+      amount_paid: 0, // will be updated once preview loads
       payment_method: "Bank Transfer",
       payment_reference: "",
-      notes: ""
+      notes: "",
+      override_renewal: false,
+      override_reason: "",
+      action: "renew", // "renew" or "payment_only"
     });
 
     try {
@@ -194,6 +200,7 @@ export default function BillingPage() {
       if (res.ok) {
         const preview = await res.json();
         setRenewalPreview(preview);
+        setPaymentForm(prev => ({ ...prev, amount_paid: preview.amount_due }));
       }
     } catch (e) {
       console.error("Failed to load renewal preview", e);
@@ -224,7 +231,11 @@ export default function BillingPage() {
     const idempotencyKey = `pay_${paymentTarget.currentPeriod.id}_${Date.now()}`;
     
     try {
-      const res = await fetch(`/api/admin/licenses/${paymentTarget.license.id}/renew`, {
+      const url = paymentForm.action === "renew" 
+        ? `/api/admin/licenses/${paymentTarget.license.id}/renew` 
+        : `/api/admin/licenses/${paymentTarget.license.id}/payments`;
+
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -233,7 +244,9 @@ export default function BillingPage() {
           payment_method: paymentForm.payment_method,
           payment_reference: paymentForm.payment_reference,
           idempotency_key: idempotencyKey,
-          notes: paymentForm.notes
+          notes: paymentForm.notes,
+          override_renewal: paymentForm.override_renewal,
+          override_reason: paymentForm.override_reason,
         })
       });
 
@@ -352,6 +365,8 @@ export default function BillingPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="All">All Licenses</SelectItem>
+            <SelectItem value="Fixed">Fixed</SelectItem>
+            <SelectItem value="Per Invoice">Per Invoice</SelectItem>
             <SelectItem value="Paid">Paid</SelectItem>
             <SelectItem value="Due Soon">Due Soon</SelectItem>
             <SelectItem value="Overdue">Overdue</SelectItem>
@@ -399,8 +414,8 @@ export default function BillingPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span className="capitalize">{item.license.billing?.cycle}</span>
-                      <span className="text-xs text-muted-foreground">{item.license.billing?.currency} {item.license.billing?.amount}</span>
+                      <span className="capitalize">{item.license.billing?.model === "per_invoice" ? "Per Invoice" : item.license.billing?.cycle}</span>
+                      <span className="text-xs text-muted-foreground">{item.license.billing?.currency} {item.license.billing?.amount}{item.license.billing?.model === "per_invoice" ? " / inv" : ""}</span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -441,7 +456,7 @@ export default function BillingPage() {
                         onClick={() => openPayment(item)}
                         variant={item.billingStatus === "Overdue" ? "destructive" : "default"}
                       >
-                        Renew
+                        Action
                       </Button>
                     </div>
                   </TableCell>
@@ -508,9 +523,33 @@ export default function BillingPage() {
                      <div className="grid grid-cols-2 gap-1 text-xs">
                         <span className="text-muted-foreground">Outstanding Periods:</span>
                         <span className="text-right">{paymentTarget.unpaidPeriods.length} period(s)</span>
-                        <span className="text-muted-foreground">Amount Due:</span>
-                        <span className="text-right">{paymentTarget.license.billing?.currency} {paymentTarget.unpaidPeriods.reduce((sum:any, p:any) => sum + p.amount_due, 0)}</span>
+                        {renewalPreview?.billing_model !== "per_invoice" && (
+                          <>
+                            <span className="text-muted-foreground">Amount Due:</span>
+                            <span className="text-right">{paymentTarget.license.billing?.currency} {paymentTarget.unpaidPeriods.reduce((sum:any, p:any) => sum + p.amount_due, 0)}</span>
+                          </>
+                        )}
                      </div>
+                  </div>
+                )}
+                
+                {renewalPreview && renewalPreview.billing_model === "per_invoice" && (
+                  <div className="rounded border bg-muted/50 p-4 text-sm mb-4">
+                    <div className="flex justify-between font-semibold text-primary mb-2">
+                      <span>Per-Invoice Cycle Summary</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <span className="text-muted-foreground">Invoices Metered:</span>
+                      <span className="text-right">{renewalPreview.invoice_count}</span>
+                      <span className="text-muted-foreground">Usage Charges:</span>
+                      <span className="text-right">{renewalPreview.currency} {renewalPreview.usage_amount}</span>
+                      <span className="text-muted-foreground">Adjustments:</span>
+                      <span className="text-right">{renewalPreview.currency} {renewalPreview.adjustments_amount}</span>
+                      <span className="text-muted-foreground">Payments Recorded:</span>
+                      <span className="text-right">{renewalPreview.currency} {renewalPreview.payment_amount}</span>
+                      <span className="font-semibold pt-1 border-t mt-1">Total Outstanding:</span>
+                      <span className="font-semibold text-right pt-1 border-t mt-1 text-destructive">{renewalPreview.currency} {renewalPreview.amount_due}</span>
+                    </div>
                   </div>
                 )}
                 
@@ -531,6 +570,20 @@ export default function BillingPage() {
                   </div>
                 )}
             <div className="grid gap-2">
+              <Label>Action</Label>
+              <Select
+                value={paymentForm.action}
+                onValueChange={(v) => setPaymentForm({ ...paymentForm, action: v })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="renew">Confirm Payment & Renew License</SelectItem>
+                  <SelectItem value="payment_only">Record Payment Only (No Renewal)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="grid gap-2">
               <Label>Amount Paid</Label>
               <Input
                 type="number"
@@ -538,6 +591,25 @@ export default function BillingPage() {
                 onChange={(e) => setPaymentForm({ ...paymentForm, amount_paid: Number(e.target.value) })}
               />
             </div>
+            {paymentForm.action === "renew" && renewalPreview && paymentForm.amount_paid < renewalPreview.amount_due && (
+              <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-600 text-xs rounded border border-red-200 dark:border-red-900 mt-2">
+                <div className="flex items-center gap-2 mb-2 font-semibold">
+                  <AlertCircle className="w-4 h-4" /> Full outstanding balance required to renew.
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={paymentForm.override_renewal} onChange={e => setPaymentForm({...paymentForm, override_renewal: e.target.checked})} className="rounded text-red-600" />
+                  Super-Admin Override: Renew with remaining debt
+                </label>
+                {paymentForm.override_renewal && (
+                  <Input 
+                    className="mt-2 text-sm" 
+                    placeholder="Mandatory override reason" 
+                    value={paymentForm.override_reason} 
+                    onChange={e => setPaymentForm({...paymentForm, override_reason: e.target.value})} 
+                  />
+                )}
+              </div>
+            )}
             <div className="grid gap-2">
               <Label>Payment Method</Label>
               <Select
@@ -577,8 +649,8 @@ export default function BillingPage() {
             ) : (
               <>
                 <Button variant="outline" onClick={() => setPaymentTarget(null)}>Cancel</Button>
-                <Button onClick={recordPayment} disabled={submitting}>
-                  {submitting ? "Processing..." : "Confirm Payment"}
+                <Button onClick={recordPayment} disabled={submitting || (paymentForm.action === "renew" && paymentForm.amount_paid < (renewalPreview?.amount_due || 0) && (!paymentForm.override_renewal || !paymentForm.override_reason))}>
+                  {submitting ? "Processing..." : paymentForm.action === "renew" ? "Confirm Payment & Renew" : "Record Payment"}
                 </Button>
               </>
             )}

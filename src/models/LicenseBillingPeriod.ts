@@ -12,6 +12,10 @@ export interface ILicenseBillingPeriod extends Document {
   amount_paid: number;
   currency: string;
   status: "unpaid" | "partially_paid" | "paid" | "overdue" | "waived";
+  /** Billing model active when this cycle was created. Absent/undefined = 'fixed'. */
+  billing_model?: "fixed" | "per_invoice";
+  /** Rate snapshot frozen when cycle opened (for per_invoice: PKR per invoice). */
+  rate_snapshot?: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -27,6 +31,8 @@ const LicenseBillingPeriodSchema = new Schema<ILicenseBillingPeriod>(
     amount_due: { type: Number, required: true, min: 0 },
     amount_paid: { type: Number, default: 0, min: 0 },
     currency: { type: String, default: "PKR" },
+    billing_model: { type: String, enum: ["fixed", "per_invoice"] },
+    rate_snapshot: { type: Number },
     status: {
       type: String,
       enum: ["unpaid", "partially_paid", "paid", "overdue", "waived"],
