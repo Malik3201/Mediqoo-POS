@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-export const runtime = "nodejs";
 import { getToken } from "next-auth/jwt";
 import connectToDatabase from "@/lib/db";
 import LicensePayment from "@/models/LicensePayment";
