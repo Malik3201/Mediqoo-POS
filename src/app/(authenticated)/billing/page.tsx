@@ -72,6 +72,7 @@ export default function BillingPage() {
   // ── Adjustments ──
   const [adjustmentForm, setAdjustmentForm] = useState({ type: "credit", amount: 0, reason: "" });
   const [adjustmentSubmitting, setAdjustmentSubmitting] = useState(false);
+  const [defaultTab, setDefaultTab] = useState("usage");
   // Master Table Data: Combine License with its active Billing Period
   const activeBillingData = useMemo(() => {
     return licenses.filter((l: any) => l.billing?.enabled).map((l: any) => {
@@ -239,18 +240,28 @@ export default function BillingPage() {
   }
 
   async function openHistory(item: any) {
+    setUsageTarget(item);
     setHistoryTarget(item);
     setHistoryLoading(true);
+    setUsageData(null);
+    setUsageLoading(true);
+    setDefaultTab("history");
     try {
       const res = await fetch(`/api/admin/licenses/${item.license.id}/payments`);
       if (res.ok) {
         const data = await res.json();
         setHistoryData(data.items || []);
       }
+      // Also fetch usage data in case user switches tabs
+      const usageRes = await fetch(`/api/admin/licenses/${item.license.id}/usage`);
+      if (usageRes.ok) {
+        setUsageData(await usageRes.json());
+      }
     } catch (e) {
       toast.error("Failed to load payment history");
     } finally {
       setHistoryLoading(false);
+      setUsageLoading(false);
     }
   }
 
@@ -318,12 +329,14 @@ export default function BillingPage() {
     setUsageData(null);
     setUsageLoading(true);
     setAdjustmentForm({ type: "credit", amount: 0, reason: "" });
+    setDefaultTab("usage");
     try {
       const res = await fetch(`/api/admin/licenses/${item.license.id}/usage`);
       if (res.ok) {
         setUsageData(await res.json());
       }
       // Also fetch payment history for the same license
+      setHistoryLoading(true);
       const historyRes = await fetch(`/api/admin/licenses/${item.license.id}/payments`);
       if (historyRes.ok) {
         const data = await historyRes.json();
@@ -333,6 +346,7 @@ export default function BillingPage() {
       toast.error("Failed to load usage data");
     } finally {
       setUsageLoading(false);
+      setHistoryLoading(false);
     }
   }
 
@@ -836,7 +850,7 @@ export default function BillingPage() {
           </DialogHeader>
           
           <div className="flex-1 overflow-y-auto px-6 py-4">
-            <Tabs defaultValue="usage" className="w-full">
+            <Tabs defaultValue={defaultTab} key={defaultTab} className="w-full">
               <TabsList className="mb-4">
                 <TabsTrigger value="usage">Billing Usage</TabsTrigger>
                 <TabsTrigger value="history">Payment History</TabsTrigger>

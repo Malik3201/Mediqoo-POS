@@ -34,23 +34,34 @@ export async function GET(req: NextRequest) {
       const unpaidPeriodIds = unpaidPeriods.map((p: any) => p.id);
 
       if (billingModel === "per_invoice") {
-        // Only count usages/adjustments for UNPAID periods for the "Current" ledger
-        const unpaidUsages = await BillingUsage.find({ billing_period_id: { $in: unpaidPeriodIds } }).lean();
+        // Query usages for unpaid periods; fallback to license_id if period-based returns nothing
+        let unpaidUsages = await BillingUsage.find({ billing_period_id: { $in: unpaidPeriodIds } }).lean();
+        if (unpaidUsages.length === 0 && unpaidPeriodIds.length > 0) {
+          // Fallback: query all usages for this license that haven't been paid
+          const allUsages = await BillingUsage.find({ license_id: license.id }).lean();
+          const paidPeriodIds = periods.filter((p: any) => p.status === "paid" || p.status === "waived").map((p: any) => p.id);
+          unpaidUsages = allUsages.filter((u: any) => !paidPeriodIds.includes(u.billing_period_id));
+        }
         const unpaidAdjustments = await BillingAdjustment.find({ billing_period_id: { $in: unpaidPeriodIds } }).lean();
         
-        // Find payments that were applied to these unpaid periods
-        const unpaidPeriodPayments = payments.filter((p: any) => unpaidPeriodIds.includes(p.billing_period_id));
+        // Find payments allocated to unpaid periods
+        const totalPaidOnLicense = payments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+        const paidPeriodPayments = payments.filter((p: any) => {
+          const paidPeriodIds = periods.filter((per: any) => per.status === "paid" || per.status === "waived").map((per: any) => per.id);
+          return paidPeriodIds.includes(p.billing_period_id);
+        });
+        const paidOnPaidPeriods = paidPeriodPayments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+        const payment_amount = totalPaidOnLicense - paidOnPaidPeriods;
 
         const usage_amount = unpaidUsages.reduce((sum, u) => sum + u.amount, 0);
-        const payment_amount = unpaidPeriodPayments.reduce((sum, p) => sum + p.amount_paid, 0);
         const adjustments_amount = unpaidAdjustments.reduce((sum, a) => sum + (a.type === "debit" ? a.amount : -a.amount), 0);
         
-        totalOutstanding = deriveOutstanding(usage_amount, unpaidAdjustments, payment_amount);
+        totalOutstanding = Math.max(0, usage_amount + adjustments_amount - payment_amount);
 
         extraDetails = {
           invoice_count: unpaidUsages.reduce((sum, u) => sum + (u.unit_count || 1), 0),
           usage_amount,
-          payment_amount, // only for currently unpaid periods (partial payments)
+          payment_amount: Math.max(0, payment_amount),
           adjustments_amount,
         };
       } else {
@@ -74,9 +85,10 @@ export async function GET(req: NextRequest) {
           grace_until: license.grace_until,
           billing: {
             cycle: license.billing.cycle,
-            amount: license.billing.amount,
+            amount: billingModel === "per_invoice" ? (license.billing.rate_per_invoice || 0) : (license.billing.amount || 0),
             currency: license.billing.currency,
             model: billingModel,
+            rate_per_invoice: license.billing.rate_per_invoice,
           }
         },
         project: project ? { id: project.id, name: project.name } : null,

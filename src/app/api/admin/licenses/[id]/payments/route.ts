@@ -15,6 +15,41 @@ import { deriveOutstanding, resolveBillingModel } from "@/lib/billing";
 // Assuming we'll add sendPaymentReceipt to @/lib/email
 import { sendPaymentReceipt } from "@/lib/email";
 
+/**
+ * GET /api/admin/licenses/[id]/payments
+ * Returns payment history for a license (admin read-only).
+ */
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+  await connectToDatabase();
+
+  const license = await License.findOne({ id }).lean();
+  if (!license) return NextResponse.json({ error: "License not found" }, { status: 404 });
+
+  const payments = await LicensePayment.find({ license_id: id })
+    .sort({ paid_at: -1 })
+    .lean();
+
+  return NextResponse.json({
+    success: true,
+    items: payments.map((p: any) => ({
+      id: p.id,
+      receipt_number: p.receipt_number,
+      paid_at: p.paid_at,
+      amount_paid: p.amount_paid,
+      payment_method: p.payment_method,
+      currency: p.currency,
+      email_status: p.email_status,
+      billing_period_id: p.billing_period_id,
+      snapshot: p.snapshot,
+      notes: p.notes,
+    })),
+  });
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
