@@ -302,3 +302,157 @@ export function deriveOutstanding(
   return outstanding;
 }
 
+
+// ============================================================================
+// CANONICAL BILLING PERIOD + SUMMARY HELPERS
+//
+// These are the SINGLE authoritative functions for determining:
+// 1. Which billing period is "current" (by date, NOT by payment status)
+// 2. What the billing summary is for a license
+//
+// ALL surfaces must use these: admin table, admin detail, action modal,
+// owner portal, POS license-status.
+// ============================================================================
+
+/**
+ * Returns the current active billing period for a license.
+ *
+ * Rules:
+ * 1. Prefer the period where period_start <= now < period_end
+ * 2. If no exact match, use the most recent period where period_start <= now
+ * 3. NEVER select a future period (period_start > now)
+ * 4. A pre-created next period must NOT become current before its start date
+ *
+ * "Current" is a TIME concept, not a PAYMENT concept.
+ * An unpaid period is not necessarily "current".
+ * A future period is never "current" even if unpaid.
+ */
+export function getCurrentBillingPeriod(
+  periods: Array<{
+    id: string;
+    period_start: Date | string;
+    period_end: Date | string;
+    status?: string;
+    billing_model?: string;
+    rate_snapshot?: number;
+    [key: string]: any;
+  }>,
+  now: Date = new Date()
+): typeof periods[0] | null {
+  const nowMs = now.getTime();
+
+  // Pass 1: Exact active period (period_start <= now < period_end)
+  for (const p of periods) {
+    const start = new Date(p.period_start).getTime();
+    const end = new Date(p.period_end).getTime();
+    if (nowMs >= start && nowMs < end) {
+      return p;
+    }
+  }
+
+  // Pass 2: Most recent period that started before now (handles gaps)
+  let best: typeof periods[0] | null = null;
+  for (const p of periods) {
+    const start = new Date(p.period_start).getTime();
+    if (start <= nowMs) {
+      if (!best || start > new Date(best.period_start).getTime()) {
+        best = p;
+      }
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Comprehensive billing summary for a per_invoice license.
+ * Used by ALL surfaces to get a single consistent view.
+ *
+ * Requires database models to be passed in (keeps this function importable from any context).
+ */
+export async function getLicenseBillingSummary(
+  licenseId: string,
+  models: {
+    LicenseBillingPeriod: any;
+    BillingUsage: any;
+    BillingAdjustment: any;
+    LicensePayment: any;
+  },
+  now: Date = new Date()
+) {
+  const { LicenseBillingPeriod, BillingUsage, BillingAdjustment, LicensePayment } = models;
+
+  // Load all periods
+  const allPeriods = await LicenseBillingPeriod.find({ license_id: licenseId })
+    .sort({ period_start: 1 }).lean();
+
+  // Determine current period by TIME
+  const currentPeriod = getCurrentBillingPeriod(allPeriods, now);
+
+  // Categorize periods BY TIME, NOT BY PAYMENT STATUS
+  // "paid" status does NOT mean no outstanding — a per_invoice period can
+  // accumulate usage AFTER a payment was recorded.
+  const nowMs = now.getTime();
+  const pastAndCurrentPeriods = allPeriods.filter((p: any) =>
+    new Date(p.period_start).getTime() <= nowMs
+  );
+  const futurePeriods = allPeriods.filter((p: any) =>
+    new Date(p.period_start).getTime() > nowMs
+  );
+
+  // Use ALL past+current period IDs for aggregation (NOT filtered by status)
+  const pastCurrentIds = pastAndCurrentPeriods.map((p: any) => p.id);
+
+  // Usage aggregation across ALL past+current periods
+  const usageAgg = await BillingUsage.aggregate([
+    { $match: { license_id: licenseId, billing_period_id: { $in: pastCurrentIds } } },
+    { $group: { _id: null, count: { $sum: 1 }, total: { $sum: "$amount" } } }
+  ]);
+
+  const usageCount = usageAgg.length > 0 ? usageAgg[0].count : 0;
+  const usageAmount = usageAgg.length > 0 ? usageAgg[0].total : 0;
+
+  // Adjustments on past+current periods
+  const adjustments = await BillingAdjustment.find({
+    billing_period_id: { $in: pastCurrentIds }
+  }).lean();
+  const adjustmentsNet = (adjustments as any[]).reduce((sum: number, a: any) =>
+    sum + (a.type === "debit" ? a.amount : -a.amount), 0
+  );
+
+  // Total payments across ALL periods (including "paid" ones)
+  const allPayments = await LicensePayment.find({ license_id: licenseId }).lean();
+  
+  // Payments on past+current periods only (exclude future period payments)
+  const futureIds = futurePeriods.map((p: any) => p.id);
+  const paymentsOnPastCurrent = (allPayments as any[])
+    .filter((p: any) => !futureIds.includes(p.billing_period_id))
+    .reduce((sum: number, p: any) => sum + (p.amount_paid || 0), 0);
+
+  const outstanding = Math.max(0, usageAmount + adjustmentsNet - paymentsOnPastCurrent);
+
+  // For display: unpaid periods by status (informational only, NOT for filtering usage)
+  const unpaidPeriods = pastAndCurrentPeriods.filter((p: any) =>
+    p.status !== "paid" && p.status !== "waived"
+  );
+
+  return {
+    currentPeriod,
+    nextPeriod: futurePeriods[0] || null,
+
+    // Usage across ALL past+current periods
+    usageCount,
+    usageAmount,
+    paymentsOnPastCurrent,
+    adjustmentsNet,
+    outstanding,
+
+    // Period metadata
+    allPeriods,
+    unpaidPeriods,
+    futurePeriods,
+
+    // Payment history
+    paymentHistory: allPayments,
+  };
+}
