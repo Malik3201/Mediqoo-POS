@@ -372,3 +372,159 @@ export async function sendClientPaymentConfirmation(
   }
 }
 
+/**
+ * Generate a PDF Payment Receipt and send it.
+ * This is used for all payments (both Payment Only and Payment+Renew).
+ */
+export async function sendPaymentReceipt(paymentId: string) {
+  // Dynamically import mongoose models to avoid circular dependencies
+  const LicensePayment = (await import("@/models/LicensePayment")).default;
+  const License = (await import("@/models/License")).default;
+  const PDFDocument = (await import("pdfkit")).default;
+
+  const payment = await LicensePayment.findById(paymentId).lean();
+  if (!payment) throw new Error("Payment not found");
+
+  const license = await License.findOne({ id: payment.license_id }).lean();
+  if (!license) throw new Error("License not found");
+
+  const clientName = license.client_snapshot?.name || "Client";
+  const contactName = license.client_snapshot?.contact_name || "";
+  const contactEmail = license.client_snapshot?.email || "";
+  const phone = license.client_snapshot?.phone || "";
+
+  // Generate PDF
+  const doc = new PDFDocument({ margin: 50, size: "A4" });
+  const chunks: Buffer[] = [];
+  
+  const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+
+  // --- PDF Layout (Professional SaaS Receipt) ---
+  // Header
+  doc.fillColor("#009A4D").fontSize(28).text("AIVRASOL", { align: "left" });
+  doc.fillColor("#64748B").fontSize(10).text("Pharmacy POS", { align: "left" });
+  
+  doc.moveUp(2);
+  doc.fillColor("#0F172A").fontSize(20).text("Payment Receipt", { align: "right" });
+  doc.fillColor("#64748B").fontSize(10).text(`Receipt No: ${payment.receipt_number || payment.id}`, { align: "right" });
+  doc.text(`Payment Date: ${new Date(payment.paid_at).toLocaleDateString()}`, { align: "right" });
+  
+  doc.moveDown(3);
+
+  // Billed To
+  doc.fillColor("#0F172A").fontSize(12).text("BILLED TO", { underline: true });
+  doc.fontSize(10).fillColor("#334155");
+  doc.text(clientName);
+  if (contactName) doc.text(`Owner: ${contactName}`);
+  if (phone) doc.text(`Phone: ${phone}`);
+  if (contactEmail) doc.text(`Email: ${contactEmail}`);
+  
+  doc.moveDown(2);
+
+  // Subscription Details
+  const isPerInvoice = license.billing?.model === "per_invoice";
+  doc.fillColor("#0F172A").fontSize(12).text("SUBSCRIPTION", { underline: true });
+  doc.fontSize(10).fillColor("#334155");
+  doc.text(`Plan: ${isPerInvoice ? "Pay Per Invoice" : "Fixed Subscription"}`);
+  if (isPerInvoice && payment.rate_snapshot) {
+    doc.text(`Rate: ${payment.currency} ${payment.rate_snapshot} / invoice`);
+  }
+  
+  doc.moveDown(2);
+
+  // Billing Summary
+  doc.fillColor("#0F172A").fontSize(12).text("BILLING SUMMARY", { underline: true });
+  doc.fontSize(10).fillColor("#334155");
+  if (isPerInvoice) {
+    doc.text(`Billable Invoices (Snapshot): ${payment.usage_count_snapshot || 0}`);
+    doc.text(`Usage Charges (Snapshot): ${payment.currency} ${payment.usage_amount_snapshot || 0}`);
+  }
+  doc.text(`Previous Outstanding: ${payment.currency} ${payment.outstanding_before || 0}`);
+  doc.fillColor("#009A4D").text(`Amount Paid: ${payment.currency} ${payment.amount_paid}`);
+  doc.fillColor("#334155").text(`Outstanding After Payment: ${payment.currency} ${payment.outstanding_after || 0}`);
+  
+  doc.moveDown(2);
+
+  // Payment Details
+  doc.fillColor("#0F172A").fontSize(12).text("PAYMENT DETAILS", { underline: true });
+  doc.fontSize(10).fillColor("#334155");
+  doc.text(`Method: ${payment.payment_method || "N/A"}`);
+  if (payment.payment_reference) doc.text(`Reference: ${payment.payment_reference}`);
+  if (payment.recorded_by) doc.text(`Recorded By: ${payment.recorded_by}`);
+
+  doc.moveDown(2);
+
+  // License Info
+  doc.fillColor("#0F172A").fontSize(12).text("LICENSE INFORMATION", { underline: true });
+  doc.fontSize(10).fillColor("#334155");
+  if (payment.action === "payment_only") {
+    doc.text(`Current Expiry: ${new Date(license.expires_at).toLocaleDateString()}`);
+    doc.fillColor("#64748B").text("License expiry is unchanged by this payment.");
+  } else {
+    doc.text(`Renewed Until: ${new Date(license.expires_at).toLocaleDateString()}`);
+  }
+
+  // Footer
+  doc.moveDown(4);
+  doc.fillColor("#64748B").fontSize(9).text("Thank you for choosing AivraSol.", { align: "center" });
+  doc.text("support@aivrasol.com | www.aivrasol.com", { align: "center" });
+
+  doc.end();
+
+  const pdfBuffer = await pdfPromise;
+
+  // Now send the email
+  const subject = `AivraSol Payment Receipt - ${payment.currency} ${payment.amount_paid} Received`;
+  const content = `
+    <h1>Hello ${contactName || clientName},</h1>
+    <p>We have successfully received your payment for the AivraSol POS subscription.</p>
+    <div style="background-color: #f8fafc; padding: 16px; border-radius: 6px; margin: 20px 0; color: #334155;">
+      <p><strong>Amount Paid:</strong> ${payment.currency} ${payment.amount_paid}</p>
+      <p><strong>Payment Date:</strong> ${new Date(payment.paid_at).toLocaleDateString()}</p>
+      <p><strong>Current Outstanding:</strong> ${payment.currency} ${payment.outstanding_after || 0}</p>
+    </div>
+    <p>Please find your detailed professional PDF receipt attached to this email.</p>
+    <p>Best regards,<br>The AivraSol Team</p>
+  `;
+
+  if (!contactEmail) {
+    console.warn(`Cannot email receipt for payment ${payment.id}, no client email.`);
+    return;
+  }
+
+  try {
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: FROM_OBJECT,
+      to: contactEmail,
+      subject,
+      html: baseTemplate(content),
+      attachments: [
+        {
+          filename: `AivraSol-Receipt-${payment.receipt_number || payment.id}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf"
+        }
+      ]
+    });
+
+    // Update status safely
+    await LicensePayment.updateOne(
+      { _id: payment._id }, 
+      { $set: { email_status: "sent", email_sent_at: new Date() } }
+    );
+  } catch (err: any) {
+    console.error("Failed to send client payment receipt", err);
+    await LicensePayment.updateOne(
+      { _id: payment._id }, 
+      { $set: { email_status: "failed", email_error: err.message?.substring(0, 200) } }
+    );
+    throw err;
+  }
+}
+
+

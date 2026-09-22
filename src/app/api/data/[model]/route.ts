@@ -98,7 +98,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
       
       const usageSummary = await BillingUsage.aggregate([
         { $match: { billing_period_id: { $in: periodIds } } },
-        { $group: { _id: "$billing_period_id", count: { $sum: 1 }, total_amount: { $sum: "$amount" } } }
+        { $group: { _id: "$billing_period_id", count: { $sum: { $ifNull: ["$unit_count", 1] } }, total_amount: { $sum: "$amount" } } }
       ]);
       const usageMap = new Map();
       usageSummary.forEach(u => usageMap.set(u._id, u));

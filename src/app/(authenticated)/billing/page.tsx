@@ -32,6 +32,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { isBefore, isAfter, addDays, startOfMonth, endOfMonth } from "date-fns";
 
 export default function BillingPage() {
@@ -86,12 +92,26 @@ export default function BillingPage() {
       const operationalStatus = deriveOperationalStatus(l);
       const billingStatus = deriveBillingStatus(l, currentPeriod, previousPeriodsExist);
 
+      // Aggregate all unpaid periods for accurate UI display
+      let totalUnpaidAmountDue = 0;
+      let totalUnpaidUsageCharges = 0;
+      let totalUnpaidInvoiceCount = 0;
+      
+      unpaidPeriods.forEach((bp: any) => {
+        totalUnpaidAmountDue += (bp.outstanding ?? Math.max(0, bp.amount_due - (bp.amount_paid || 0)));
+        totalUnpaidUsageCharges += (bp.usage_charges || 0);
+        totalUnpaidInvoiceCount += (bp.invoice_count || 0);
+      });
+
       return {
         license: l,
         currentPeriod,
         unpaidPeriods,
         operationalStatus,
-        billingStatus
+        billingStatus,
+        totalUnpaidAmountDue,
+        totalUnpaidUsageCharges,
+        totalUnpaidInvoiceCount,
       };
     });
   }, [licenses, billingPeriods]);
@@ -207,8 +227,7 @@ export default function BillingPage() {
     });
 
     try {
-      const ids = item.unpaidPeriods.map((p:any) => p.id).join(",");
-      const res = await fetch(`/api/admin/licenses/${item.license.id}/renew/preview?billing_period_ids=${ids}`);
+      const res = await fetch(`/api/admin/licenses/${item.license.id}/renew/preview`);
       if (res.ok) {
         const preview = await res.json();
         setRenewalPreview(preview);
@@ -251,7 +270,6 @@ export default function BillingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          billing_period_ids: paymentTarget.unpaidPeriods.map((p:any) => p.id),
           amount_paid: paymentForm.amount_paid,
           payment_method: paymentForm.payment_method,
           payment_reference: paymentForm.payment_reference,
@@ -259,6 +277,7 @@ export default function BillingPage() {
           notes: paymentForm.notes,
           override_renewal: paymentForm.override_renewal,
           override_reason: paymentForm.override_reason,
+          action: paymentForm.action
         })
       });
 
@@ -303,6 +322,12 @@ export default function BillingPage() {
       const res = await fetch(`/api/admin/licenses/${item.license.id}/usage`);
       if (res.ok) {
         setUsageData(await res.json());
+      }
+      // Also fetch payment history for the same license
+      const historyRes = await fetch(`/api/admin/licenses/${item.license.id}/payments`);
+      if (historyRes.ok) {
+        const data = await historyRes.json();
+        setHistoryData(data.items || []);
       }
     } catch (e) {
       toast.error("Failed to load usage data");
@@ -476,7 +501,7 @@ export default function BillingPage() {
             ) : (
               filteredData.map((item: any) => {
                 const isPerInvoice = item.license.billing?.model === "per_invoice";
-                const periodOutstanding = item.currentPeriod ? (item.currentPeriod.outstanding ?? (item.currentPeriod.amount_due - (item.currentPeriod.amount_paid || 0))) : 0;
+                const periodOutstanding = item.totalUnpaidAmountDue || 0;
                 return (
                 <TableRow key={item.license.id}>
                   <TableCell className="font-medium">{item.license.projects?.name}</TableCell>
@@ -503,10 +528,10 @@ export default function BillingPage() {
                     </span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs">{isPerInvoice ? (item.currentPeriod?.invoice_count ?? "0") : "—"}</span>
+                    <span className="text-xs">{isPerInvoice ? (item.totalUnpaidInvoiceCount ?? "0") : "—"}</span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs">{isPerInvoice ? `${item.license.billing?.currency} ${(item.currentPeriod?.usage_charges ?? 0).toLocaleString()}` : "—"}</span>
+                    <span className="text-xs">{isPerInvoice ? `${item.license.billing?.currency} ${(item.totalUnpaidUsageCharges ?? 0).toLocaleString()}` : "—"}</span>
                   </TableCell>
                   <TableCell>
                     {item.currentPeriod ? (
@@ -632,18 +657,18 @@ export default function BillingPage() {
                   <div>
                     <h3 className="text-sm font-semibold text-primary mb-3 uppercase tracking-wider">Current Billing</h3>
                     {renewalPreview && renewalPreview.billing_model === "per_invoice" ? (
-                      <div className="rounded border bg-muted/20 p-4 text-sm h-full">
+                      <div className="rounded border bg-muted/20 p-4 text-sm h-full flex flex-col justify-center">
                         <div className="grid grid-cols-2 gap-1 text-xs">
                           <span className="text-muted-foreground">Invoices Metered:</span>
-                          <span className="text-right">{renewalPreview.invoice_count}</span>
+                          <span className="text-right">{renewalPreview.invoice_count || 0}</span>
                           <span className="text-muted-foreground">Usage Charges:</span>
-                          <span className="text-right">{renewalPreview.currency} {renewalPreview.usage_amount}</span>
+                          <span className="text-right">{renewalPreview.currency} {renewalPreview.usage_amount || 0}</span>
                           <span className="text-muted-foreground">Adjustments:</span>
-                          <span className="text-right">{renewalPreview.currency} {renewalPreview.adjustments_amount}</span>
+                          <span className="text-right">{renewalPreview.currency} {renewalPreview.adjustments_amount || 0}</span>
                           <span className="text-muted-foreground">Payments Recorded:</span>
-                          <span className="text-right">{renewalPreview.currency} {renewalPreview.payment_amount}</span>
+                          <span className="text-right">{renewalPreview.currency} {renewalPreview.payment_amount || 0}</span>
                           <span className="font-semibold pt-1 border-t mt-1">Total Outstanding:</span>
-                          <span className="font-semibold text-right pt-1 border-t mt-1 text-destructive">{renewalPreview.currency} {renewalPreview.amount_due}</span>
+                          <span className="font-semibold text-right pt-1 border-t mt-1 text-destructive">{renewalPreview.currency} {renewalPreview.amount_due || 0}</span>
                         </div>
                       </div>
                     ) : (
@@ -664,15 +689,38 @@ export default function BillingPage() {
                        value={paymentForm.action}
                        onValueChange={(v) => setPaymentForm({ ...paymentForm, action: v })}
                      >
-                       <SelectTrigger><SelectValue /></SelectTrigger>
+                       <SelectTrigger>
+                         <SelectValue placeholder="Select Action" />
+                       </SelectTrigger>
                        <SelectContent>
-                         <SelectItem value="renew">Confirm Payment & Renew License</SelectItem>
-                         <SelectItem value="payment_only">Record Payment Only (No Renewal)</SelectItem>
+                         {(!renewalPreview || renewalPreview.amount_due > 0) && (
+                           <SelectItem value="payment_only">Record Payment Only</SelectItem>
+                         )}
+                         <SelectItem value="renew">Confirm Payment &amp; Renew</SelectItem>
+                         {(renewalPreview && renewalPreview.amount_due <= 0) && (
+                           <SelectItem value="renew_only">Renew License (Fully Paid)</SelectItem>
+                         )}
                        </SelectContent>
                      </Select>
                    </div>
+                   
+                   {paymentForm.action !== "renew_only" && (
+                     <div className="grid gap-2">
+                       <Label>Amount Paid ({(renewalPreview || paymentTarget?.currentPeriod)?.currency})</Label>
+                       <Input 
+                         type="number" 
+                         value={paymentForm.amount_paid} 
+                         onChange={e => setPaymentForm({...paymentForm, amount_paid: Number(e.target.value)})}
+                         max={renewalPreview?.amount_due || undefined}
+                         min={0}
+                       />
+                       {paymentForm.amount_paid > (renewalPreview?.amount_due || 0) && (
+                         <p className="text-xs text-destructive">Amount exceeds current outstanding.</p>
+                       )}
+                     </div>
+                   )}
                    {paymentForm.action === "renew" && renewalPreview && (
-                      <div className="rounded border bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900 p-3 text-sm">
+                      <div className="rounded border bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900 p-3 text-sm col-span-2">
                         <div className="flex justify-between font-semibold text-blue-700 dark:text-blue-400 mb-2 text-xs uppercase tracking-wider">
                           <span>Renewal Preview</span>
                         </div>
@@ -765,8 +813,14 @@ export default function BillingPage() {
             ) : (
               <>
                 <Button variant="outline" onClick={() => setPaymentTarget(null)}>Cancel</Button>
-                <Button onClick={recordPayment} disabled={submitting || (paymentForm.action === "renew" && paymentForm.amount_paid < (renewalPreview?.amount_due || 0) && (!paymentForm.override_renewal || !paymentForm.override_reason))}>
-                  {submitting ? "Processing..." : paymentForm.action === "renew" ? "Confirm Payment & Renew" : "Record Payment"}
+                <Button 
+                  onClick={recordPayment} 
+                  disabled={
+                    submitting || 
+                    (paymentForm.action !== "renew_only" && (paymentForm.amount_paid <= 0 || paymentForm.amount_paid > (renewalPreview?.amount_due || 0)))
+                  }
+                >
+                  {submitting ? "Processing..." : (paymentForm.action === "renew" ? "Record & Renew" : paymentForm.action === "renew_only" ? "Renew License" : "Record Payment")}
                 </Button>
               </>
             )}
@@ -774,213 +828,175 @@ export default function BillingPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!historyTarget} onOpenChange={(v) => !v && setHistoryTarget(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Payment History — {historyTarget?.license.projects?.name}</DialogTitle>
-          </DialogHeader>
-          <div className="py-4 max-h-[60vh] overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Reference</TableHead>
-                  <TableHead className="text-right">Invoice</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {historyLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">Loading...</TableCell>
-                  </TableRow>
-                ) : historyData.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-6 text-muted-foreground">No payments found.</TableCell>
-                  </TableRow>
-                ) : (
-                  historyData.map((p: any) => (
-                    <TableRow key={p.id}>
-                      <TableCell>{new Date(p.created_at).toLocaleDateString()}</TableCell>
-                      <TableCell>{p.currency} {p.amount_paid}</TableCell>
-                      <TableCell>{p.payment_method}</TableCell>
-                      <TableCell>{p.payment_reference || "—"}</TableCell>
-                      <TableCell className="text-right">
-                        {p.invoice_id ? (
-                          <a href={`/api/admin/invoices/${p.invoice_id}/pdf`} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Download PDF</a>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">No Invoice</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setHistoryTarget(null)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* ── Usage Detail Dialog (Per-Invoice) ── */}
       <Dialog open={!!usageTarget} onOpenChange={(v) => !v && setUsageTarget(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Per-Invoice Usage Detail — {usageTarget?.license.projects?.name}</DialogTitle>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b bg-muted/20 shrink-0">
+            <DialogTitle>Details for {usageTarget?.license.clients?.name}</DialogTitle>
           </DialogHeader>
-          <div className="py-4 space-y-4">
-            {usageLoading ? (
-              <p className="text-muted-foreground text-center py-8">Loading usage data…</p>
-            ) : usageData ? (
-              <>
-                {/* License-level Summary */}
-                <div className="rounded-lg border p-4">
-                  <h4 className="font-semibold text-sm mb-3">Billing Summary</h4>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <span className="text-muted-foreground">Billing Model:</span>
-                    <span className="font-medium capitalize">{usageData.billing_model === "per_invoice" ? "Per Invoice" : "Fixed"}</span>
-                    <span className="text-muted-foreground">Rate:</span>
-                    <span className="font-medium">{usageData.currency} {usageData.rate}/invoice</span>
-                    <span className="text-muted-foreground">Cycle:</span>
-                    <span className="font-medium capitalize">{usageData.cycle}</span>
-                    {usageData.pending_changes && (
-                      <>
-                        <span className="text-amber-600 font-semibold col-span-2 border-t pt-1 mt-1">Pending Change (Next Renewal)</span>
-                        {usageData.pending_changes.model && (
-                          <><span className="text-muted-foreground">New Model:</span>
-                          <span className="font-medium">{usageData.pending_changes.model === "per_invoice" ? "Per Invoice" : "Fixed"}</span></>
-                        )}
-                        {usageData.pending_changes.rate_per_invoice != null && (
-                          <><span className="text-muted-foreground">New Rate:</span>
-                          <span className="font-medium">{usageData.currency} {usageData.pending_changes.rate_per_invoice}/invoice</span></>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Totals */}
-                <div className="rounded-lg border p-4">
-                  <h4 className="font-semibold text-sm mb-3">All-Time Totals</h4>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <span className="text-muted-foreground">Total Invoices Metered:</span>
-                    <span className="font-medium">{usageData.totals.usage_count}</span>
-                    <span className="text-muted-foreground">Total Usage Charges:</span>
-                    <span className="font-medium">{usageData.currency} {usageData.totals.total_charges}</span>
-                    <span className="text-muted-foreground">Total Payments:</span>
-                    <span className="font-medium">{usageData.currency} {usageData.totals.total_paid}</span>
-                    <span className="text-muted-foreground">Adjustments (Net):</span>
-                    <span className="font-medium">{usageData.currency} {usageData.totals.adjustments_net}</span>
-                    <span className="font-semibold border-t pt-1 mt-1">Outstanding:</span>
-                    <span className={`font-semibold border-t pt-1 mt-1 ${usageData.totals.outstanding > 0 ? "text-destructive" : "text-green-600"}`}>
-                      {usageData.currency} {usageData.totals.outstanding}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Per-Period Breakdown */}
-                {usageData.periods?.length > 0 && (
-                  <div className="rounded-lg border">
-                    <h4 className="font-semibold text-sm p-4 pb-2">Period Breakdown</h4>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Period</TableHead>
-                          <TableHead>Invoices</TableHead>
-                          <TableHead>Charges</TableHead>
-                          <TableHead>Paid</TableHead>
-                          <TableHead>Outstanding</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {usageData.periods.map((p: any) => (
-                          <TableRow key={p.period_id}>
-                            <TableCell className="text-xs">
-                              {new Date(p.period_start).toLocaleDateString()} – {new Date(p.period_end).toLocaleDateString()}
-                            </TableCell>
-                            <TableCell className="text-xs">{p.usage_count}</TableCell>
-                            <TableCell className="text-xs">{usageData.currency} {p.usage_charges}</TableCell>
-                            <TableCell className="text-xs">{usageData.currency} {p.total_paid}</TableCell>
-                            <TableCell className={`text-xs font-semibold ${p.outstanding > 0 ? "text-destructive" : "text-green-600"}`}>
-                              {usageData.currency} {p.outstanding}
-                            </TableCell>
-                            <TableCell><Badge variant={p.status === "paid" ? "default" : p.status === "partially_paid" ? "secondary" : "outline"} className="text-[10px] capitalize">{p.status}</Badge></TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-
-                {/* Recent Adjustments */}
-                {usageData.recent_adjustments?.length > 0 && (
-                  <div className="rounded-lg border">
-                    <h4 className="font-semibold text-sm p-4 pb-2">Adjustment History</h4>
+          
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <Tabs defaultValue="usage" className="w-full">
+              <TabsList className="mb-4">
+                <TabsTrigger value="usage">Billing Usage</TabsTrigger>
+                <TabsTrigger value="history">Payment History</TabsTrigger>
+                <TabsTrigger value="adjustments">Adjustments</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="usage">
+                {usageLoading ? (
+                  <div className="py-12 text-center text-muted-foreground text-sm">Loading usage data...</div>
+                ) : !usageData || usageData.usage?.length === 0 ? (
+                  <div className="py-12 text-center text-muted-foreground text-sm">No metered usage found for this period.</div>
+                ) : (
+                  <div className="border rounded">
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead>Date</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Amount</TableHead>
-                          <TableHead>Reason</TableHead>
-                          <TableHead>By</TableHead>
+                          <TableHead>Invoice #</TableHead>
+                          <TableHead>Terminal</TableHead>
+                          <TableHead className="text-right">Rate</TableHead>
+                          <TableHead className="text-right">Amount</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {usageData.recent_adjustments.map((a: any) => (
-                          <TableRow key={a.id || a._id}>
-                            <TableCell className="text-xs">{new Date(a.created_at).toLocaleDateString()}</TableCell>
-                            <TableCell><Badge variant={a.type === "debit" ? "destructive" : "default"} className="text-[10px] capitalize">{a.type}</Badge></TableCell>
-                            <TableCell className="text-xs">{a.currency} {a.amount}</TableCell>
-                            <TableCell className="text-xs max-w-[200px] truncate">{a.reason}</TableCell>
-                            <TableCell className="text-xs text-muted-foreground">{a.recorded_by}</TableCell>
+                        {usageData.usage.map((u: any) => (
+                          <TableRow key={u.id}>
+                            <TableCell>{new Date(u.occurred_at).toLocaleDateString()}</TableCell>
+                            <TableCell>{u.invoice_number_snapshot || "N/A"}</TableCell>
+                            <TableCell>Seat {u.terminal_number || "?"}</TableCell>
+                            <TableCell className="text-right">{u.rate_snapshot}</TableCell>
+                            <TableCell className="text-right">{u.amount}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </div>
                 )}
+              </TabsContent>
 
-                {/* Add Adjustment */}
-                <div className="rounded-lg border p-4">
-                  <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><Plus className="h-3 w-3" /> Add Adjustment</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <Label className="text-xs">Type</Label>
-                      <Select value={adjustmentForm.type} onValueChange={(v) => setAdjustmentForm({ ...adjustmentForm, type: v })}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="credit">Credit</SelectItem>
-                          <SelectItem value="debit">Debit</SelectItem>
-                          <SelectItem value="waiver">Waiver</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Amount</Label>
-                      <Input type="number" min="0.01" step="0.01" className="h-8 text-xs" value={adjustmentForm.amount} onChange={(e) => setAdjustmentForm({ ...adjustmentForm, amount: Number(e.target.value) })} />
-                    </div>
-                    <div className="flex items-end">
-                      <Button size="sm" className="h-8" onClick={submitAdjustment} disabled={adjustmentSubmitting}>
-                        {adjustmentSubmitting ? "Saving…" : "Record"}
-                      </Button>
+              <TabsContent value="history">
+                {historyLoading ? (
+                  <div className="py-12 text-center text-muted-foreground text-sm">Loading payment history...</div>
+                ) : !historyData || historyData.length === 0 ? (
+                  <div className="py-12 text-center text-muted-foreground text-sm">No payment history found.</div>
+                ) : (
+                  <div className="border rounded">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Receipt #</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Method</TableHead>
+                          <TableHead>Out. After</TableHead>
+                          <TableHead>Email Status</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {historyData.map((h: any) => (
+                          <TableRow key={h.id}>
+                            <TableCell>{new Date(h.paid_at).toLocaleDateString()}</TableCell>
+                            <TableCell>{h.receipt_number || "N/A"}</TableCell>
+                            <TableCell>{h.currency} {h.amount_paid}</TableCell>
+                            <TableCell>{h.payment_method || "N/A"}</TableCell>
+                            <TableCell>{h.currency} {h.outstanding_after || 0}</TableCell>
+                            <TableCell>
+                              <Badge variant={h.email_status === "sent" ? "outline" : h.email_status === "failed" ? "destructive" : "secondary"}>
+                                {h.email_status || "pending"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="ghost" size="sm" onClick={() => window.open(`/api/admin/payments/${h.id}/pdf`, "_blank")}>
+                                PDF
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => {
+                                fetch(`/api/admin/payments/${h.id}/resend`, { method: "POST" })
+                                  .then(() => toast.success("Receipt queued for resend"))
+                                  .catch(() => toast.error("Failed to resend receipt"));
+                              }}>
+                                Resend
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </TabsContent>
+              
+              <TabsContent value="adjustments">
+                {usageLoading ? (
+                  <div className="py-12 text-center text-muted-foreground text-sm">Loading...</div>
+                ) : (
+                  <div className="space-y-4">
+                    {usageData?.recent_adjustments?.length > 0 ? (
+                      <div className="rounded-lg border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Amount</TableHead>
+                              <TableHead>Reason</TableHead>
+                              <TableHead>By</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {usageData.recent_adjustments.map((a: any) => (
+                              <TableRow key={a.id || a._id}>
+                                <TableCell className="text-xs">{new Date(a.created_at).toLocaleDateString()}</TableCell>
+                                <TableCell><Badge variant={a.type === "debit" ? "destructive" : "default"} className="text-[10px] capitalize">{a.type}</Badge></TableCell>
+                                <TableCell className="text-xs">{a.currency} {a.amount}</TableCell>
+                                <TableCell className="text-xs max-w-[200px] truncate">{a.reason}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{a.recorded_by}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ) : (
+                      <div className="py-12 text-center text-muted-foreground text-sm border rounded-lg">No adjustments found.</div>
+                    )}
+                    
+                    <div className="rounded-lg border p-4 bg-muted/10">
+                      <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><Plus className="h-3 w-3" /> Add Adjustment</h4>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <Label className="text-xs">Type</Label>
+                          <Select value={adjustmentForm.type} onValueChange={(v) => setAdjustmentForm({ ...adjustmentForm, type: v })}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="credit">Credit</SelectItem>
+                              <SelectItem value="debit">Debit</SelectItem>
+                              <SelectItem value="waiver">Waiver</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Amount</Label>
+                          <Input type="number" min="0.01" step="0.01" className="h-8 text-xs" value={adjustmentForm.amount} onChange={(e) => setAdjustmentForm({ ...adjustmentForm, amount: Number(e.target.value) })} />
+                        </div>
+                        <div className="flex items-end">
+                          <Button size="sm" className="h-8" onClick={submitAdjustment} disabled={adjustmentSubmitting}>
+                            {adjustmentSubmitting ? "Saving…" : "Record"}
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        <Label className="text-xs">Reason</Label>
+                        <Textarea className="text-xs min-h-[60px]" placeholder="Mandatory reason (min 3 chars)" value={adjustmentForm.reason} onChange={(e) => setAdjustmentForm({ ...adjustmentForm, reason: e.target.value })} />
+                      </div>
                     </div>
                   </div>
-                  <div className="mt-2">
-                    <Label className="text-xs">Reason</Label>
-                    <Textarea className="text-xs min-h-[60px]" placeholder="Mandatory reason (min 3 chars)" value={adjustmentForm.reason} onChange={(e) => setAdjustmentForm({ ...adjustmentForm, reason: e.target.value })} />
-                  </div>
-                </div>
-              </>
-            ) : (
-              <p className="text-muted-foreground text-center py-8">No data available</p>
-            )}
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
-          <DialogFooter>
+          <DialogFooter className="px-6 py-4 border-t bg-muted/10 shrink-0">
             <Button variant="outline" onClick={() => setUsageTarget(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>

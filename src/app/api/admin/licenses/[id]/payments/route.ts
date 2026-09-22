@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+export const runtime = "nodejs";
 import { getToken } from "next-auth/jwt";
 import mongoose from "mongoose";
 import connectToDatabase from "@/lib/db";
@@ -9,6 +10,11 @@ import BillingUsage from "@/models/BillingUsage";
 import BillingAdjustment from "@/models/BillingAdjustment";
 import { deriveOutstanding, resolveBillingModel } from "@/lib/billing";
 
+// Note: we'll call email sending without awaiting it to not block the request.
+// We'll import it dynamically or fetch the internal API, but since we're in the same project, we can import it.
+// Assuming we'll add sendPaymentReceipt to @/lib/email
+import { sendPaymentReceipt } from "@/lib/email";
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -18,13 +24,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   await connectToDatabase();
 
   const body = await req.json();
-  const { billing_period_ids, amount_paid, payment_method, payment_reference, idempotency_key, notes } = body;
+  const { amount_paid, payment_method, payment_reference, idempotency_key, notes, action } = body;
 
-  if (!billing_period_ids || !Array.isArray(billing_period_ids) || billing_period_ids.length === 0) {
-    return NextResponse.json({ error: "billing_period_ids array required" }, { status: 400 });
-  }
   if (!idempotency_key) return NextResponse.json({ error: "idempotency_key required" }, { status: 400 });
-  if (Number(amount_paid) <= 0) return NextResponse.json({ error: "Amount must be greater than zero" }, { status: 400 });
+  const paymentAmount = Number(amount_paid);
+  if (paymentAmount <= 0) return NextResponse.json({ error: "Amount must be greater than zero" }, { status: 400 });
 
   // Early idempotency check
   const existingPayment = await LicensePayment.findOne({ license_id: id, idempotency_key }).lean();
@@ -38,71 +42,114 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let paymentRecord: any;
 
   try {
-    const license = await License.findOne({ id }).session(session);
+    const license = await License.findOne({ id }).populate("client_snapshot").session(session);
     if (!license) throw new Error("License not found");
     if (!license.billing?.enabled) throw new Error("Billing is not enabled for this license");
 
-    const periods = await LicenseBillingPeriod.find({ 
-      id: { $in: billing_period_ids },
-      license_id: license.id
-    }).session(session);
-
-    if (periods.length !== billing_period_ids.length) {
-      throw new Error("One or more billing periods not found");
-    }
-    periods.sort((a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime());
-
     const billingModel = resolveBillingModel(license.billing);
 
+    // Find all billing periods
+    const allPeriods = await LicenseBillingPeriod.find({ license_id: license.id }).session(session);
+    allPeriods.sort((a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime());
+
+    let totalOutstandingBefore = 0;
+    let totalUsageAmount = 0;
+    let totalInvoiceCount = 0;
+    let latestRate = license.billing.rate || 0;
+    
+    // Server resolves which periods are payable
+    const payablePeriods = [];
+
+    if (billingModel === "per_invoice") {
+      const usages = await BillingUsage.find({ license_id: id }).session(session);
+      const payments = await LicensePayment.find({ license_id: id }).session(session);
+      const adjustments = await BillingAdjustment.find({ license_id: id }).session(session);
+
+      totalUsageAmount = usages.reduce((sum, u) => sum + u.amount, 0);
+      totalInvoiceCount = usages.reduce((sum, u) => sum + u.unit_count, 0);
+      const totalPayments = payments.reduce((sum, p) => sum + p.amount_paid, 0);
+      totalOutstandingBefore = deriveOutstanding(totalUsageAmount, adjustments as any, totalPayments);
+
+      // Distribute to periods mathematically
+      for (const bp of allPeriods) {
+        const bpUsages = usages.filter(u => u.billing_period_id === bp.id);
+        const bpPayments = payments.filter(p => p.billing_period_id === bp.id);
+        const bpAdjustments = adjustments.filter(a => a.billing_period_id === bp.id);
+        
+        const bpUsageAmount = bpUsages.reduce((sum, u) => sum + u.amount, 0);
+        const bpPaymentAmount = bpPayments.reduce((sum, p) => sum + p.amount_paid, 0);
+        const bpOutstanding = deriveOutstanding(bpUsageAmount, bpAdjustments as any, bpPaymentAmount);
+        
+        if (bpOutstanding > 0) {
+          payablePeriods.push({ period: bp, outstanding: bpOutstanding });
+        }
+        latestRate = bp.rate_snapshot || latestRate;
+      }
+    } else {
+      // Fixed model
+      for (const bp of allPeriods) {
+        const bpOutstanding = Math.max(0, bp.amount_due - (bp.amount_paid || 0));
+        if (bpOutstanding > 0) {
+          payablePeriods.push({ period: bp, outstanding: bpOutstanding });
+        }
+        totalOutstandingBefore += bpOutstanding;
+        latestRate = bp.rate_snapshot || latestRate;
+      }
+    }
+
+    if (paymentAmount > totalOutstandingBefore) {
+      throw new Error(`Overpayment blocked. Amount (${paymentAmount}) exceeds current outstanding (${totalOutstandingBefore}).`);
+    }
+
+    const shortId = idempotency_key.split("_").pop() || Date.now().toString().slice(-6);
+    const receiptNumber = `AV-PAY-${new Date().toISOString().slice(2,10).replace(/-/g, "")}-${shortId.slice(-6).toUpperCase()}`;
+
     // Create the LicensePayment
+    const primaryPeriodId = payablePeriods.length > 0 ? payablePeriods[0].period.id : (allPeriods[allPeriods.length - 1]?.id || "");
+    const allocatedPeriodIds = payablePeriods.map(p => p.period.id);
+
     const payment = await LicensePayment.create([{
       client_id: license.client_id,
       license_id: license.id,
-      billing_period_id: periods[0].id, // For accounting, map to primary
-      amount_paid: Number(amount_paid),
-      currency: periods[0].currency,
+      billing_period_id: primaryPeriodId,
+      billing_period_ids: allocatedPeriodIds,
+      amount_paid: paymentAmount,
+      currency: license.billing.currency || "PKR",
       payment_method,
       payment_reference,
       idempotency_key,
       notes,
       recorded_by: token.email || token.name || "admin",
+      
+      // Snapshots
+      usage_count_snapshot: totalInvoiceCount,
+      usage_amount_snapshot: totalUsageAmount,
+      outstanding_before: totalOutstandingBefore,
+      outstanding_after: totalOutstandingBefore - paymentAmount,
+      rate_snapshot: latestRate,
+      receipt_number: receiptNumber,
+      action: action || "payment_only",
+      email_status: "pending"
     }], { session });
     
     paymentRecord = payment[0];
 
-    // Distribute payment to periods in chronological order
-    let amountRemaining = Number(amount_paid);
+    // Distribute payment to periods
+    let amountRemaining = paymentAmount;
 
-    for (const bp of periods) {
+    for (const { period, outstanding } of payablePeriods) {
       if (amountRemaining <= 0) break;
-
-      let amountDueForPeriod = bp.amount_due;
-      if (billingModel === "per_invoice") {
-        const usages = await BillingUsage.find({ billing_period_id: bp.id }).session(session);
-        const payments = await LicensePayment.find({ billing_period_id: bp.id }).session(session);
-        const adjustments = await BillingAdjustment.find({ billing_period_id: bp.id }).session(session);
-        
-        const usageAmount = usages.reduce((sum, u) => sum + u.amount, 0);
-        // Exclude the current payment from derivation (it's already saved, but we want the prior state)
-        const priorPayments = payments.filter(p => p.id !== paymentRecord.id).reduce((sum, p) => sum + p.amount_paid, 0);
-        amountDueForPeriod = deriveOutstanding(usageAmount, adjustments, priorPayments);
-      }
-
-      // Existing amount paid on this specific period (for fixed model fallback mainly)
-      const needed = Math.max(0, amountDueForPeriod - (bp.amount_paid || 0));
-      const allocation = Math.min(amountRemaining, needed);
       
-      bp.amount_paid = (bp.amount_paid || 0) + allocation;
+      const allocation = Math.min(amountRemaining, outstanding);
+      period.amount_paid = (period.amount_paid || 0) + allocation;
       amountRemaining -= allocation;
       
-      // We only confidently mark status as paid if amount_paid >= amount_due
-      // But for per_invoice, outstanding derivation handles the real truth. We still update the fallback status.
-      if (bp.amount_paid >= amountDueForPeriod && amountDueForPeriod > 0) {
-        bp.status = "paid";
+      if (period.amount_paid >= period.amount_due && period.amount_due > 0) {
+        period.status = "paid";
       } else {
-        bp.status = "partially_paid";
+        period.status = "partially_paid";
       }
-      await bp.save({ session });
+      await period.save({ session });
     }
 
     await session.commitTransaction();
@@ -119,5 +166,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  // Trigger Email & PDF Generation asynchronously
+  try {
+    sendPaymentReceipt(paymentRecord.id).catch(err => {
+      console.error("Failed to send payment receipt in background:", err);
+    });
+  } catch (err) {
+    console.error("Failed to trigger sendPaymentReceipt:", err);
+  }
+
   return NextResponse.json({ success: true, payment: paymentRecord });
 }
+

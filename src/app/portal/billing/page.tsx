@@ -91,8 +91,12 @@ export default function PortalBillingPage() {
                         <span className="text-right">{item.invoice_count || 0} invoices</span>
                         <span className="text-muted-foreground">Total Charges:</span>
                         <span className="text-right">{item.license.billing?.currency} {item.usage_amount || 0}</span>
-                        <span className="text-muted-foreground">Payments:</span>
-                        <span className="text-right text-green-600">-{item.license.billing?.currency} {item.payment_amount || 0}</span>
+                        {item.payment_amount > 0 && (
+                          <>
+                            <span className="text-muted-foreground">Payments (Partial):</span>
+                            <span className="text-right text-green-600">-{item.license.billing?.currency} {item.payment_amount || 0}</span>
+                          </>
+                        )}
                         <span className="font-medium pt-1 border-t mt-1">Outstanding:</span>
                         <span className={`font-medium text-right pt-1 border-t mt-1 ${item.totalOutstanding > 0 ? "text-destructive" : ""}`}>
                           {item.license.billing?.currency} {item.totalOutstanding}
@@ -100,7 +104,7 @@ export default function PortalBillingPage() {
                       </div>
                     ) : (
                       <div className="text-sm flex flex-col gap-1">
-                        <span className="text-muted-foreground">Unpaid Periods: {item.unpaidPeriods.length}</span>
+                        <span className="text-muted-foreground">Unpaid Periods: {item.unpaidPeriods?.length || 0}</span>
                         <span className={`font-medium ${item.totalOutstanding > 0 ? "text-destructive" : ""}`}>
                           Outstanding: {item.license.billing?.currency} {item.totalOutstanding}
                         </span>
@@ -114,7 +118,45 @@ export default function PortalBillingPage() {
         </Table>
       </div>
       
-      <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800">
+      {!loading && data.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-xl font-semibold mb-4 text-slate-800">Payment History</h3>
+          <div className="rounded-lg border bg-card shadow-sm">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Project</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Receipt #</TableHead>
+                  <TableHead>Method</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.flatMap(d => (d.paymentHistory || []).map((p: any) => ({ ...p, projectName: d.project?.name }))).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No payment history found.</TableCell>
+                  </TableRow>
+                ) : (
+                  data.flatMap(d => (d.paymentHistory || []).map((p: any) => ({ ...p, projectName: d.project?.name }))).sort((a: any, b: any) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime()).map((p: any) => (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-medium">{p.projectName || "Unknown"}</TableCell>
+                      <TableCell>{new Date(p.paid_at).toLocaleDateString()}</TableCell>
+                      <TableCell>{p.receipt_number || "N/A"}</TableCell>
+                      <TableCell>{p.payment_method}</TableCell>
+                      <TableCell className="text-right font-semibold text-green-600">
+                        {p.currency} {p.amount_paid}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-blue-50/50 border border-blue-100 rounded-lg p-4 text-sm text-blue-800 mt-6">
         <h4 className="font-semibold flex items-center gap-2 mb-1"><CreditCard className="w-4 h-4" /> Payments</h4>
         <p>To make a payment or renew your subscription, please contact your account manager or refer to your latest invoice instructions.</p>
       </div>
