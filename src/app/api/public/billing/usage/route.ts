@@ -4,11 +4,8 @@ import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import BillingUsage from "@/models/BillingUsage";
-import {
-  resolveBillingModel,
-  resolveBillingPeriod,
-  isWithinLegitimateUseWindow,
-} from "@/lib/billing";
+import { resolveBillingModel } from "@/lib/billing";
+import { meterFinalizedInvoiceUsage } from "@/lib/metering";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -112,138 +109,37 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Load ALL billing periods for this license ───────────────────────
-    // Sorted by period_start ASC for the cycle resolution algorithm.
-    const allPeriods = await LicenseBillingPeriod.find({
-      license_id: license.id,
-    })
-      .sort({ period_start: 1 })
-      .lean();
-
-    if (allPeriods.length === 0) {
-      return NextResponse.json(
-        { error: "no_billing_periods", detail: "No billing periods configured for this license" },
-        { status: 400, headers: CORS }
-      );
-    }
-
-    const graceDays = license.billing?.grace_days ?? 0;
-
-    // ── Process each event ──────────────────────────────────────────────
+    // ── Process each event via Shared Helper ────────────────────────────
     const results: Record<string, EventResult> = {};
 
     for (const event of body.events) {
       const invoiceUuid = event.invoice_uuid;
-      const invoiceNumber = event.invoice_number || "";
-
-      // Validate event shape
+      
       if (!invoiceUuid || typeof invoiceUuid !== "string") {
-        results[invoiceUuid || "unknown"] = {
-          status: "rejected",
-          reason: "missing_invoice_uuid",
-        };
+        results[invoiceUuid || "unknown"] = { status: "rejected", reason: "missing_invoice_uuid" };
         continue;
       }
-
       if (!event.occurred_at) {
-        results[invoiceUuid] = {
-          status: "rejected",
-          reason: "missing_occurred_at",
-        };
+        results[invoiceUuid] = { status: "rejected", reason: "missing_occurred_at" };
         continue;
       }
 
       const occurredAt = new Date(event.occurred_at);
-      if (isNaN(occurredAt.getTime())) {
-        results[invoiceUuid] = {
-          status: "rejected",
-          reason: "invalid_occurred_at",
-        };
-        continue;
-      }
 
-      // ── Check duplicate (fast path) ─────────────────────────────────
-      const existing = await BillingUsage.findOne({
-        license_id: license.id,
-        invoice_uuid: invoiceUuid,
-      }).lean();
+      const res = await meterFinalizedInvoiceUsage({
+        license,
+        seat,
+        invoiceUuid,
+        invoiceNumber: typeof event.invoice_number === "string" ? event.invoice_number : undefined,
+        occurredAt,
+        terminalId: event.terminal_id,
+        terminalNumber: event.terminal_number,
+      });
 
-      if (existing) {
-        results[invoiceUuid] = {
-          status: "duplicate",
-          billing_period_id: existing.billing_period_id,
-        };
-        continue;
-      }
-
-      // ── Validate legitimate use window ──────────────────────────────
-      if (!isWithinLegitimateUseWindow(occurredAt, license.issued_at, allPeriods, graceDays)) {
-        results[invoiceUuid] = {
-          status: "rejected",
-          reason: "outside_legitimate_use",
-        };
-        continue;
-      }
-
-      // ── Resolve billing period ──────────────────────────────────────
-      const resolution = resolveBillingPeriod(occurredAt, allPeriods, graceDays);
-
-      if (!resolution.ok) {
-        results[invoiceUuid] = {
-          status: "rejected",
-          reason: resolution.reason,
-        };
-        continue;
-      }
-
-      // ── Server determines rate and amount ───────────────────────────
-      // rate_snapshot comes from the resolved billing period, NOT from the client.
-      const rate = resolution.rate_snapshot;
-      const unitCount = 1;
-      const amount = unitCount * rate;
-
-      // ── Create BillingUsage (immutable) ─────────────────────────────
-      try {
-        await BillingUsage.create({
-          client_id: license.client_id,
-          license_id: license.id,
-          invoice_uuid: invoiceUuid,
-          invoice_number_snapshot: typeof invoiceNumber === "string" ? invoiceNumber.slice(0, 50) : "",
-          terminal_id: event.terminal_id || seat.machine_id || "",
-          terminal_number: typeof event.terminal_number === "number" ? event.terminal_number : null,
-          occurred_at: occurredAt,
-          received_at: new Date(),
-          billing_period_id: resolution.period_id,
-          billing_cycle_start: resolution.period_start,
-          billing_cycle_end: resolution.period_end,
-          unit_count: unitCount,
-          rate_snapshot: rate,
-          amount,
-        });
-
-        results[invoiceUuid] = {
-          status: "accepted",
-          billing_period_id: resolution.period_id,
-          rate,
-          amount,
-        };
-      } catch (err: any) {
-        // Handle duplicate key error (race condition with concurrent requests)
-        if (err.code === 11000) {
-          const dup = await BillingUsage.findOne({
-            license_id: license.id,
-            invoice_uuid: invoiceUuid,
-          }).lean();
-          results[invoiceUuid] = {
-            status: "duplicate",
-            billing_period_id: dup?.billing_period_id || resolution.period_id,
-          };
-        } else {
-          results[invoiceUuid] = {
-            status: "rejected",
-            reason: `server_error: ${err.message}`,
-          };
-        }
+      if (res.status === "skipped") {
+        results[invoiceUuid] = { status: "rejected", reason: res.reason || "skipped" };
+      } else {
+        results[invoiceUuid] = res;
       }
     }
 

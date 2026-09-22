@@ -5,6 +5,7 @@ import LicenseSeat from "@/models/LicenseSeat";
 import AnalyticsEvent from "@/models/AnalyticsEvent";
 import CloudExpense from "@/models/CloudExpense";
 import { isCloudDashboardEnabled } from "@/lib/status";
+import { meterFinalizedInvoiceUsage } from "@/lib/metering";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -194,6 +195,28 @@ export async function POST(req: NextRequest) {
         } else {
           console.error(`Error storing event ${event_id}:`, e);
           results.push({ event_id, duplicate: false, error: "storage_error" });
+          continue; // skip metering on failure
+        }
+      }
+
+      // ── Step 5: Auto-Meter Finalized Sales ────────────────────────────
+      if (type === "sale.completed") {
+        try {
+          const meterRes = await meterFinalizedInvoiceUsage({
+            license,
+            seat,
+            invoiceUuid: String(source_record_id),
+            invoiceNumber: typeof payload?.invoice_number === "string" ? payload.invoice_number : undefined,
+            occurredAt: occurredAtDate,
+            terminalId: String(machine_id),
+            terminalNumber: seat.terminal_number,
+          });
+          
+          if (meterRes.status === "rejected") {
+            console.error(`Analytics Auto-Meter rejected for ${source_record_id}:`, meterRes.reason);
+          }
+        } catch (meterErr) {
+          console.error(`Analytics Auto-Meter exception for ${source_record_id}:`, meterErr);
         }
       }
     }

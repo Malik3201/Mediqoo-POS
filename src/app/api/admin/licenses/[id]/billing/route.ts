@@ -161,17 +161,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       
       if (!existingPeriod) {
         const now = new Date();
-        const baseDate = license.expires_at ? new Date(license.expires_at) : now;
-        const periodDates = calculatePeriodDates(baseDate, license.billing.cycle);
+        const periodStart = license.issued_at ? new Date(license.issued_at) : now;
+        const fallbackEnd = calculatePeriodDates(periodStart, license.billing.cycle).period_end;
+        const periodEnd = license.expires_at ? new Date(license.expires_at) : fallbackEnd;
 
         const isPerInvoice = requestedModel === "per_invoice";
 
         await LicenseBillingPeriod.create([{
           client_id: license.client_id,
           license_id: license.id,
-          period_start: periodDates.period_start,
-          period_end: periodDates.period_end,
-          due_at: periodDates.due_at,
+          period_start: periodStart,
+          period_end: periodEnd,
+          due_at: periodStart,
           amount_due: isPerInvoice ? 0 : (license.billing.amount || 0),
           currency: license.billing.currency,
           billing_model: requestedModel,
