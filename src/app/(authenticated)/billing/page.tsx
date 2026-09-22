@@ -453,6 +453,7 @@ export default function BillingPage() {
               <TableHead>Model</TableHead>
               <TableHead>Rate / Fee</TableHead>
               <TableHead>Invoices</TableHead>
+              <TableHead>Usage</TableHead>
               <TableHead>Outstanding</TableHead>
               <TableHead>Expiry</TableHead>
               <TableHead>Status</TableHead>
@@ -475,7 +476,7 @@ export default function BillingPage() {
             ) : (
               filteredData.map((item: any) => {
                 const isPerInvoice = item.license.billing?.model === "per_invoice";
-                const periodOutstanding = item.currentPeriod ? (item.currentPeriod.amount_due - (item.currentPeriod.amount_paid || 0)) : 0;
+                const periodOutstanding = item.currentPeriod ? (item.currentPeriod.outstanding ?? (item.currentPeriod.amount_due - (item.currentPeriod.amount_paid || 0))) : 0;
                 return (
                 <TableRow key={item.license.id}>
                   <TableCell className="font-medium">{item.license.projects?.name}</TableCell>
@@ -503,6 +504,9 @@ export default function BillingPage() {
                   </TableCell>
                   <TableCell>
                     <span className="text-xs">{isPerInvoice ? (item.currentPeriod?.invoice_count ?? "0") : "—"}</span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs">{isPerInvoice ? `${item.license.billing?.currency} ${(item.currentPeriod?.usage_charges ?? 0).toLocaleString()}` : "—"}</span>
                   </TableCell>
                   <TableCell>
                     {item.currentPeriod ? (
@@ -571,11 +575,11 @@ export default function BillingPage() {
       </div>
 
       <Dialog open={!!paymentTarget} onOpenChange={(v) => !v && setPaymentTarget(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
+        <DialogContent className="max-w-[850px] max-h-[85vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b bg-muted/10 shrink-0">
             <DialogTitle>Record Payment & Renew</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
             {renewalSuccess ? (
               <div className="space-y-4 text-sm">
                 <div className="rounded border p-4 bg-green-50/50 dark:bg-green-900/10 border-green-200 dark:border-green-800">
@@ -608,145 +612,154 @@ export default function BillingPage() {
               </div>
             ) : (
               <>
-                <p className="text-sm text-muted-foreground">
-                  Recording this payment will settle the selected billing period and automatically extend the license expiry.
-                </p>
-                
-                {paymentTarget && (
-                  <div className="rounded border bg-muted/50 p-4 text-sm mb-4">
-                     <div className="grid grid-cols-2 gap-2 text-xs mb-3 pb-3 border-b border-muted-foreground/10">
-                        <span className="text-muted-foreground">Operational Status:</span>
-                        <span className="font-semibold text-right">{paymentTarget.operationalStatus}</span>
-                        <span className="text-muted-foreground">Billing Status:</span>
-                        <span className={`font-semibold text-right ${paymentTarget.billingStatus === "Overdue" ? "text-red-600" : ""}`}>{paymentTarget.billingStatus}</span>
-                     </div>
-                     <div className="flex justify-between font-semibold text-primary mb-2">
-                        <span>Current Ledger</span>
-                     </div>
-                     <div className="grid grid-cols-2 gap-1 text-xs">
-                        <span className="text-muted-foreground">Outstanding Periods:</span>
-                        <span className="text-right">{paymentTarget.unpaidPeriods.length} period(s)</span>
-                        {renewalPreview?.billing_model !== "per_invoice" && (
-                          <>
-                            <span className="text-muted-foreground">Amount Due:</span>
-                            <span className="text-right">{paymentTarget.license.billing?.currency} {paymentTarget.unpaidPeriods.reduce((sum:any, p:any) => sum + p.amount_due, 0)}</span>
-                          </>
-                        )}
-                     </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h3 className="text-sm font-semibold text-primary mb-3 uppercase tracking-wider">Account Summary</h3>
+                    {paymentTarget && (
+                      <div className="rounded border bg-muted/20 p-4 text-sm h-full">
+                         <div className="grid grid-cols-2 gap-2 text-xs">
+                            <span className="text-muted-foreground">Operational Status:</span>
+                            <span className="font-semibold text-right">{paymentTarget.operationalStatus}</span>
+                            <span className="text-muted-foreground">Billing Status:</span>
+                            <span className={`font-semibold text-right ${paymentTarget.billingStatus === "Overdue" ? "text-red-600" : ""}`}>{paymentTarget.billingStatus}</span>
+                            <span className="text-muted-foreground">Outstanding Periods:</span>
+                            <span className="text-right">{paymentTarget.unpaidPeriods.length} period(s)</span>
+                         </div>
+                      </div>
+                    )}
                   </div>
-                )}
-                
-                {renewalPreview && renewalPreview.billing_model === "per_invoice" && (
-                  <div className="rounded border bg-muted/50 p-4 text-sm mb-4">
-                    <div className="flex justify-between font-semibold text-primary mb-2">
-                      <span>Per-Invoice Cycle Summary</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 text-xs">
-                      <span className="text-muted-foreground">Invoices Metered:</span>
-                      <span className="text-right">{renewalPreview.invoice_count}</span>
-                      <span className="text-muted-foreground">Usage Charges:</span>
-                      <span className="text-right">{renewalPreview.currency} {renewalPreview.usage_amount}</span>
-                      <span className="text-muted-foreground">Adjustments:</span>
-                      <span className="text-right">{renewalPreview.currency} {renewalPreview.adjustments_amount}</span>
-                      <span className="text-muted-foreground">Payments Recorded:</span>
-                      <span className="text-right">{renewalPreview.currency} {renewalPreview.payment_amount}</span>
-                      <span className="font-semibold pt-1 border-t mt-1">Total Outstanding:</span>
-                      <span className="font-semibold text-right pt-1 border-t mt-1 text-destructive">{renewalPreview.currency} {renewalPreview.amount_due}</span>
-                    </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold text-primary mb-3 uppercase tracking-wider">Current Billing</h3>
+                    {renewalPreview && renewalPreview.billing_model === "per_invoice" ? (
+                      <div className="rounded border bg-muted/20 p-4 text-sm h-full">
+                        <div className="grid grid-cols-2 gap-1 text-xs">
+                          <span className="text-muted-foreground">Invoices Metered:</span>
+                          <span className="text-right">{renewalPreview.invoice_count}</span>
+                          <span className="text-muted-foreground">Usage Charges:</span>
+                          <span className="text-right">{renewalPreview.currency} {renewalPreview.usage_amount}</span>
+                          <span className="text-muted-foreground">Adjustments:</span>
+                          <span className="text-right">{renewalPreview.currency} {renewalPreview.adjustments_amount}</span>
+                          <span className="text-muted-foreground">Payments Recorded:</span>
+                          <span className="text-right">{renewalPreview.currency} {renewalPreview.payment_amount}</span>
+                          <span className="font-semibold pt-1 border-t mt-1">Total Outstanding:</span>
+                          <span className="font-semibold text-right pt-1 border-t mt-1 text-destructive">{renewalPreview.currency} {renewalPreview.amount_due}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded border bg-muted/20 p-4 text-sm h-full flex flex-col justify-center">
+                        <div className="grid grid-cols-2 gap-1 text-xs">
+                          <span className="text-muted-foreground">Amount Due:</span>
+                          <span className="text-right">{paymentTarget?.license.billing?.currency} {paymentTarget?.unpaidPeriods.reduce((sum:any, p:any) => sum + p.amount_due, 0)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-                
-                {renewalPreview && (
-                  <div className="rounded border bg-muted/50 p-4 text-sm mb-4">
-                    <div className="flex justify-between font-semibold text-primary mb-2">
-                      <span>Renewal Preview</span>
-                      <span className="capitalize">{renewalPreview.renewal_type} Renewal</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 text-xs">
-                      <span className="text-muted-foreground">Current Expiry:</span>
-                      <span className="text-right">{renewalPreview.current_expiry ? new Date(renewalPreview.current_expiry).toLocaleDateString() : "Never"}</span>
-                      <span className="text-muted-foreground">New Expiry:</span>
-                      <span className="text-right font-medium">{new Date(renewalPreview.new_expiry).toLocaleDateString()}</span>
-                      <span className="text-muted-foreground">New Grace Until:</span>
-                      <span className="text-right">{new Date(renewalPreview.new_grace_until).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                )}
-            <div className="grid gap-2">
-              <Label>Action</Label>
-              <Select
-                value={paymentForm.action}
-                onValueChange={(v) => setPaymentForm({ ...paymentForm, action: v })}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="renew">Confirm Payment & Renew License</SelectItem>
-                  <SelectItem value="payment_only">Record Payment Only (No Renewal)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="grid gap-2">
-              <Label>Amount Paid</Label>
-              <Input
-                type="number"
-                value={paymentForm.amount_paid}
-                onChange={(e) => setPaymentForm({ ...paymentForm, amount_paid: Number(e.target.value) })}
-              />
-            </div>
-            {paymentForm.action === "renew" && renewalPreview && paymentForm.amount_paid < renewalPreview.amount_due && (
-              <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-600 text-xs rounded border border-red-200 dark:border-red-900 mt-2">
-                <div className="flex items-center gap-2 mb-2 font-semibold">
-                  <AlertCircle className="w-4 h-4" /> Full outstanding balance required to renew.
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={paymentForm.override_renewal} onChange={e => setPaymentForm({...paymentForm, override_renewal: e.target.checked})} className="rounded text-red-600" />
-                  Super-Admin Override: Renew with remaining debt
-                </label>
-                {paymentForm.override_renewal && (
-                  <Input 
-                    className="mt-2 text-sm" 
-                    placeholder="Mandatory override reason" 
-                    value={paymentForm.override_reason} 
-                    onChange={e => setPaymentForm({...paymentForm, override_reason: e.target.value})} 
-                  />
-                )}
-              </div>
-            )}
-            <div className="grid gap-2">
-              <Label>Payment Method</Label>
-              <Select
-                value={paymentForm.payment_method}
-                onValueChange={(v) => setPaymentForm({ ...paymentForm, payment_method: v })}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                  <SelectItem value="Cash">Cash</SelectItem>
-                  <SelectItem value="Cheque">Cheque</SelectItem>
-                  <SelectItem value="Online Gateway">Online Gateway</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Reference ID (Optional)</Label>
-              <Input
-                value={paymentForm.payment_reference}
-                onChange={(e) => setPaymentForm({ ...paymentForm, payment_reference: e.target.value })}
-                placeholder="Transaction ID, Cheque No, etc."
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Notes (Optional)</Label>
-              <Textarea
-                value={paymentForm.notes}
-                onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-              />
-            </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                   <div className="grid gap-2">
+                     <Label>Action</Label>
+                     <Select
+                       value={paymentForm.action}
+                       onValueChange={(v) => setPaymentForm({ ...paymentForm, action: v })}
+                     >
+                       <SelectTrigger><SelectValue /></SelectTrigger>
+                       <SelectContent>
+                         <SelectItem value="renew">Confirm Payment & Renew License</SelectItem>
+                         <SelectItem value="payment_only">Record Payment Only (No Renewal)</SelectItem>
+                       </SelectContent>
+                     </Select>
+                   </div>
+                   {paymentForm.action === "renew" && renewalPreview && (
+                      <div className="rounded border bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900 p-3 text-sm">
+                        <div className="flex justify-between font-semibold text-blue-700 dark:text-blue-400 mb-2 text-xs uppercase tracking-wider">
+                          <span>Renewal Preview</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div>
+                            <div className="text-muted-foreground">Current Expiry</div>
+                            <div>{renewalPreview.current_expiry ? new Date(renewalPreview.current_expiry).toLocaleDateString() : "Never"}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">New Expiry</div>
+                            <div className="font-medium text-blue-700 dark:text-blue-400">{new Date(renewalPreview.new_expiry).toLocaleDateString()}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Grace Until</div>
+                            <div>{new Date(renewalPreview.new_grace_until).toLocaleDateString()}</div>
+                          </div>
+                        </div>
+                      </div>
+                   )}
+                </div>
+
+                <div className="border-t border-border pt-6 mt-2">
+                  <h3 className="text-sm font-semibold text-primary mb-4 uppercase tracking-wider">Payment Details</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div className="grid gap-2">
+                      <Label>Amount Paid</Label>
+                      <Input
+                        type="number"
+                        value={paymentForm.amount_paid}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, amount_paid: Number(e.target.value) })}
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Payment Method</Label>
+                      <Select
+                        value={paymentForm.payment_method}
+                        onValueChange={(v) => setPaymentForm({ ...paymentForm, payment_method: v })}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                          <SelectItem value="Cash">Cash</SelectItem>
+                          <SelectItem value="Cheque">Cheque</SelectItem>
+                          <SelectItem value="Online Gateway">Online Gateway</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Reference ID (Optional)</Label>
+                      <Input
+                        value={paymentForm.payment_reference}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, payment_reference: e.target.value })}
+                        placeholder="Transaction ID, Cheque No, etc."
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Notes (Optional)</Label>
+                      <Input
+                        value={paymentForm.notes}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  {paymentForm.action === "renew" && renewalPreview && paymentForm.amount_paid < renewalPreview.amount_due && (
+                    <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-600 text-xs rounded border border-red-200 dark:border-red-900 mt-2">
+                      <div className="flex items-center gap-2 mb-2 font-semibold">
+                        <AlertCircle className="w-4 h-4" /> Full outstanding balance required to renew.
+                      </div>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={paymentForm.override_renewal} onChange={e => setPaymentForm({...paymentForm, override_renewal: e.target.checked})} className="rounded text-red-600" />
+                        Super-Admin Override: Renew with remaining debt
+                      </label>
+                      {paymentForm.override_renewal && (
+                        <Input 
+                          className="mt-2 text-sm" 
+                          placeholder="Mandatory override reason" 
+                          value={paymentForm.override_reason} 
+                          onChange={e => setPaymentForm({...paymentForm, override_reason: e.target.value})} 
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="px-6 py-4 border-t bg-muted/10 shrink-0">
             {renewalSuccess ? (
               <Button onClick={() => setPaymentTarget(null)}>Close</Button>
             ) : (

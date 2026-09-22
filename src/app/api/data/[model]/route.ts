@@ -92,6 +92,42 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
       paths.forEach(p => { mQuery = mQuery.populate(p.trim()); });
     }
     const data = await mQuery.lean();
+
+    if (model === "license_billing_periods" && data.length > 0) {
+      const periodIds = data.map((d: any) => d.id);
+      
+      const usageSummary = await BillingUsage.aggregate([
+        { $match: { billing_period_id: { $in: periodIds } } },
+        { $group: { _id: "$billing_period_id", count: { $sum: 1 }, total_amount: { $sum: "$amount" } } }
+      ]);
+      const usageMap = new Map();
+      usageSummary.forEach(u => usageMap.set(u._id, u));
+
+      const payments = await LicensePayment.find({ billing_period_id: { $in: periodIds } }).lean();
+      const adjustments = await BillingAdjustment.find({ billing_period_id: { $in: periodIds } }).lean();
+      
+      const { deriveOutstanding } = await import("@/lib/billing");
+
+      data.forEach((d: any) => {
+        if (d.billing_model === "per_invoice") {
+          const usage = usageMap.get(d.id) || { count: 0, total_amount: 0 };
+          const periodPayments = payments.filter((p: any) => p.billing_period_id === d.id);
+          const periodAdjustments = adjustments.filter((a: any) => a.billing_period_id === d.id);
+          
+          const totalPaid = periodPayments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+          
+          // Inject dynamic summary properties (normally only found on /usage detail API)
+          d.invoice_count = usage.count;
+          d.usage_charges = usage.total_amount;
+          
+          // amount_due needs to reflect usage charges for per_invoice, so outstanding can be accurately computed everywhere
+          d.amount_due = usage.total_amount + periodAdjustments.reduce((sum, adj) => sum + (adj.type === "debit" ? adj.amount : -adj.amount), 0);
+          d.amount_paid = totalPaid;
+          d.outstanding = deriveOutstanding(usage.total_amount, periodAdjustments, totalPaid);
+        }
+      });
+    }
+
     return NextResponse.json(data);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
