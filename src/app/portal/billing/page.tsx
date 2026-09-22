@@ -38,7 +38,7 @@ export default function PortalBillingPage() {
       </div>
 
       <div className="rounded-lg border bg-card shadow-sm overflow-x-auto">
-        <Table>
+        <Table className="min-w-[800px]">
           <TableHeader>
             <TableRow>
               <TableHead>Project</TableHead>
@@ -122,7 +122,7 @@ export default function PortalBillingPage() {
         <div className="mt-8">
           <h3 className="text-xl font-semibold mb-4 text-slate-800">Payment History</h3>
           <div className="rounded-lg border bg-card shadow-sm overflow-x-auto">
-            <Table>
+            <Table className="min-w-[700px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Project</TableHead>
