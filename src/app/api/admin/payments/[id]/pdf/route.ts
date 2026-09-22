@@ -17,13 +17,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const payment = await LicensePayment.findById(id).lean();
   if (!payment) return NextResponse.json({ error: "Payment not found" }, { status: 404 });
 
-  const license = await License.findOne({ id: payment.license_id }).lean();
+  const license = await License.findOne({ id: payment.license_id }).populate("clients").lean();
   if (!license) return NextResponse.json({ error: "License not found" }, { status: 404 });
 
-  const clientName = license.client_snapshot?.name || "Client";
-  const contactName = license.client_snapshot?.contact_name || "";
-  const contactEmail = license.client_snapshot?.email || "";
-  const phone = license.client_snapshot?.phone || "";
+  const clientData = (license as any).clients || {};
+  const clientName = clientData.name || "Client";
+  const contactName = clientData.contact_name || "";
+  const contactEmail = clientData.contact_email || "";
+  const phone = clientData.contact_phone || "";
 
   // Generate PDF
   const doc = new PDFDocument({ margin: 50, size: "A4" });

@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let lastSettledPeriod = null;
 
   try {
-    const license = await License.findOne({ id }).populate("client_snapshot").session(session);
+    const license = await License.findOne({ id }).populate("clients").session(session);
     if (!license) throw new Error("License not found");
     if (!license.billing?.enabled) throw new Error("Billing is not enabled for this license");
 
