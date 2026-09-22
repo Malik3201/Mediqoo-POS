@@ -151,31 +151,56 @@ export async function POST(req: NextRequest) {
       try {
         const BillingUsage = (await import("@/models/BillingUsage")).default;
         const LicenseBillingPeriod = (await import("@/models/LicenseBillingPeriod")).default;
+        const LicensePayment = (await import("@/models/LicensePayment")).default;
         
-        // Current/most-recent period
-        const currentPeriod = await LicenseBillingPeriod.findOne({ license_id: license.id })
-          .sort({ period_start: -1 }).lean();
+        const now = new Date();
         
-        if (currentPeriod) {
-          billingCycleStart = currentPeriod.period_start?.toISOString?.() || null;
-          billingCycleEnd = currentPeriod.period_end?.toISOString?.() || null;
+        // Find the period that contains NOW (not the newest period which may be future)
+        const currentPeriod = await LicenseBillingPeriod.findOne({ 
+          license_id: license.id,
+          period_start: { $lte: now },
+          period_end: { $gt: now }
+        }).lean();
+        
+        // Fallback: if no period contains now, use most recent period before now
+        const activePeriod = currentPeriod || await LicenseBillingPeriod.findOne({ 
+          license_id: license.id,
+          period_start: { $lte: now }
+        }).sort({ period_start: -1 }).lean();
+        
+        if (activePeriod) {
+          billingCycleStart = (activePeriod as any).period_start?.toISOString?.() || null;
+          billingCycleEnd = (activePeriod as any).period_end?.toISOString?.() || null;
           
-          // Count confirmed usage in this period
-          // billing_period_id stores the custom UUID "id" field, NOT MongoDB _id
-          const periodId = (currentPeriod as any).id;
+          // Count ALL confirmed usages across ALL unpaid periods for this license
+          const allPeriods = await LicenseBillingPeriod.find({ license_id: license.id }).lean();
+          const unpaidPeriodIds = allPeriods
+            .filter((p: any) => p.status !== "paid" && p.status !== "waived")
+            .map((p: any) => p.id);
+          
+          // Get all usages for unpaid periods
           const usageAgg = await BillingUsage.aggregate([
-            { $match: { license_id: license.id, billing_period_id: periodId } },
+            { $match: { license_id: license.id, billing_period_id: { $in: unpaidPeriodIds } } },
             { $group: { _id: null, count: { $sum: 1 }, total: { $sum: "$amount" } } },
           ]);
+          
           if (usageAgg.length > 0) {
             billingConfirmedCount = usageAgg[0].count;
             billingConfirmedAmount = usageAgg[0].total;
           }
           
-          // Outstanding = charges - paid
-          billingOutstanding = Math.max(0, 
-            (currentPeriod.amount_due || 0) + billingConfirmedAmount - (currentPeriod.amount_paid || 0)
-          );
+          // Outstanding = total usage charges - total payments on unpaid periods
+          const allPayments = await LicensePayment.find({ license_id: license.id }).lean();
+          const paidPeriodIds = allPeriods
+            .filter((p: any) => p.status === "paid" || p.status === "waived")
+            .map((p: any) => p.id);
+          const paymentsOnPaid = allPayments
+            .filter((p: any) => paidPeriodIds.includes(p.billing_period_id))
+            .reduce((sum, p) => sum + ((p as any).amount_paid || 0), 0);
+          const totalPaid = allPayments.reduce((sum, p) => sum + ((p as any).amount_paid || 0), 0);
+          const paymentsOnUnpaid = totalPaid - paymentsOnPaid;
+          
+          billingOutstanding = Math.max(0, billingConfirmedAmount - paymentsOnUnpaid);
         }
       } catch (e) {
         // Non-critical: billing summary is informational

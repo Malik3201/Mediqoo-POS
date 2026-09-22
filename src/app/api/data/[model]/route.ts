@@ -96,6 +96,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
     if (model === "license_billing_periods" && data.length > 0) {
       const periodIds = data.map((d: any) => d.id);
       
+      // Build a map of license_id -> billing model for fallback
+      const licenseIds = [...new Set(data.map((d: any) => d.license_id))];
+      const licenseDocs = await License.find({ id: { $in: licenseIds } }).select("id billing.model billing.rate_per_invoice").lean();
+      const licenseModelMap = new Map();
+      licenseDocs.forEach((l: any) => licenseModelMap.set(l.id, l.billing?.model));
+
       const usageSummary = await BillingUsage.aggregate([
         { $match: { billing_period_id: { $in: periodIds } } },
         { $group: { _id: "$billing_period_id", count: { $sum: { $ifNull: ["$unit_count", 1] } }, total_amount: { $sum: "$amount" } } }
@@ -109,18 +115,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
       const { deriveOutstanding } = await import("@/lib/billing");
 
       data.forEach((d: any) => {
-        if (d.billing_model === "per_invoice") {
+        // Use period's billing_model if set, otherwise fallback to the license's model
+        const effectiveModel = d.billing_model || licenseModelMap.get(d.license_id) || "fixed";
+        
+        if (effectiveModel === "per_invoice") {
           const usage = usageMap.get(d.id) || { count: 0, total_amount: 0 };
           const periodPayments = payments.filter((p: any) => p.billing_period_id === d.id);
           const periodAdjustments = adjustments.filter((a: any) => a.billing_period_id === d.id);
           
           const totalPaid = periodPayments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
           
-          // Inject dynamic summary properties (normally only found on /usage detail API)
+          // Inject dynamic summary properties
           d.invoice_count = usage.count;
           d.usage_charges = usage.total_amount;
           
-          // amount_due needs to reflect usage charges for per_invoice, so outstanding can be accurately computed everywhere
           d.amount_due = usage.total_amount + periodAdjustments.reduce((sum, adj) => sum + (adj.type === "debit" ? adj.amount : -adj.amount), 0);
           d.amount_paid = totalPaid;
           d.outstanding = deriveOutstanding(usage.total_amount, periodAdjustments, totalPaid);
