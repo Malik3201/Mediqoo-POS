@@ -140,6 +140,48 @@ export async function POST(req: NextRequest) {
     }
     await LicenseSeat.updateOne({ _id: seat._id }, { $set: updateFields });
 
+    // ── Billing summary (for per_invoice signed display on POS) ──
+    let billingConfirmedCount = 0;
+    let billingConfirmedAmount = 0;
+    let billingOutstanding = 0;
+    let billingCycleStart: string | null = null;
+    let billingCycleEnd: string | null = null;
+
+    if (license.billing?.model === "per_invoice" && license.billing?.enabled) {
+      try {
+        const BillingUsage = (await import("@/models/BillingUsage")).default;
+        const LicenseBillingPeriod = (await import("@/models/LicenseBillingPeriod")).default;
+        
+        // Current/most-recent period
+        const currentPeriod = await LicenseBillingPeriod.findOne({ license_id: license.id })
+          .sort({ period_start: -1 }).lean();
+        
+        if (currentPeriod) {
+          billingCycleStart = currentPeriod.period_start?.toISOString?.() || null;
+          billingCycleEnd = currentPeriod.period_end?.toISOString?.() || null;
+          
+          // Count confirmed usage in this period
+          // billing_period_id stores the custom UUID "id" field, NOT MongoDB _id
+          const periodId = (currentPeriod as any).id;
+          const usageAgg = await BillingUsage.aggregate([
+            { $match: { license_id: license.id, billing_period_id: periodId } },
+            { $group: { _id: null, count: { $sum: 1 }, total: { $sum: "$amount" } } },
+          ]);
+          if (usageAgg.length > 0) {
+            billingConfirmedCount = usageAgg[0].count;
+            billingConfirmedAmount = usageAgg[0].total;
+          }
+          
+          // Outstanding = charges - paid
+          billingOutstanding = Math.max(0, 
+            (currentPeriod.amount_due || 0) + billingConfirmedAmount - (currentPeriod.amount_paid || 0)
+          );
+        }
+      } catch (e) {
+        // Non-critical: billing summary is informational
+      }
+    }
+
     const payload = {
       cloud_dashboard_enabled: isCloudDashboardEnabled(license),
       cloud_backup_enabled: license.features?.cloud_backup === true,
@@ -153,6 +195,11 @@ export async function POST(req: NextRequest) {
       seat_id: seat.id,
       billing_model: license.billing?.model || "fixed",
       billing_rate_per_invoice: license.billing?.rate_per_invoice || 0,
+      billing_confirmed_count: billingConfirmedCount,
+      billing_confirmed_amount: billingConfirmedAmount,
+      billing_outstanding: billingOutstanding,
+      billing_cycle_start: billingCycleStart,
+      billing_cycle_end: billingCycleEnd,
     };
 
     const signedResponse = await signPayload(payload);
