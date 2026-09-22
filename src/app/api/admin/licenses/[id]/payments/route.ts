@@ -8,7 +8,7 @@ import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import LicensePayment from "@/models/LicensePayment";
 import BillingUsage from "@/models/BillingUsage";
 import BillingAdjustment from "@/models/BillingAdjustment";
-import { deriveOutstanding, resolveBillingModel } from "@/lib/billing";
+import { deriveOutstanding, resolveBillingModel, getCurrentBillingPeriod } from "@/lib/billing";
 
 // Note: we'll call email sending without awaiting it to not block the request.
 // We'll import it dynamically or fetch the internal API, but since we're in the same project, we can import it.
@@ -140,7 +140,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const receiptNumber = `AV-PAY-${new Date().toISOString().slice(2,10).replace(/-/g, "")}-${shortId.slice(-6).toUpperCase()}`;
 
     // Create the LicensePayment
-    const primaryPeriodId = payablePeriods.length > 0 ? payablePeriods[0].period.id : (allPeriods[allPeriods.length - 1]?.id || "");
+    // Primary period = oldest payable period, or current period by time — NEVER newest/future
+    const currentPeriodByTime = getCurrentBillingPeriod(allPeriods.map(p => p.toObject ? p.toObject() : p));
+    const primaryPeriodId = payablePeriods.length > 0 ? payablePeriods[0].period.id : (currentPeriodByTime?.id || allPeriods[0]?.id || "");
     const allocatedPeriodIds = payablePeriods.map(p => p.period.id);
 
     const payment = await LicensePayment.create([{
