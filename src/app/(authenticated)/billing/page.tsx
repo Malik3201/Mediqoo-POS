@@ -51,7 +51,10 @@ export default function BillingPage() {
     amount_paid: 0,
     payment_method: "Bank Transfer",
     payment_reference: "",
-    notes: ""
+    notes: "",
+    override_renewal: false,
+    override_reason: "",
+    action: "renew"
   });
   const [submitting, setSubmitting] = useState(false);
   // Master Table Data: Combine License with its active Billing Period

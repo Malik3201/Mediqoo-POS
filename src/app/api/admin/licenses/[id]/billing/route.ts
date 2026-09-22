@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
+import LicenseSeat from "@/models/LicenseSeat";
 import ReleaseInstall from "@/models/ReleaseInstall";
 import { calculatePeriodDates, resolveBillingModel, isVersionEligible, MIN_PER_INVOICE_POS_VERSION } from "@/lib/billing";
 
