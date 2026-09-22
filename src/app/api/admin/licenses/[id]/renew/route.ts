@@ -8,7 +8,7 @@ import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import LicensePayment from "@/models/LicensePayment";
 import BillingUsage from "@/models/BillingUsage";
 import BillingAdjustment from "@/models/BillingAdjustment";
-import { calculateRenewalDates, calculatePeriodDates, resolveBillingModel, deriveOutstanding } from "@/lib/billing";
+import { calculateRenewalDates, calculatePeriodDates, resolveBillingModel, deriveOutstanding, getCurrentBillingPeriod } from "@/lib/billing";
 import { sendPaymentReceipt } from "@/lib/email";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -104,7 +104,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const shortId = idempotency_key.split("_").pop() || Date.now().toString().slice(-6);
       const receiptNumber = `AV-PAY-${new Date().toISOString().slice(2,10).replace(/-/g, "")}-${shortId.slice(-6).toUpperCase()}`;
       
-      const primaryPeriodId = payablePeriods.length > 0 ? payablePeriods[0].period.id : (allPeriods[allPeriods.length - 1]?.id || "");
+      // Primary period = oldest payable period, or current period by time — NEVER newest/future
+      const currentPeriodByTime = getCurrentBillingPeriod(allPeriods.map(p => p.toObject ? p.toObject() : p));
+      const primaryPeriodId = payablePeriods.length > 0 
+        ? payablePeriods[0].period.id 
+        : (currentPeriodByTime?.id || allPeriods[0]?.id || "");
       const allocatedPeriodIds = payablePeriods.map(p => p.period.id);
 
       const payment = await LicensePayment.create([{
@@ -140,12 +144,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         period.amount_paid = (period.amount_paid || 0) + allocation;
         amountRemaining = Math.max(0, amountRemaining - allocation);
         
-        if (period.amount_paid >= period.amount_due && period.amount_due > 0) {
-          period.status = "paid";
-          lastSettledPeriod = period;
-          anyPeriodPaid = true;
+        if (billingModel === "per_invoice") {
+          // For per_invoice: derive status from actual usage vs payments
+          const periodUsages = await BillingUsage.find({ billing_period_id: period.id }).session(session);
+          const periodUsageAmount = periodUsages.reduce((s: number, u: any) => s + u.amount, 0);
+          const allPeriodPayments = await LicensePayment.find({ billing_period_id: period.id }).session(session);
+          const periodTotalPaid = allPeriodPayments.reduce((s: number, p: any) => s + p.amount_paid, 0);
+          
+          if (periodTotalPaid >= periodUsageAmount && periodUsageAmount > 0) {
+            period.status = "paid";
+            lastSettledPeriod = period;
+            anyPeriodPaid = true;
+          } else if (periodTotalPaid > 0) {
+            period.status = "partially_paid";
+          }
         } else {
-          period.status = "partially_paid";
+          // Fixed billing: use amount_due
+          if (period.amount_paid >= period.amount_due && period.amount_due > 0) {
+            period.status = "paid";
+            lastSettledPeriod = period;
+            anyPeriodPaid = true;
+          } else {
+            period.status = "partially_paid";
+          }
         }
 
         if (override_renewal) {

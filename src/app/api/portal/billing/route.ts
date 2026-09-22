@@ -34,16 +34,17 @@ export async function GET(req: NextRequest) {
           { LicenseBillingPeriod, BillingUsage, BillingAdjustment, LicensePayment }
         );
 
-        totalOutstanding = summary.outstanding;
+        totalOutstanding = summary.accountOutstanding;
         currentPeriod = summary.currentPeriod;
         unpaidPeriods = summary.unpaidPeriods;
         paymentHistory = (summary.paymentHistory as any[]);
 
         extraDetails = {
-          invoice_count: summary.usageCount,
-          usage_amount: summary.usageAmount,
-          payment_amount: summary.paymentsOnPastCurrent,
-          adjustments_amount: summary.adjustmentsNet,
+          invoice_count: summary.accruedUsageCount,
+          usage_amount: summary.accruedUsageAmount,
+          payment_amount: summary.paymentsAppliedToAccrued,
+          adjustments_debits: summary.adjustmentDebits,
+          adjustments_credits: summary.adjustmentCredits,
         };
       } else {
         const periods = await LicenseBillingPeriod.find({ license_id: license.id })

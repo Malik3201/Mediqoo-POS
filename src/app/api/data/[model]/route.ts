@@ -112,7 +112,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
       const payments = await LicensePayment.find({ billing_period_id: { $in: periodIds } }).lean();
       const adjustments = await BillingAdjustment.find({ billing_period_id: { $in: periodIds } }).lean();
       
-      const { deriveOutstanding } = await import("@/lib/billing");
+      const { deriveOutstanding, deriveEffectiveStatus } = await import("@/lib/billing");
 
       data.forEach((d: any) => {
         // Use period's billing_model if set, otherwise fallback to the license's model
@@ -132,6 +132,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
           d.amount_due = usage.total_amount + periodAdjustments.reduce((sum, adj) => sum + (adj.type === "debit" ? adj.amount : -adj.amount), 0);
           d.amount_paid = totalPaid;
           d.outstanding = deriveOutstanding(usage.total_amount, periodAdjustments, totalPaid);
+          
+          // Derive effective status from actual ledger — DO NOT trust stored status
+          d.effective_status = deriveEffectiveStatus(usage.total_amount, totalPaid);
         }
       });
     }

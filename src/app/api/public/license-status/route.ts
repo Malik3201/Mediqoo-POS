@@ -166,9 +166,9 @@ export async function POST(req: NextRequest) {
           billingCycleEnd = (summary.currentPeriod as any).period_end?.toISOString?.() 
             || new Date((summary.currentPeriod as any).period_end).toISOString();
         }
-        billingConfirmedCount = summary.usageCount;
-        billingConfirmedAmount = summary.usageAmount;
-        billingOutstanding = summary.outstanding;
+        billingConfirmedCount = summary.accruedUsageCount;
+        billingConfirmedAmount = summary.accruedUsageAmount;
+        billingOutstanding = summary.accountOutstanding;
       } catch (e) {
         // Non-critical: billing summary is informational
       }

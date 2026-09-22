@@ -382,57 +382,77 @@ export async function getLicenseBillingSummary(
 ) {
   const { LicenseBillingPeriod, BillingUsage, BillingAdjustment, LicensePayment } = models;
 
-  // Load all periods
+  // Load all periods and payments
   const allPeriods = await LicenseBillingPeriod.find({ license_id: licenseId })
     .sort({ period_start: 1 }).lean();
+  const allPayments = await LicensePayment.find({ license_id: licenseId }).lean();
 
   // Determine current period by TIME
   const currentPeriod = getCurrentBillingPeriod(allPeriods, now);
 
   // Categorize periods BY TIME, NOT BY PAYMENT STATUS
-  // "paid" status does NOT mean no outstanding — a per_invoice period can
-  // accumulate usage AFTER a payment was recorded.
   const nowMs = now.getTime();
-  const pastAndCurrentPeriods = allPeriods.filter((p: any) =>
+  const accruedPeriods = allPeriods.filter((p: any) =>
     new Date(p.period_start).getTime() <= nowMs
   );
   const futurePeriods = allPeriods.filter((p: any) =>
     new Date(p.period_start).getTime() > nowMs
   );
+  const accruedPeriodIds = accruedPeriods.map((p: any) => p.id);
+  const futurePeriodIds = futurePeriods.map((p: any) => p.id);
 
-  // Use ALL past+current period IDs for aggregation (NOT filtered by status)
-  const pastCurrentIds = pastAndCurrentPeriods.map((p: any) => p.id);
-
-  // Usage aggregation across ALL past+current periods
-  const usageAgg = await BillingUsage.aggregate([
-    { $match: { license_id: licenseId, billing_period_id: { $in: pastCurrentIds } } },
-    { $group: { _id: null, count: { $sum: 1 }, total: { $sum: "$amount" } } }
+  // ── Per-period usage aggregation ──
+  const usageByPeriodAgg = await BillingUsage.aggregate([
+    { $match: { license_id: licenseId } },
+    { $group: { _id: "$billing_period_id", count: { $sum: 1 }, total: { $sum: "$amount" } } }
   ]);
+  const usageByPeriod: Record<string, { count: number; total: number }> = {};
+  usageByPeriodAgg.forEach((u: any) => { usageByPeriod[u._id] = { count: u.count, total: u.total }; });
 
-  const usageCount = usageAgg.length > 0 ? usageAgg[0].count : 0;
-  const usageAmount = usageAgg.length > 0 ? usageAgg[0].total : 0;
+  // ── Accrued usage (past+current periods only) ──
+  let accruedUsageCount = 0;
+  let accruedUsageAmount = 0;
+  for (const pid of accruedPeriodIds) {
+    const u = usageByPeriod[pid];
+    if (u) { accruedUsageCount += u.count; accruedUsageAmount += u.total; }
+  }
 
-  // Adjustments on past+current periods
+  // ── Adjustments on accrued periods ──
   const adjustments = await BillingAdjustment.find({
-    billing_period_id: { $in: pastCurrentIds }
+    billing_period_id: { $in: accruedPeriodIds }
   }).lean();
-  const adjustmentsNet = (adjustments as any[]).reduce((sum: number, a: any) =>
-    sum + (a.type === "debit" ? a.amount : -a.amount), 0
-  );
+  const adjustmentDebits = (adjustments as any[])
+    .filter((a: any) => a.type === "debit")
+    .reduce((sum: number, a: any) => sum + a.amount, 0);
+  const adjustmentCredits = (adjustments as any[])
+    .filter((a: any) => a.type === "credit" || a.type === "waiver")
+    .reduce((sum: number, a: any) => sum + a.amount, 0);
 
-  // Total payments across ALL periods (including "paid" ones)
-  const allPayments = await LicensePayment.find({ license_id: licenseId }).lean();
-  
-  // Payments on past+current periods only (exclude future period payments)
-  const futureIds = futurePeriods.map((p: any) => p.id);
-  const paymentsOnPastCurrent = (allPayments as any[])
-    .filter((p: any) => !futureIds.includes(p.billing_period_id))
+  // ── Payments applied to accrued balance ──
+  // Only count payments whose billing_period_id is an accrued (past/current) period.
+  // Payments misallocated to future periods are NOT subtracted from accrued outstanding.
+  const paymentsAppliedToAccrued = (allPayments as any[])
+    .filter((p: any) => accruedPeriodIds.includes(p.billing_period_id))
     .reduce((sum: number, p: any) => sum + (p.amount_paid || 0), 0);
 
-  const outstanding = Math.max(0, usageAmount + adjustmentsNet - paymentsOnPastCurrent);
+  // Payments misallocated to future periods (informational)
+  const paymentsMisallocatedToFuture = (allPayments as any[])
+    .filter((p: any) => futurePeriodIds.includes(p.billing_period_id))
+    .reduce((sum: number, p: any) => sum + (p.amount_paid || 0), 0);
 
-  // For display: unpaid periods by status (informational only, NOT for filtering usage)
-  const unpaidPeriods = pastAndCurrentPeriods.filter((p: any) =>
+  // ── Account Outstanding ──
+  // outstanding = accrued_charges + debits - credits - payments_on_accrued
+  const accruedCharges = accruedUsageAmount + adjustmentDebits - adjustmentCredits;
+  const accountOutstanding = Math.max(0, accruedCharges - paymentsAppliedToAccrued);
+
+  // ── Derive effective status for each accrued period ──
+  const paymentsByPeriod: Record<string, number> = {};
+  (allPayments as any[]).forEach((p: any) => {
+    paymentsByPeriod[p.billing_period_id] = (paymentsByPeriod[p.billing_period_id] || 0) + (p.amount_paid || 0);
+  });
+
+  // For display: unpaid periods by status (informational)
+  const unpaidPeriods = accruedPeriods.filter((p: any) =>
     p.status !== "paid" && p.status !== "waived"
   );
 
@@ -440,19 +460,47 @@ export async function getLicenseBillingSummary(
     currentPeriod,
     nextPeriod: futurePeriods[0] || null,
 
-    // Usage across ALL past+current periods
-    usageCount,
-    usageAmount,
-    paymentsOnPastCurrent,
-    adjustmentsNet,
-    outstanding,
+    // Accrued usage (past+current periods, by TIME)
+    accruedUsageCount,
+    accruedUsageAmount,
+
+    // Adjustments
+    adjustmentDebits,
+    adjustmentCredits,
+
+    // Payments
+    paymentsAppliedToAccrued,
+    paymentsMisallocatedToFuture,
+
+    // Account-level outstanding (ONE canonical number)
+    accountOutstanding,
 
     // Period metadata
     allPeriods,
+    accruedPeriods,
     unpaidPeriods,
     futurePeriods,
 
-    // Payment history
+    // Per-period breakdown
+    usageByPeriod,
+    paymentsByPeriod,
+
+    // Full payment history
     paymentHistory: allPayments,
   };
+}
+
+/**
+ * Derives the effective financial status for a per_invoice billing period.
+ * Does NOT trust stored status — computes from actual ledger data.
+ */
+export function deriveEffectiveStatus(
+  usageAmount: number,
+  paymentsApplied: number,
+): "unpaid" | "partially_paid" | "paid" | "no_activity" {
+  if (usageAmount <= 0 && paymentsApplied <= 0) return "no_activity";
+  if (usageAmount <= 0 && paymentsApplied > 0) return "paid"; // overpayment edge
+  if (paymentsApplied <= 0) return "unpaid";
+  if (paymentsApplied < usageAmount) return "partially_paid";
+  return "paid";
 }

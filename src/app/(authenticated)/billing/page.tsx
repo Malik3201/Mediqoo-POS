@@ -75,31 +75,43 @@ export default function BillingPage() {
   const [defaultTab, setDefaultTab] = useState("usage");
   // Master Table Data: Combine License with its active Billing Period
   const activeBillingData = useMemo(() => {
+    const now = Date.now();
     return licenses.filter((l: any) => l.billing?.enabled).map((l: any) => {
-      // Find the most recent/relevant unpaid billing period, or the latest paid one
       const periodsForLicense = billingPeriods.filter((bp: any) => bp.license_id === l.id);
       
-      // Sort ASCENDING (oldest due date first) so we address oldest arrears first
-      periodsForLicense.sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
+      // Sort ASCENDING (oldest first)
+      periodsForLicense.sort((a: any, b: any) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime());
       
-      const unpaidPeriods = periodsForLicense.filter((bp: any) => bp.status !== "paid" && bp.status !== "waived");
+      // Current period by TIME (period_start <= now < period_end)
+      const currentPeriod = periodsForLicense.find((bp: any) => {
+        const start = new Date(bp.period_start).getTime();
+        const end = new Date(bp.period_end).getTime();
+        return now >= start && now < end;
+      }) || periodsForLicense.filter((bp: any) => new Date(bp.period_start).getTime() <= now).pop() || null;
+
+      // Past+current periods (by TIME, not by status)
+      const accruedPeriods = periodsForLicense.filter((bp: any) =>
+        new Date(bp.period_start).getTime() <= now
+      );
       
-      // The "current" obligation is the oldest unpaid period.
-      // If fully paid up, it's the latest future pre-created period.
-      const currentPeriod = unpaidPeriods[0] || periodsForLicense[periodsForLicense.length - 1] || null;
+      // Use effective_status (derived from actual ledger) instead of stored status
+      const unpaidPeriods = accruedPeriods.filter((bp: any) => {
+        const es = bp.effective_status || bp.status;
+        return es !== "paid" && es !== "waived" && es !== "no_activity";
+      });
 
       const previousPeriodsExist = periodsForLicense.length > 1 || (periodsForLicense[0] && (periodsForLicense[0].status === "paid" || periodsForLicense[0].status === "waived"));
 
       const operationalStatus = deriveOperationalStatus(l);
       const billingStatus = deriveBillingStatus(l, currentPeriod, previousPeriodsExist);
 
-      // Aggregate all unpaid periods for accurate UI display
+      // Aggregate ALL accrued periods for accurate account-level display
       let totalUnpaidAmountDue = 0;
       let totalUnpaidUsageCharges = 0;
       let totalUnpaidInvoiceCount = 0;
       
-      unpaidPeriods.forEach((bp: any) => {
-        totalUnpaidAmountDue += (bp.outstanding ?? Math.max(0, bp.amount_due - (bp.amount_paid || 0)));
+      accruedPeriods.forEach((bp: any) => {
+        totalUnpaidAmountDue += (bp.outstanding ?? Math.max(0, (bp.amount_due || 0) - (bp.amount_paid || 0)));
         totalUnpaidUsageCharges += (bp.usage_charges || 0);
         totalUnpaidInvoiceCount += (bp.invoice_count || 0);
       });
