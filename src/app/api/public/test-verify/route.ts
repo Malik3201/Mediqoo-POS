@@ -6,6 +6,7 @@ import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import BillingUsage from "@/models/BillingUsage";
 import BillingAdjustment from "@/models/BillingAdjustment";
 import LicensePayment from "@/models/LicensePayment";
+import { getLicenseBillingSummary, getCurrentBillingPeriod } from "@/lib/billing";
 
 export const runtime = "nodejs";
 
@@ -19,11 +20,14 @@ export async function GET() {
 
     const client = await Client.findOne({ id: (license as any).client_id }).lean();
 
-    // PHASE 3: ALL billing periods for this license
-    const allPeriods = await LicenseBillingPeriod.find({ license_id: (license as any).id })
-      .sort({ period_start: 1 }).lean();
+    // Use the SAME canonical helper that license-status and portal/billing use
+    const summary = await getLicenseBillingSummary(
+      (license as any).id,
+      { LicenseBillingPeriod, BillingUsage, BillingAdjustment, LicensePayment },
+      now
+    );
 
-    // Per-period usage aggregation
+    // Per-period breakdown for diagnostics
     const usageAgg = await BillingUsage.aggregate([
       { $match: { license_id: (license as any).id } },
       { $group: { _id: "$billing_period_id", count: { $sum: 1 }, total: { $sum: "$amount" } } }
@@ -31,15 +35,13 @@ export async function GET() {
     const usageByPeriod: Record<string, { count: number; total: number }> = {};
     usageAgg.forEach((u: any) => { usageByPeriod[u._id] = { count: u.count, total: u.total }; });
 
-    // Per-period payment aggregation
     const allPayments = await LicensePayment.find({ license_id: (license as any).id }).lean();
     const paymentsByPeriod: Record<string, number> = {};
     (allPayments as any[]).forEach((p: any) => {
       paymentsByPeriod[p.billing_period_id] = (paymentsByPeriod[p.billing_period_id] || 0) + (p.amount_paid || 0);
     });
 
-    // Build period table
-    const periodTable = allPeriods.map((p: any) => {
+    const periodTable = summary.allPeriods.map((p: any) => {
       const usage = usageByPeriod[p.id] || { count: 0, total: 0 };
       const paid = paymentsByPeriod[p.id] || 0;
       const isCurrentPeriod = new Date(p.period_start) <= now && now < new Date(p.period_end);
@@ -53,9 +55,6 @@ export async function GET() {
         status: p.status,
         amount_due: p.amount_due,
         amount_paid: p.amount_paid,
-        due_at: p.due_at,
-        created_at: p.created_at,
-        // Computed
         usage_count: usage.count,
         usage_amount: usage.total,
         payments_on_period: paid,
@@ -66,35 +65,6 @@ export async function GET() {
       };
     });
 
-    // Identify current active period (period_start <= now < period_end)
-    const currentPeriod = periodTable.find(p => p.is_current_period);
-    
-    // Total across ALL unpaid periods
-    const unpaidPeriods = periodTable.filter(p => p.status !== "paid" && p.status !== "waived");
-    const totalUsageCount = unpaidPeriods.reduce((s, p) => s + p.usage_count, 0);
-    const totalUsageAmount = unpaidPeriods.reduce((s, p) => s + p.usage_amount, 0);
-    const totalPayments = unpaidPeriods.reduce((s, p) => s + p.payments_on_period, 0);
-    const totalOutstanding = Math.max(0, totalUsageAmount - totalPayments);
-
-    // What license-status SHOULD return
-    const licenseStatusExpected = {
-      billing_cycle_start: currentPeriod?.period_start || null,
-      billing_cycle_end: currentPeriod?.period_end || null,
-      billing_confirmed_count: totalUsageCount,
-      billing_confirmed_amount: totalUsageAmount,
-      billing_outstanding: totalOutstanding
-    };
-
-    // All usage records (to verify billing_period_id mapping)
-    const allUsages = await BillingUsage.find({ license_id: (license as any).id }).sort({ occurred_at: -1 }).limit(5).lean();
-    const sampleUsages = (allUsages as any[]).map((u: any) => ({
-      id: u.id,
-      billing_period_id: u.billing_period_id,
-      occurred_at: u.occurred_at,
-      amount: u.amount,
-      invoice_number: u.invoice_number_snapshot
-    }));
-
     return NextResponse.json({
       now: now.toISOString(),
       license_id: (license as any).id,
@@ -103,30 +73,27 @@ export async function GET() {
       billing_rate: (license as any).billing.rate_per_invoice,
       expires_at: (license as any).expires_at,
 
-      period_count: allPeriods.length,
-      periods: periodTable,
-
-      current_active_period: currentPeriod || "NONE_FOUND",
-
-      total_unpaid_summary: {
-        unpaid_period_count: unpaidPeriods.length,
-        total_usage_count: totalUsageCount,
-        total_usage_amount: totalUsageAmount,
-        total_payments: totalPayments,
-        total_outstanding: totalOutstanding
+      // CANONICAL SUMMARY (same as license-status and portal use)
+      canonical_summary: {
+        current_period_id: (summary.currentPeriod as any)?.id,
+        current_period_start: (summary.currentPeriod as any)?.period_start,
+        current_period_end: (summary.currentPeriod as any)?.period_end,
+        usage_count: summary.usageCount,
+        usage_amount: summary.usageAmount,
+        payments_on_past_current: summary.paymentsOnPastCurrent,
+        adjustments_net: summary.adjustmentsNet,
+        outstanding: summary.outstanding,
+        next_period_id: (summary.nextPeriod as any)?.id,
       },
 
-      license_status_expected: licenseStatusExpected,
+      periods: periodTable,
 
       payment_history: (allPayments as any[]).map((p: any) => ({
         id: p.id,
         billing_period_id: p.billing_period_id,
         amount_paid: p.amount_paid,
         paid_at: p.paid_at,
-        receipt_number: p.receipt_number
       })),
-
-      sample_recent_usages: sampleUsages
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message, stack: e.stack }, { status: 500 });
