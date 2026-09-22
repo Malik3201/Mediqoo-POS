@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard } from "lucide-react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard, AlertTriangle, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useQueryClient } from "@tanstack/react-query";
@@ -62,10 +62,19 @@ type License = {
   notes: string | null;
   billing?: {
     enabled: boolean;
+    model?: "fixed" | "per_invoice";
     amount: number;
+    rate_per_invoice?: number;
     currency: string;
     cycle: string;
     grace_days: number;
+    reminder_days?: number[];
+    pending_changes?: {
+      model?: "fixed" | "per_invoice";
+      amount?: number;
+      rate_per_invoice?: number;
+      effective_from?: string;
+    } | null;
   };
   projects?: { name: string; slug: string } | null;
   clients?: { name: string } | null;
@@ -113,11 +122,17 @@ export default function LicensesPage() {
   const [billingTarget, setBillingTarget] = useState<License | null>(null);
   const [billingForm, setBillingForm] = useState({
     enabled: false,
+    model: "fixed" as "fixed" | "per_invoice",
     amount: 1500,
+    rate_per_invoice: 1,
     currency: "PKR",
     cycle: "monthly",
     grace_days: 3,
+    reminder_days: [1] as number[],
   });
+  const [billingSaving, setBillingSaving] = useState(false);
+  const [eligibility, setEligibility] = useState<any>(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.find((p: Project) => p.id === form.project_id) ?? null,
@@ -248,19 +263,41 @@ export default function LicensesPage() {
     }
   }
 
+  const fetchEligibility = useCallback(async (licenseId: string) => {
+    setEligibilityLoading(true);
+    try {
+      const res = await fetch(`/api/admin/licenses/${licenseId}/billing-eligibility`);
+      if (res.ok) setEligibility(await res.json());
+    } catch { /* ignore */ }
+    finally { setEligibilityLoading(false); }
+  }, []);
+
   function openBilling(lic: License) {
     setBillingTarget(lic);
+    setEligibility(null);
     setBillingForm({
       enabled: lic.billing?.enabled ?? false,
+      model: (lic.billing?.model ?? "fixed") as "fixed" | "per_invoice",
       amount: lic.billing?.amount ?? 1500,
+      rate_per_invoice: lic.billing?.rate_per_invoice ?? 1,
       currency: lic.billing?.currency ?? "PKR",
       cycle: (lic.billing?.cycle ?? "monthly") as "monthly" | "yearly",
       grace_days: lic.billing?.grace_days ?? 3,
+      reminder_days: lic.billing?.reminder_days ?? [1],
     });
+    fetchEligibility(lic.id);
   }
 
   async function saveBilling() {
     if (!billingTarget) return;
+    if (billingForm.model === "per_invoice") {
+      const rate = Number(billingForm.rate_per_invoice);
+      if (!rate || rate <= 0 || !isFinite(rate)) {
+        toast.error("Rate per invoice must be a positive number.");
+        return;
+      }
+    }
+    setBillingSaving(true);
     try {
       const res = await fetch(`/api/admin/licenses/${billingTarget.id}/billing`, {
         method: "PATCH",
@@ -268,22 +305,52 @@ export default function LicensesPage() {
         body: JSON.stringify({
           billing: {
             enabled: billingForm.enabled,
-            amount: Number(billingForm.amount) || 0,
+            model: billingForm.model,
+            amount: billingForm.model === "fixed" ? Number(billingForm.amount) || 0 : 0,
+            rate_per_invoice: billingForm.model === "per_invoice" ? Number(billingForm.rate_per_invoice) : undefined,
             currency: billingForm.currency,
             cycle: billingForm.cycle,
             grace_days: Number(billingForm.grace_days) || 3,
-            reminder_days: [1],
+            reminder_days: billingForm.reminder_days,
           }
         })
       });
+      const data = await res.json();
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to save billing configuration");
+        throw new Error(data.error || data.detail || "Failed to save billing configuration");
       }
-      toast.success("Billing configuration saved");
+      if (data.applied === "pending") {
+        toast.success("Change scheduled for next renewal", { description: data.message });
+      } else {
+        toast.success("Billing configuration saved");
+      }
+      await queryClient.invalidateQueries({ queryKey: ["licenses"] });
       setBillingTarget(null);
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setBillingSaving(false);
+    }
+  }
+
+  async function cancelPending() {
+    if (!billingTarget) return;
+    setBillingSaving(true);
+    try {
+      const res = await fetch(`/api/admin/licenses/${billingTarget.id}/billing`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancel_pending: true })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to cancel");
+      toast.success("Scheduled change cancelled");
+      await queryClient.invalidateQueries({ queryKey: ["licenses"] });
+      setBillingTarget(null);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setBillingSaving(false);
     }
   }
 
@@ -394,8 +461,14 @@ export default function LicensesPage() {
                     <TableCell>
                       {r.billing?.enabled ? (
                         <div className="flex flex-col gap-1 text-xs">
-                          <span className="font-semibold text-primary">{r.billing.currency} {r.billing.amount} / {r.billing.cycle}</span>
-                          <span className="text-muted-foreground">Grace: {r.billing.grace_days}d</span>
+                          {r.billing.model === "per_invoice" ? (
+                            <span className="font-semibold text-primary">Per Invoice • {r.billing.currency} {r.billing.rate_per_invoice ?? 1}/{r.billing.cycle?.charAt(0) === 'y' ? 'yr' : 'mo'}</span>
+                          ) : (
+                            <span className="font-semibold text-primary">Fixed • {r.billing.currency} {r.billing.amount?.toLocaleString()}/{r.billing.cycle?.charAt(0) === 'y' ? 'yr' : 'mo'}</span>
+                          )}
+                          {r.billing.pending_changes && (
+                            <span className="text-amber-600 flex items-center gap-1"><Clock className="h-3 w-3" /> Scheduled change</span>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
@@ -618,11 +691,12 @@ export default function LicensesPage() {
       </Dialog>
 
       <Dialog open={!!billingTarget} onOpenChange={(v) => !v && setBillingTarget(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Billing Configuration</DialogTitle>
+            <DialogTitle>Billing Configuration — {billingTarget?.projects?.name}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {/* Enable toggle */}
             <div className="flex items-center gap-2">
               <input 
                 type="checkbox" 
@@ -633,16 +707,148 @@ export default function LicensesPage() {
               />
               <Label htmlFor="billingEnabled">Enable Recurring Billing</Label>
             </div>
+
             {billingForm.enabled && (
               <>
-                <div className="grid gap-2">
-                  <Label>Amount</Label>
-                  <Input
-                    type="number"
-                    value={billingForm.amount}
-                    onChange={(e) => setBillingForm({ ...billingForm, amount: Number(e.target.value) })}
-                  />
+                {/* ── Pending Changes Banner ── */}
+                {billingTarget?.billing?.pending_changes && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm">
+                    <div className="flex items-center gap-2 font-semibold text-amber-700 dark:text-amber-400 mb-2">
+                      <Clock className="h-4 w-4" /> Scheduled Change (Next Renewal)
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <span className="text-muted-foreground">New Model:</span>
+                      <span className="font-medium capitalize">{billingTarget.billing.pending_changes.model === "per_invoice" ? "Per Invoice" : "Fixed Subscription"}</span>
+                      {billingTarget.billing.pending_changes.model === "per_invoice" && (
+                        <><span className="text-muted-foreground">New Rate:</span>
+                        <span className="font-medium">{billingTarget.billing.currency} {billingTarget.billing.pending_changes.rate_per_invoice}/invoice</span></>
+                      )}
+                      {billingTarget.billing.pending_changes.model === "fixed" && billingTarget.billing.pending_changes.amount !== undefined && (
+                        <><span className="text-muted-foreground">New Amount:</span>
+                        <span className="font-medium">{billingTarget.billing.currency} {billingTarget.billing.pending_changes.amount}</span></>
+                      )}
+                      {billingTarget.billing.pending_changes.effective_from && (
+                        <><span className="text-muted-foreground">Effective:</span>
+                        <span className="font-medium">{new Date(billingTarget.billing.pending_changes.effective_from).toLocaleDateString()}</span></>
+                      )}
+                    </div>
+                    <Button variant="outline" size="sm" className="mt-2 text-amber-700 border-amber-300" onClick={cancelPending} disabled={billingSaving}>
+                      <XCircle className="h-3 w-3 mr-1" /> Cancel Scheduled Change
+                    </Button>
+                  </div>
+                )}
+
+                {/* ── Current Configuration Label ── */}
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b pb-1">
+                  {billingTarget?.billing?.pending_changes ? "Current Configuration (Active Cycle)" : "Billing Configuration"}
                 </div>
+
+                {/* ── Billing Model Selector ── */}
+                <div className="grid gap-2">
+                  <Label>Billing Model</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBillingForm({ ...billingForm, model: "fixed" })}
+                      className={`rounded-lg border p-3 text-sm text-left transition ${
+                        billingForm.model === "fixed"
+                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                          : "border-muted hover:border-primary/40"
+                      }`}
+                    >
+                      <div className="font-semibold">Fixed Subscription</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">Fixed amount per billing cycle</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBillingForm({ ...billingForm, model: "per_invoice" })}
+                      className={`rounded-lg border p-3 text-sm text-left transition ${
+                        billingForm.model === "per_invoice"
+                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                          : "border-muted hover:border-primary/40"
+                      }`}
+                    >
+                      <div className="font-semibold">Pay Per Invoice</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">Rate per finalized POS invoice</div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── Fixed Plan Fields ── */}
+                {billingForm.model === "fixed" && (
+                  <div className="grid gap-2">
+                    <Label>Subscription Amount</Label>
+                    <Input
+                      type="number"
+                      value={billingForm.amount}
+                      onChange={(e) => setBillingForm({ ...billingForm, amount: Number(e.target.value) })}
+                    />
+                  </div>
+                )}
+
+                {/* ── Per Invoice Fields ── */}
+                {billingForm.model === "per_invoice" && (
+                  <>
+                    <div className="grid gap-2">
+                      <Label>Rate Per Invoice</Label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-muted-foreground">{billingForm.currency}</span>
+                        <Input
+                          type="number"
+                          step="0.5"
+                          min="0.01"
+                          value={billingForm.rate_per_invoice}
+                          onChange={(e) => setBillingForm({ ...billingForm, rate_per_invoice: Number(e.target.value) })}
+                          className="max-w-[120px]"
+                        />
+                        <span className="text-xs text-muted-foreground">/ invoice</span>
+                      </div>
+                    </div>
+
+                    {/* ── Seat Compatibility ── */}
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Metering Compatibility</div>
+                      {eligibilityLoading ? (
+                        <p className="text-xs text-muted-foreground">Checking seat versions…</p>
+                      ) : eligibility ? (
+                        <>
+                          <div className="flex items-center gap-2 mb-2">
+                            {eligibility.eligible ? (
+                              <Badge variant="default" className="bg-green-600"><CheckCircle2 className="h-3 w-3 mr-1" /> All Seats Compatible</Badge>
+                            ) : (
+                              <Badge variant="destructive"><AlertTriangle className="h-3 w-3 mr-1" /> Incompatible Seats</Badge>
+                            )}
+                            <span className="text-xs text-muted-foreground">Min: v{eligibility.minVersion}</span>
+                          </div>
+                          {eligibility.seats.length > 0 && (
+                            <div className="space-y-1">
+                              {eligibility.seats.map((s: any) => (
+                                <div key={s.seatId} className={`flex items-center justify-between text-xs rounded px-2 py-1 ${s.eligible ? "bg-green-50 dark:bg-green-950/20" : "bg-red-50 dark:bg-red-950/20"}`}>
+                                  <span className="font-medium">{s.displayName}</span>
+                                  <span className={s.eligible ? "text-green-600" : "text-red-600"}>
+                                    {s.version ? `v${s.version}` : "No version"} — {s.eligible ? "Compatible" : "Update Required"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {eligibility.seats.length === 0 && (
+                            <p className="text-xs text-muted-foreground">No active terminals. Compatibility will be verified when terminals connect.</p>
+                          )}
+                          {!eligibility.eligible && (
+                            <p className="text-xs text-red-600 mt-2 font-medium">
+                              Update all active POS terminals to v{eligibility.minVersion}+ before enabling Pay Per Invoice.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <Button variant="outline" size="sm" onClick={() => billingTarget && fetchEligibility(billingTarget.id)}>Check Compatibility</Button>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* ── Shared Fields ── */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>Currency</Label>
@@ -671,20 +877,40 @@ export default function LicensesPage() {
                     </Select>
                   </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label>Grace Days</Label>
-                  <Input
-                    type="number"
-                    value={billingForm.grace_days}
-                    onChange={(e) => setBillingForm({ ...billingForm, grace_days: Number(e.target.value) })}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Grace Days</Label>
+                    <Input
+                      type="number"
+                      value={billingForm.grace_days}
+                      onChange={(e) => setBillingForm({ ...billingForm, grace_days: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Reminder Days Before</Label>
+                    <Input
+                      type="number"
+                      value={billingForm.reminder_days[0] ?? 1}
+                      onChange={(e) => setBillingForm({ ...billingForm, reminder_days: [Number(e.target.value) || 1] })}
+                    />
+                  </div>
                 </div>
+
+                {/* ── Immediate vs Pending indicator ── */}
+                {eligibility && !eligibility.canApplyImmediately && (
+                  <div className="rounded border border-blue-200 bg-blue-50 dark:bg-blue-950/20 p-3 text-xs text-blue-700 dark:text-blue-400">
+                    <Clock className="h-3 w-3 inline mr-1" />
+                    An active billing cycle exists. Model or rate changes will be <strong>scheduled for next renewal</strong>. Grace days, currency, and cycle can be updated immediately.
+                  </div>
+                )}
               </>
             )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBillingTarget(null)}>Cancel</Button>
-            <Button onClick={saveBilling}>Save</Button>
+            <Button onClick={saveBilling} disabled={billingSaving || (billingForm.model === "per_invoice" && eligibility && !eligibility.eligible)}>
+              {billingSaving ? "Saving…" : "Save"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

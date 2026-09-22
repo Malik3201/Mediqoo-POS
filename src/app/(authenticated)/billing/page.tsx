@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CreditCard, DollarSign, AlertCircle, CheckCircle2 } from "lucide-react";
+import { useMemo, useState, useCallback } from "react";
+import { CreditCard, DollarSign, AlertCircle, CheckCircle2, FileText, Clock, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery } from "@/hooks/use-data";
 import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
@@ -57,6 +57,15 @@ export default function BillingPage() {
     action: "renew"
   });
   const [submitting, setSubmitting] = useState(false);
+
+  // ── Usage Detail Dialog ──
+  const [usageTarget, setUsageTarget] = useState<any | null>(null);
+  const [usageData, setUsageData] = useState<any | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+
+  // ── Adjustments ──
+  const [adjustmentForm, setAdjustmentForm] = useState({ type: "credit", amount: 0, reason: "" });
+  const [adjustmentSubmitting, setAdjustmentSubmitting] = useState(false);
   // Master Table Data: Combine License with its active Billing Period
   const activeBillingData = useMemo(() => {
     return licenses.filter((l: any) => l.billing?.enabled).map((l: any) => {
@@ -285,6 +294,62 @@ export default function BillingPage() {
     }
   }
 
+  async function openUsageDetail(item: any) {
+    setUsageTarget(item);
+    setUsageData(null);
+    setUsageLoading(true);
+    setAdjustmentForm({ type: "credit", amount: 0, reason: "" });
+    try {
+      const res = await fetch(`/api/admin/licenses/${item.license.id}/usage`);
+      if (res.ok) {
+        setUsageData(await res.json());
+      }
+    } catch (e) {
+      toast.error("Failed to load usage data");
+    } finally {
+      setUsageLoading(false);
+    }
+  }
+
+  async function submitAdjustment() {
+    if (!usageTarget || !usageData) return;
+    if (!adjustmentForm.reason || adjustmentForm.reason.trim().length < 3) {
+      toast.error("Reason must be at least 3 characters");
+      return;
+    }
+    if (!adjustmentForm.amount || adjustmentForm.amount <= 0) {
+      toast.error("Amount must be positive");
+      return;
+    }
+    setAdjustmentSubmitting(true);
+    try {
+      const currentPeriod = usageData.periods?.[0];
+      const res = await fetch(`/api/admin/licenses/${usageTarget.license.id}/adjustments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: adjustmentForm.type,
+          amount: Number(adjustmentForm.amount),
+          reason: adjustmentForm.reason.trim(),
+          billing_period_id: currentPeriod?.period_id || null,
+          currency: usageData.currency || "PKR",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || err.error || "Failed");
+      }
+      toast.success("Adjustment recorded");
+      setAdjustmentForm({ type: "credit", amount: 0, reason: "" });
+      // Refresh usage data
+      openUsageDetail(usageTarget);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setAdjustmentSubmitting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -385,28 +450,33 @@ export default function BillingPage() {
             <TableRow>
               <TableHead>Project</TableHead>
               <TableHead>Client & Contact</TableHead>
-              <TableHead>Cycle & Fee</TableHead>
-              <TableHead>Current Expiry</TableHead>
-              <TableHead>Operational Status</TableHead>
-              <TableHead>Billing Status</TableHead>
-              <TableHead className="w-[140px] text-right">Actions</TableHead>
+              <TableHead>Model</TableHead>
+              <TableHead>Rate / Fee</TableHead>
+              <TableHead>Invoices</TableHead>
+              <TableHead>Outstanding</TableHead>
+              <TableHead>Expiry</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-[180px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                   Loading billing data...
                 </TableCell>
               </TableRow>
             ) : filteredData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                   No billing-enabled licenses match filters.
                 </TableCell>
               </TableRow>
             ) : (
-              filteredData.map((item: any) => (
+              filteredData.map((item: any) => {
+                const isPerInvoice = item.license.billing?.model === "per_invoice";
+                const periodOutstanding = item.currentPeriod ? (item.currentPeriod.amount_due - (item.currentPeriod.amount_paid || 0)) : 0;
+                return (
                 <TableRow key={item.license.id}>
                   <TableCell className="font-medium">{item.license.projects?.name}</TableCell>
                   <TableCell>
@@ -416,37 +486,67 @@ export default function BillingPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-col">
-                      <span className="capitalize">{item.license.billing?.model === "per_invoice" ? "Per Invoice" : item.license.billing?.cycle}</span>
-                      <span className="text-xs text-muted-foreground">{item.license.billing?.currency} {item.license.billing?.amount}{item.license.billing?.model === "per_invoice" ? " / inv" : ""}</span>
-                    </div>
+                    <Badge variant={isPerInvoice ? "secondary" : "outline"} className="text-xs">
+                      {isPerInvoice ? "Per Invoice" : "Fixed"}
+                    </Badge>
+                    {item.license.billing?.pending_changes && (
+                      <div className="flex items-center gap-1 text-amber-600 text-[10px] mt-0.5"><Clock className="h-2.5 w-2.5" /> Pending</div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs">
+                      {isPerInvoice
+                        ? `${item.license.billing?.currency} ${item.license.billing?.rate_per_invoice ?? 1}/inv`
+                        : `${item.license.billing?.currency} ${item.license.billing?.amount?.toLocaleString()}`
+                      }
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-xs">{isPerInvoice ? (item.currentPeriod?.invoice_count ?? "0") : "—"}</span>
+                  </TableCell>
+                  <TableCell>
+                    {item.currentPeriod ? (
+                      <span className={`text-xs font-semibold ${periodOutstanding > 0 ? "text-destructive" : "text-green-600"}`}>
+                        {item.license.billing?.currency} {Math.max(0, periodOutstanding).toLocaleString()}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {item.license.expires_at ? new Date(item.license.expires_at).toLocaleDateString() : "—"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={
-                      item.operationalStatus === "Active" ? "default" :
-                      item.operationalStatus === "Grace Period" ? "secondary" : "destructive"
-                    }>
-                      {item.operationalStatus}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {item.currentPeriod ? (
+                    <div className="flex flex-col items-start gap-1">
                       <Badge variant={
-                        item.billingStatus === "Paid" ? "default" :
-                        item.billingStatus === "Overdue" ? "destructive" :
-                        item.billingStatus === "Due Tomorrow" || item.billingStatus === "Due Today" || item.billingStatus === "Due Soon" ? "secondary" : "outline"
+                        item.operationalStatus === "Active" ? "default" :
+                        item.operationalStatus === "Grace Period" ? "secondary" : "destructive"
                       }>
-                        {item.billingStatus}
+                        {item.operationalStatus}
                       </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-muted-foreground border-dashed">No Period</Badge>
-                    )}
+                      {item.currentPeriod && (
+                        <Badge variant={
+                          item.billingStatus === "Paid" ? "default" :
+                          item.billingStatus === "Overdue" ? "destructive" :
+                          item.billingStatus === "Due Tomorrow" || item.billingStatus === "Due Today" || item.billingStatus === "Due Soon" ? "secondary" : "outline"
+                        } className="text-[10px]">
+                          {item.billingStatus}
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      {isPerInvoice && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openUsageDetail(item)}
+                          title="Usage Detail"
+                        >
+                          <FileText className="h-3 w-3 mr-1" /> Detail
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"
@@ -464,7 +564,7 @@ export default function BillingPage() {
                     </div>
                   </TableCell>
                 </TableRow>
-              ))
+              )})
             )}
           </TableBody>
         </Table>
@@ -708,6 +808,167 @@ export default function BillingPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setHistoryTarget(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Usage Detail Dialog (Per-Invoice) ── */}
+      <Dialog open={!!usageTarget} onOpenChange={(v) => !v && setUsageTarget(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Per-Invoice Usage Detail — {usageTarget?.license.projects?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            {usageLoading ? (
+              <p className="text-muted-foreground text-center py-8">Loading usage data…</p>
+            ) : usageData ? (
+              <>
+                {/* License-level Summary */}
+                <div className="rounded-lg border p-4">
+                  <h4 className="font-semibold text-sm mb-3">Billing Summary</h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <span className="text-muted-foreground">Billing Model:</span>
+                    <span className="font-medium capitalize">{usageData.billing_model === "per_invoice" ? "Per Invoice" : "Fixed"}</span>
+                    <span className="text-muted-foreground">Rate:</span>
+                    <span className="font-medium">{usageData.currency} {usageData.rate}/invoice</span>
+                    <span className="text-muted-foreground">Cycle:</span>
+                    <span className="font-medium capitalize">{usageData.cycle}</span>
+                    {usageData.pending_changes && (
+                      <>
+                        <span className="text-amber-600 font-semibold col-span-2 border-t pt-1 mt-1">Pending Change (Next Renewal)</span>
+                        {usageData.pending_changes.model && (
+                          <><span className="text-muted-foreground">New Model:</span>
+                          <span className="font-medium">{usageData.pending_changes.model === "per_invoice" ? "Per Invoice" : "Fixed"}</span></>
+                        )}
+                        {usageData.pending_changes.rate_per_invoice != null && (
+                          <><span className="text-muted-foreground">New Rate:</span>
+                          <span className="font-medium">{usageData.currency} {usageData.pending_changes.rate_per_invoice}/invoice</span></>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Totals */}
+                <div className="rounded-lg border p-4">
+                  <h4 className="font-semibold text-sm mb-3">All-Time Totals</h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <span className="text-muted-foreground">Total Invoices Metered:</span>
+                    <span className="font-medium">{usageData.totals.usage_count}</span>
+                    <span className="text-muted-foreground">Total Usage Charges:</span>
+                    <span className="font-medium">{usageData.currency} {usageData.totals.total_charges}</span>
+                    <span className="text-muted-foreground">Total Payments:</span>
+                    <span className="font-medium">{usageData.currency} {usageData.totals.total_paid}</span>
+                    <span className="text-muted-foreground">Adjustments (Net):</span>
+                    <span className="font-medium">{usageData.currency} {usageData.totals.adjustments_net}</span>
+                    <span className="font-semibold border-t pt-1 mt-1">Outstanding:</span>
+                    <span className={`font-semibold border-t pt-1 mt-1 ${usageData.totals.outstanding > 0 ? "text-destructive" : "text-green-600"}`}>
+                      {usageData.currency} {usageData.totals.outstanding}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Per-Period Breakdown */}
+                {usageData.periods?.length > 0 && (
+                  <div className="rounded-lg border">
+                    <h4 className="font-semibold text-sm p-4 pb-2">Period Breakdown</h4>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Period</TableHead>
+                          <TableHead>Invoices</TableHead>
+                          <TableHead>Charges</TableHead>
+                          <TableHead>Paid</TableHead>
+                          <TableHead>Outstanding</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {usageData.periods.map((p: any) => (
+                          <TableRow key={p.period_id}>
+                            <TableCell className="text-xs">
+                              {new Date(p.period_start).toLocaleDateString()} – {new Date(p.period_end).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell className="text-xs">{p.usage_count}</TableCell>
+                            <TableCell className="text-xs">{usageData.currency} {p.usage_charges}</TableCell>
+                            <TableCell className="text-xs">{usageData.currency} {p.total_paid}</TableCell>
+                            <TableCell className={`text-xs font-semibold ${p.outstanding > 0 ? "text-destructive" : "text-green-600"}`}>
+                              {usageData.currency} {p.outstanding}
+                            </TableCell>
+                            <TableCell><Badge variant={p.status === "paid" ? "default" : p.status === "partially_paid" ? "secondary" : "outline"} className="text-[10px] capitalize">{p.status}</Badge></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                {/* Recent Adjustments */}
+                {usageData.recent_adjustments?.length > 0 && (
+                  <div className="rounded-lg border">
+                    <h4 className="font-semibold text-sm p-4 pb-2">Adjustment History</h4>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Reason</TableHead>
+                          <TableHead>By</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {usageData.recent_adjustments.map((a: any) => (
+                          <TableRow key={a.id || a._id}>
+                            <TableCell className="text-xs">{new Date(a.created_at).toLocaleDateString()}</TableCell>
+                            <TableCell><Badge variant={a.type === "debit" ? "destructive" : "default"} className="text-[10px] capitalize">{a.type}</Badge></TableCell>
+                            <TableCell className="text-xs">{a.currency} {a.amount}</TableCell>
+                            <TableCell className="text-xs max-w-[200px] truncate">{a.reason}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{a.recorded_by}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                {/* Add Adjustment */}
+                <div className="rounded-lg border p-4">
+                  <h4 className="font-semibold text-sm mb-3 flex items-center gap-2"><Plus className="h-3 w-3" /> Add Adjustment</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs">Type</Label>
+                      <Select value={adjustmentForm.type} onValueChange={(v) => setAdjustmentForm({ ...adjustmentForm, type: v })}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="credit">Credit</SelectItem>
+                          <SelectItem value="debit">Debit</SelectItem>
+                          <SelectItem value="waiver">Waiver</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Amount</Label>
+                      <Input type="number" min="0.01" step="0.01" className="h-8 text-xs" value={adjustmentForm.amount} onChange={(e) => setAdjustmentForm({ ...adjustmentForm, amount: Number(e.target.value) })} />
+                    </div>
+                    <div className="flex items-end">
+                      <Button size="sm" className="h-8" onClick={submitAdjustment} disabled={adjustmentSubmitting}>
+                        {adjustmentSubmitting ? "Saving…" : "Record"}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <Label className="text-xs">Reason</Label>
+                    <Textarea className="text-xs min-h-[60px]" placeholder="Mandatory reason (min 3 chars)" value={adjustmentForm.reason} onChange={(e) => setAdjustmentForm({ ...adjustmentForm, reason: e.target.value })} />
+                  </div>
+                </div>
+              </>
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No data available</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUsageTarget(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

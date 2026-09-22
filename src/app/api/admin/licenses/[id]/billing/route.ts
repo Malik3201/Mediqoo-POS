@@ -17,6 +17,24 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   await connectToDatabase();
   const body = await req.json();
 
+  // ── Cancel pending changes ────────────────────────────────────────────
+  if (body.cancel_pending === true) {
+    const license = await License.findOne({ id });
+    if (!license) return NextResponse.json({ error: "License not found" }, { status: 404 });
+    
+    license.billing = {
+      ...license.billing,
+      pending_changes: null,
+    };
+    await license.save();
+    
+    return NextResponse.json({ 
+      success: true, 
+      billing: license.billing,
+      message: "Pending billing changes cancelled." 
+    });
+  }
+
   if (!body.billing) {
     return NextResponse.json({ error: "Missing billing configuration" }, { status: 400 });
   }
@@ -24,10 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const requestedModel = body.billing.model || "fixed";
 
   // ── Per-invoice version eligibility check ─────────────────────────────
-  // A per_invoice billing model MUST NOT be assignable unless all active seats
-  // for the license have a metering-capable POS version.
   if (requestedModel === "per_invoice") {
-    // We get all assigned seats. Seats that are released/inactive are already deleted from the collection.
     const activeSeats = await LicenseSeat.find({ license_id: id }).lean();
     
     for (const seat of activeSeats) {
@@ -52,10 +67,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     // Validate rate_per_invoice is set and positive
     const rate = Number(body.billing.rate_per_invoice);
-    if (!rate || rate <= 0) {
+    if (!rate || rate <= 0 || !isFinite(rate)) {
       return NextResponse.json({
         error: "invalid_rate",
-        detail: "rate_per_invoice must be a positive number for per_invoice billing model.",
+        detail: "rate_per_invoice must be a positive finite number for per_invoice billing model.",
       }, { status: 400 });
     }
   }
@@ -68,26 +83,76 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!license) throw new Error("License not found");
 
     const previousModel = resolveBillingModel(license.billing);
+    const previousRate = license.billing?.rate_per_invoice || 0;
+    const previousAmount = license.billing?.amount || 0;
 
-    // Update the billing config
-    license.billing = {
+    // ── Determine if model/rate is actually changing ────────────────────
+    const modelChanging = requestedModel !== previousModel;
+    const rateChanging = requestedModel === "per_invoice" && Number(body.billing.rate_per_invoice) !== previousRate;
+    const amountChanging = requestedModel === "fixed" && Number(body.billing.amount) !== previousAmount;
+    const billingConfigChanging = modelChanging || rateChanging || amountChanging;
+
+    // ── Determine if immediate application is safe ──────────────────────
+    // Safe = no active (unpaid/partially_paid) billing periods exist.
+    // This means the license is either new, or all periods are settled.
+    const activePeriods = await LicenseBillingPeriod.find({
+      license_id: license.id,
+      status: { $in: ["unpaid", "partially_paid"] },
+    }).session(session);
+
+    const canApplyImmediately = activePeriods.length === 0;
+
+    // ── Always-updatable fields (grace, cycle, currency, enabled) ───────
+    // These are safe to update mid-cycle as they affect future behavior.
+    const billingBase: any = {
       enabled: Boolean(body.billing.enabled),
+      currency: body.billing.currency || license.billing?.currency || "PKR",
+      cycle: body.billing.cycle || license.billing?.cycle || "monthly",
+      grace_days: Number(body.billing.grace_days) ?? license.billing?.grace_days ?? 3,
+      reminder_days: body.billing.reminder_days || license.billing?.reminder_days || [1],
+      min_app_version: body.billing.min_app_version || license.billing?.min_app_version || undefined,
+    };
+
+    if (billingConfigChanging && !canApplyImmediately) {
+      // ── PENDING CHANGE: Store for next renewal ──────────────────────
+      // Keep current model/amount/rate frozen for the active cycle.
+      license.billing = {
+        ...billingBase,
+        model: previousModel,
+        amount: previousAmount,
+        rate_per_invoice: previousModel === "per_invoice" ? previousRate : undefined,
+        pending_changes: {
+          model: requestedModel,
+          amount: requestedModel === "fixed" ? Number(body.billing.amount) : undefined,
+          rate_per_invoice: requestedModel === "per_invoice" ? Number(body.billing.rate_per_invoice) : undefined,
+          effective_from: activePeriods[0]?.period_end || null,
+        },
+      };
+
+      license.license_version = (license.license_version || 1) + 1;
+      await license.save({ session });
+
+      await session.commitTransaction();
+      session.endSession();
+
+      return NextResponse.json({ 
+        success: true, 
+        billing: license.billing,
+        applied: "pending",
+        message: `Change scheduled for next renewal. Current cycle remains ${previousModel}.`,
+      });
+    }
+
+    // ── IMMEDIATE APPLICATION ─────────────────────────────────────────
+    license.billing = {
+      ...billingBase,
       model: requestedModel,
       amount: Number(body.billing.amount) || 0,
       rate_per_invoice: requestedModel === "per_invoice" ? Number(body.billing.rate_per_invoice) : undefined,
-      currency: body.billing.currency || "PKR",
-      cycle: body.billing.cycle || "monthly",
-      grace_days: Number(body.billing.grace_days) || 3,
-      reminder_days: body.billing.reminder_days || [1],
-      min_app_version: body.billing.min_app_version || undefined,
-      // Preserve existing pending_changes unless explicitly set
-      pending_changes: body.billing.pending_changes !== undefined
-        ? body.billing.pending_changes
-        : (license.billing?.pending_changes || null),
+      pending_changes: null, // Clear any prior pending changes
     };
 
     license.license_version = (license.license_version || 1) + 1;
-
     await license.save({ session });
 
     // Idempotently create the initial billing period if billing is enabled
@@ -107,8 +172,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
           period_start: periodDates.period_start,
           period_end: periodDates.period_end,
           due_at: periodDates.due_at,
-          // For per_invoice: amount_due starts at 0 (derived from usage)
-          // For fixed: amount_due is the configured amount
           amount_due: isPerInvoice ? 0 : (license.billing.amount || 0),
           currency: license.billing.currency,
           billing_model: requestedModel,
@@ -121,7 +184,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     await session.commitTransaction();
     session.endSession();
 
-    return NextResponse.json({ success: true, billing: license.billing });
+    return NextResponse.json({ 
+      success: true, 
+      billing: license.billing,
+      applied: "immediate",
+    });
   } catch (error: any) {
     await session.abortTransaction();
     session.endSession();

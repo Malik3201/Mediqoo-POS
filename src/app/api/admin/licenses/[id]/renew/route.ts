@@ -163,6 +163,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       license.expires_at = dates.newExpiry;
       license.grace_until = dates.newGraceUntil;
+
+      // ── Apply pending billing changes at renewal boundary ────────────
+      if (license.billing?.pending_changes) {
+        const pc = license.billing.pending_changes;
+        if (pc.model) license.billing.model = pc.model;
+        if (pc.amount !== undefined && pc.amount !== null) license.billing.amount = pc.amount;
+        if (pc.rate_per_invoice !== undefined && pc.rate_per_invoice !== null) {
+          license.billing.rate_per_invoice = pc.rate_per_invoice;
+        }
+        license.billing.pending_changes = null; // Clear after applying
+      }
       
       await license.save({ session });
       
@@ -177,18 +188,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
       if (futurePeriods === 0) {
         const periodDates = calculatePeriodDates(dates.newExpiry, license.billing.cycle);
-        // Snapshot the pending rate/model if applicable
+        
+        // Use the (now-applied) billing config for the new period
+        const newModel = resolveBillingModel(license.billing);
+        const isPerInvoice = newModel === "per_invoice";
+
         await LicenseBillingPeriod.create([{
           client_id: license.client_id,
           license_id: license.id,
           period_start: periodDates.period_start,
           period_end: periodDates.period_end,
           due_at: periodDates.due_at,
-          amount_due: license.billing.amount,
+          amount_due: isPerInvoice ? 0 : (license.billing.amount || 0),
           currency: license.billing.currency,
           status: "unpaid",
-          billing_model: resolveBillingModel(license.billing),
-          rate_snapshot: license.billing.amount,
+          billing_model: newModel,
+          rate_snapshot: isPerInvoice ? (license.billing.rate_per_invoice || 0) : (license.billing.amount || 0),
         }], { session });
       }
     }
