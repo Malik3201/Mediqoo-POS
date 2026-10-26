@@ -11,7 +11,8 @@ import {
   User,
   ChevronDown,
   CreditCard,
-  Database
+  Database,
+  Smartphone
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -130,7 +131,18 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           })}
         </nav>
 
-        <div className="p-4 border-t border-slate-100">
+        <div className="p-4 border-t border-slate-100 space-y-2">
+          <a
+            href="/api/public/download-owner-app"
+            download="aivrasolpos_owner_portal.apk"
+            className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-emerald-600" />
+              Owner Portal App
+            </span>
+            <span className="text-[10px] font-bold bg-emerald-200/60 text-emerald-800 px-1.5 py-0.5 rounded">APK</span>
+          </a>
           <button
             onClick={logout}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors"
@@ -180,7 +192,18 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 );
               })}
             </nav>
-            <div className="p-4 border-t border-slate-100">
+            <div className="p-4 border-t border-slate-100 space-y-2">
+              <a
+                href="/api/public/download-owner-app"
+                download="aivrasolpos_owner_portal.apk"
+                className="flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-emerald-600" />
+                  Download Owner App
+                </span>
+                <span className="text-[10px] font-bold bg-emerald-200/60 text-emerald-800 px-1.5 py-0.5 rounded">APK</span>
+              </a>
               <button
                 onClick={logout}
                 className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600"

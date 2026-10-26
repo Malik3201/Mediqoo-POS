@@ -1,6 +1,6 @@
 import connectToDatabase from "@/lib/db";
 import Release from "@/models/Release";
-import { Download } from "lucide-react";
+import { Download, Smartphone } from "lucide-react";
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +96,35 @@ export default async function DownloadPage() {
               <li className="pl-1">Inside the app, click <strong>Install to this PC</strong> to create shortcuts</li>
               <li className="pl-1">Windows SmartScreen? Click <strong>More info</strong> &rarr; <strong>Run anyway</strong></li>
             </ol>
+          </div>
+        </div>
+
+        {/* Owner Portal Mobile App Download Card */}
+        <div className="w-full max-w-3xl bg-white border border-gray-200 rounded-2xl p-6 shadow-sm mt-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 flex-shrink-0">
+                <Smartphone className="w-6 h-6" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-[17px] font-bold text-gray-900">AivraSol Owner Portal Mobile App</h2>
+                  <span className="bg-emerald-50 text-emerald-700 text-[11px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">Android APK</span>
+                </div>
+                <p className="text-[13.5px] text-gray-500">Android 8.0+ &middot; APK &middot; 9.6 MB</p>
+                <p className="text-[13px] text-gray-600 mt-1">
+                  Monitor live pharmacy sales, inventory metrics, cashbook balances, and cloud backups on your phone.
+                </p>
+              </div>
+            </div>
+            <a 
+              href="/api/public/download-owner-app"
+              download="aivrasolpos_owner_portal.apk"
+              className="bg-[#009A4D] hover:bg-[#008643] text-white font-medium px-6 py-3 rounded-lg flex items-center justify-center gap-2 transition-colors w-full md:w-auto whitespace-nowrap self-center"
+            >
+              <Download className="w-[18px] h-[18px]" />
+              Download APK
+            </a>
           </div>
         </div>
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Building2 } from "lucide-react";
+import { Eye, EyeOff, Building2, Smartphone, Download } from "lucide-react";
 
 export default function PortalLoginPage() {
   const router = useRouter();
@@ -62,7 +62,34 @@ export default function PortalLoginPage() {
           </div>
         </div>
         
-
+        {/* App Download Card in Left Panel */}
+        <div className="relative z-10 p-12 pt-0">
+          <div className="bg-slate-800/90 backdrop-blur-md border border-slate-700/80 rounded-2xl p-6 shadow-2xl max-w-md">
+            <div className="flex items-center gap-3.5 mb-3">
+              <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                <Smartphone className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-white font-bold text-sm tracking-tight">Owner Portal App</h3>
+                  <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded">APK</span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">Official Android App &middot; 9.6 MB</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed mb-4">
+              Real-time sales, live profits, inventory alerts, and cloud backup monitoring on your Android phone.
+            </p>
+            <a
+              href="/api/public/download-owner-app"
+              download="aivrasolpos_owner_portal.apk"
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors shadow-lg"
+            >
+              <Download className="w-4 h-4" />
+              Download Owner Portal App (APK)
+            </a>
+          </div>
+        </div>
       </div>
 
       {/* ─── RIGHT PANEL (LOGIN) ─── */}
@@ -150,7 +177,28 @@ export default function PortalLoginPage() {
             </button>
           </form>
 
-
+          {/* Download App Section Below Form */}
+          <div className="mt-8 pt-6 border-t border-slate-100">
+            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900 leading-tight">Download Owner Portal App</h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Android APK &middot; 9.6 MB</p>
+                </div>
+              </div>
+              <a
+                href="/api/public/download-owner-app"
+                download="aivrasolpos_owner_portal.apk"
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors shadow-sm whitespace-nowrap"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download APK
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>
