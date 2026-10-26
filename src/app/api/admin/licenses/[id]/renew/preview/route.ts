@@ -24,11 +24,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const allPeriods = await LicenseBillingPeriod.find({ license_id: license.id }).lean();
     if (allPeriods.length === 0) throw new Error("No billing periods found");
 
-    // Sort chronologically
-    allPeriods.sort((a: any, b: any) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime());
-    const lastPeriod = allPeriods[allPeriods.length - 1];
+    // Parse extension options from query params
+    const { searchParams } = new URL(req.url);
+    const extensionMonthsParam = searchParams.get("extension_months");
+    const customExpiryParam = searchParams.get("custom_expiry");
+    const isLifetimeParam = searchParams.get("is_lifetime");
 
-    const preview = calculateRenewalDates(license as any, lastPeriod.period_end);
+    const extensionMonths = extensionMonthsParam ? Number(extensionMonthsParam) : undefined;
+    const customExpiryDate = customExpiryParam || undefined;
+    const isLifetime = isLifetimeParam === "true";
+
+    const preview = calculateRenewalDates(license as any, {
+      extensionMonths,
+      customExpiryDate,
+      isLifetime,
+    });
 
     const billingModel = resolveBillingModel(license.billing);
     let amount_due = 0;

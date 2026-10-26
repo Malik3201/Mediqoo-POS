@@ -8,6 +8,7 @@ import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import LicensePayment from "@/models/LicensePayment";
 import BillingUsage from "@/models/BillingUsage";
 import BillingAdjustment from "@/models/BillingAdjustment";
+import AuditLog from "@/models/AuditLog";
 import { calculateRenewalDates, calculatePeriodDates, resolveBillingModel, deriveOutstanding, getCurrentBillingPeriod } from "@/lib/billing";
 import { sendPaymentReceipt } from "@/lib/email";
 
@@ -19,7 +20,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   await connectToDatabase();
 
   const body = await req.json();
-  const { amount_paid, payment_method, payment_reference, idempotency_key, notes, override_renewal, override_reason, action } = body;
+  const { 
+    amount_paid, 
+    payment_method, 
+    payment_reference, 
+    idempotency_key, 
+    notes, 
+    override_renewal, 
+    override_reason, 
+    action, // "extend_only", "renew_only", "payment_only", "payment_and_renew", "renew"
+    extension_months,
+    custom_expiry,
+    is_lifetime
+  } = body;
 
   if (!idempotency_key) return NextResponse.json({ error: "idempotency_key required" }, { status: 400 });
   const paymentAmount = Number(amount_paid || 0);
@@ -34,8 +47,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   session.startTransaction();
 
   let paymentRecord: any;
-  let anyPeriodPaid = false;
-  let lastSettledPeriod = null;
 
   try {
     const license = await License.findOne({ id }).populate("clients").session(session);
@@ -88,8 +99,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    if (paymentAmount < totalOutstandingBefore && !override_renewal) {
-      throw new Error(`Amount paid (${paymentAmount}) is insufficient to cover outstanding debt (${totalOutstandingBefore}). Full payment required to renew.`);
+    const isExtendOnly = action === "extend_only" || action === "renew_only";
+    const isPaymentOnly = action === "payment_only";
+    const isPaymentAndRenew = action === "payment_and_renew" || action === "renew" || !action;
+
+    // Determine operations
+    const shouldRecordPayment = !isExtendOnly && (paymentAmount > 0 || override_renewal);
+    const shouldExtendLicense = isExtendOnly || (isPaymentAndRenew && (paymentAmount > 0 || totalOutstandingBefore === 0 || override_renewal));
+
+    if (shouldRecordPayment || (isPaymentAndRenew && totalOutstandingBefore > 0)) {
+      if (paymentAmount < totalOutstandingBefore && !override_renewal) {
+        throw new Error(`Amount paid (${paymentAmount}) is insufficient to cover outstanding debt (${totalOutstandingBefore}). Full payment required to renew.`);
+      }
     }
 
     if (override_renewal && !override_reason) {
@@ -100,11 +121,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       throw new Error(`Overpayment blocked. Amount (${paymentAmount}) exceeds current outstanding (${totalOutstandingBefore}).`);
     }
 
-    if (paymentAmount > 0 || override_renewal) {
+    // 1. Process Payment if requested
+    if (shouldRecordPayment) {
       const shortId = idempotency_key.split("_").pop() || Date.now().toString().slice(-6);
       const receiptNumber = `AV-PAY-${new Date().toISOString().slice(2,10).replace(/-/g, "")}-${shortId.slice(-6).toUpperCase()}`;
       
-      // Primary period = oldest payable period, or current period by time — NEVER newest/future
       const currentPeriodByTime = getCurrentBillingPeriod(allPeriods.map(p => p.toObject ? p.toObject() : p));
       const primaryPeriodId = payablePeriods.length > 0 
         ? payablePeriods[0].period.id 
@@ -117,7 +138,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         billing_period_id: primaryPeriodId,
         billing_period_ids: allocatedPeriodIds,
         amount_paid: paymentAmount,
-        currency: license.billing.currency || "PKR",
+        currency: license.billing?.currency || "PKR",
         payment_method,
         payment_reference,
         idempotency_key,
@@ -145,7 +166,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         amountRemaining = Math.max(0, amountRemaining - allocation);
         
         if (billingModel === "per_invoice") {
-          // For per_invoice: derive status from actual usage vs payments
           const periodUsages = await BillingUsage.find({ billing_period_id: period.id }).session(session);
           const periodUsageAmount = periodUsages.reduce((s: number, u: any) => s + u.amount, 0);
           const allPeriodPayments = await LicensePayment.find({ billing_period_id: period.id }).session(session);
@@ -153,41 +173,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           
           if (periodTotalPaid >= periodUsageAmount && periodUsageAmount > 0) {
             period.status = "paid";
-            lastSettledPeriod = period;
-            anyPeriodPaid = true;
           } else if (periodTotalPaid > 0) {
             period.status = "partially_paid";
           }
         } else {
-          // Fixed billing: use amount_due
           if (period.amount_paid >= period.amount_due && period.amount_due > 0) {
             period.status = "paid";
-            lastSettledPeriod = period;
-            anyPeriodPaid = true;
           } else {
             period.status = "partially_paid";
           }
-        }
-
-        if (override_renewal) {
-           lastSettledPeriod = period;
-           anyPeriodPaid = true;
         }
 
         await period.save({ session });
       }
     }
 
-    // Explicit Renew action
-    if (!anyPeriodPaid && totalOutstandingBefore === 0 && paymentAmount === 0 && action === "renew_only") {
-      anyPeriodPaid = true;
-      lastSettledPeriod = allPeriods[allPeriods.length - 1];
-    }
+    // 2. Extend License Expiry if requested
+    if (shouldExtendLicense) {
+      const dates = calculateRenewalDates(license, {
+        extensionMonths: typeof extension_months === "number" ? extension_months : undefined,
+        customExpiryDate: custom_expiry || undefined,
+        isLifetime: Boolean(is_lifetime),
+      });
 
-    // 3. Renew License
-    if (anyPeriodPaid && lastSettledPeriod) {
-      const dates = calculateRenewalDates(license, lastSettledPeriod.period_end);
-
+      const oldExpiry = license.expires_at;
       license.expires_at = dates.newExpiry;
       license.grace_until = dates.newGraceUntil;
 
@@ -203,28 +212,54 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       
       await license.save({ session });
 
-      const futurePeriods = await LicenseBillingPeriod.countDocuments({
-        license_id: license.id,
-        period_start: { $gte: dates.newExpiry }
-      }).session(session);
-
-      if (futurePeriods === 0) {
-        const periodDates = calculatePeriodDates(dates.newExpiry, license.billing.cycle);
-        const newModel = resolveBillingModel(license.billing);
-        const isPerInvoice = newModel === "per_invoice";
-
-        await LicenseBillingPeriod.create([{
-          client_id: license.client_id,
-          license_id: license.id,
-          period_start: periodDates.period_start,
-          period_end: periodDates.period_end,
-          due_at: periodDates.due_at,
-          amount_due: isPerInvoice ? 0 : (license.billing.amount || 0),
-          currency: license.billing.currency,
-          status: "unpaid",
-          billing_model: newModel,
-          rate_snapshot: isPerInvoice ? (license.billing.rate_per_invoice || 0) : (license.billing.amount || 0),
+      // Record AuditLog
+      try {
+        await AuditLog.create([{
+          action: isExtendOnly ? "license.manual_extension" : "license.renew",
+          actor_id: (token.sub as string) || (token.id as string) || "",
+          actor_email: token.email || token.name || "admin",
+          entity_type: "License",
+          entity_id: license.id,
+          metadata: {
+            client_id: license.client_id,
+            old_expiry: oldExpiry,
+            new_expiry: dates.newExpiry,
+            new_grace_until: dates.newGraceUntil,
+            renewal_type: dates.renewalType,
+            extension_months: extension_months,
+            change_type: isExtendOnly ? "Manual License Extension" : "Renewal & Payment",
+            notes: notes || override_reason || undefined,
+          }
         }], { session });
+      } catch (auditErr) {
+        console.warn("AuditLog creation failed:", auditErr);
+      }
+
+      // Ensure next billing period exists if newExpiry is set
+      if (dates.newExpiry) {
+        const futurePeriods = await LicenseBillingPeriod.countDocuments({
+          license_id: license.id,
+          period_start: { $gte: dates.newExpiry }
+        }).session(session);
+
+        if (futurePeriods === 0) {
+          const periodDates = calculatePeriodDates(dates.newExpiry, license.billing?.cycle || "monthly");
+          const newModel = resolveBillingModel(license.billing);
+          const isPerInvoice = newModel === "per_invoice";
+
+          await LicenseBillingPeriod.create([{
+            client_id: license.client_id,
+            license_id: license.id,
+            period_start: periodDates.period_start,
+            period_end: periodDates.period_end,
+            due_at: periodDates.due_at,
+            amount_due: isPerInvoice ? 0 : (license.billing?.amount || 0),
+            currency: license.billing?.currency || "PKR",
+            status: "unpaid",
+            billing_model: newModel,
+            rate_snapshot: isPerInvoice ? (license.billing?.rate_per_invoice || 0) : (license.billing?.amount || 0),
+          }], { session });
+        }
       }
     }
 
@@ -243,7 +278,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  // Trigger Email & PDF Generation asynchronously
+  // Trigger Email & PDF Generation asynchronously if payment was recorded
   if (paymentRecord) {
     try {
       sendPaymentReceipt(paymentRecord.id).catch(err => {
@@ -256,6 +291,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   return NextResponse.json({ 
     success: true, 
-    payment: paymentRecord 
+    payment: paymentRecord || null,
+    license: {
+      id,
+      action
+    }
   });
 }

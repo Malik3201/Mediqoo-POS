@@ -120,9 +120,15 @@ export async function POST(req: NextRequest) {
     if (effective_status === "active") {
       if (license.expires_at) {
         const expiresAt = new Date(license.expires_at);
-        if (now > expiresAt) {
-          const graceUntil = license.grace_until ? new Date(license.grace_until) : expiresAt;
-          if (now > graceUntil) {
+        const endOfExpiryDay = new Date(expiresAt);
+        endOfExpiryDay.setHours(23, 59, 59, 999);
+
+        if (now > endOfExpiryDay) {
+          const graceUntil = license.grace_until ? new Date(license.grace_until) : endOfExpiryDay;
+          const endOfGraceDay = new Date(graceUntil);
+          endOfGraceDay.setHours(23, 59, 59, 999);
+
+          if (now > endOfGraceDay) {
             effective_status = "blocked";
           } else {
             effective_status = "grace";

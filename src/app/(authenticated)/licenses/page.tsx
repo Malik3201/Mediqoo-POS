@@ -7,6 +7,7 @@ import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
+import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -456,7 +457,7 @@ export default function LicensesPage() {
                     <TableCell>{r.clients?.name ?? "—"}</TableCell>
                     <TableCell>{r.seats}</TableCell>
                     <TableCell>
-                      {r.expires_at ? new Date(r.expires_at).toLocaleDateString() : "Never"}
+                      {r.expires_at ? format(new Date(r.expires_at), "dd/MM/yyyy") : "Never"}
                     </TableCell>
                     <TableCell>
                       {r.billing?.enabled ? (

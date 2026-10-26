@@ -1,4 +1,4 @@
-import { addMonths, addYears } from "date-fns";
+import { addMonths, addYears, startOfDay, endOfDay } from "date-fns";
 
 export type BillingCycle = "monthly" | "yearly";
 export type BillingModel = "fixed" | "per_invoice";
@@ -17,11 +17,17 @@ export interface LicenseBillingState {
   };
 }
 
+export interface RenewalOptions {
+  extensionMonths?: number;
+  customExpiryDate?: string | Date | null;
+  isLifetime?: boolean;
+}
+
 export interface RenewalCalculationResult {
-  renewalType: "fixed";
+  renewalType: "fixed" | "custom" | "lifetime";
   baseDate: Date;
-  newExpiry: Date;
-  newGraceUntil: Date;
+  newExpiry: Date | null;
+  newGraceUntil: Date | null;
 }
 
 /**
@@ -41,18 +47,85 @@ export function calculateGraceUntil(expiresAt: Date | string | null | undefined,
 }
 
 /**
- * Canonically calculates the next expiry and grace_until dates for a license renewal.
- * FIXED ANNIVERSARY RULE: The new expiry precisely becomes the period_end of the settled billing period.
- * Payment date does NOT reset the billing anniversary.
+ * Canonically calculates the next expiry and grace_until dates for a license renewal / extension.
+ *
+ * RENEWAL BASE DATE RULE:
+ * 1. If current expiry is in the future (> today): extend FROM current expiry (preserving remaining days).
+ * 2. If current expiry is already expired or missing (<= today): extension starts FROM TODAY.
+ * 3. If customExpiryDate is specified: sets exact expiry to custom date.
+ * 4. If isLifetime is specified: sets newExpiry to null and newGraceUntil to null.
  */
-export function calculateRenewalDates(license: LicenseBillingState, settledPeriodEnd: Date): RenewalCalculationResult {
-  const newExpiry = new Date(settledPeriodEnd);
+export function calculateRenewalDates(
+  license: LicenseBillingState, 
+  options?: RenewalOptions | Date
+): RenewalCalculationResult {
   const graceDays = license.billing?.grace_days ?? 3;
-  const newGraceUntil = calculateGraceUntil(newExpiry, graceDays) as Date;
+  const now = startOfDay(new Date());
+
+  // 1. Lifetime / No Expiry
+  if (options && typeof options === "object" && !(options instanceof Date) && options.isLifetime) {
+    return {
+      renewalType: "lifetime",
+      baseDate: now,
+      newExpiry: null,
+      newGraceUntil: null,
+    };
+  }
+
+  // 2. Custom Exact Expiry Date
+  if (options && typeof options === "object" && !(options instanceof Date) && options.customExpiryDate) {
+    const customDate = endOfDay(new Date(options.customExpiryDate));
+    if (isNaN(customDate.getTime())) {
+      throw new Error("Invalid custom expiry date");
+    }
+    const newGraceUntil = calculateGraceUntil(customDate, graceDays);
+    return {
+      renewalType: "custom",
+      baseDate: now,
+      newExpiry: customDate,
+      newGraceUntil,
+    };
+  }
+
+  // 3. Extension duration (in months)
+  let months = 1;
+  if (options && typeof options === "object" && !(options instanceof Date) && typeof options.extensionMonths === "number") {
+    months = Math.max(1, options.extensionMonths);
+  } else if (license.billing?.cycle === "yearly") {
+    months = 12;
+  }
+
+  // Determine base date:
+  // If current expiry is in the future (> now): extend from current expiry.
+  // If expired or missing: default extension starts from today.
+  let baseDate = now;
+  if (license.expires_at) {
+    const currentExpiry = new Date(license.expires_at);
+    if (currentExpiry.getTime() > now.getTime()) {
+      baseDate = currentExpiry;
+    }
+  }
+
+  // If a Date was passed directly (legacy support) AND it is in the future compared to baseDate
+  if (options instanceof Date) {
+    const passedDate = endOfDay(options);
+    if (passedDate.getTime() > baseDate.getTime()) {
+      const newGraceUntil = calculateGraceUntil(passedDate, graceDays);
+      return {
+        renewalType: "fixed",
+        baseDate,
+        newExpiry: passedDate,
+        newGraceUntil,
+      };
+    }
+  }
+
+  const newExpiry = endOfDay(addMonths(baseDate, months));
+  const newGraceUntil = calculateGraceUntil(newExpiry, graceDays);
 
   return {
     renewalType: "fixed",
-    baseDate: new Date(license.expires_at || new Date()),
+    baseDate,
     newExpiry,
     newGraceUntil,
   };
