@@ -5,17 +5,13 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   LayoutDashboard,
-  LineChart,
-  Package,
-  ShoppingCart,
-  Receipt,
-  FileText,
   Menu,
   X,
   LogOut,
   User,
   ChevronDown,
-  CreditCard
+  CreditCard,
+  Database
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -44,16 +40,10 @@ interface PortalUser {
   } | null;
 }
 
-import { Database } from "lucide-react";
-
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/portal/dashboard", icon: LayoutDashboard },
-  { label: "Sales", href: "/portal/dashboard#sales", icon: LineChart },
-  { label: "Products & Inventory", href: "/portal/dashboard#inventory", icon: Package },
-  { label: "Purchases", href: "/portal/dashboard#purchases", icon: ShoppingCart },
-  { label: "Expenses", href: "/portal/dashboard#expenses", icon: Receipt },
-  { label: "Reports", href: "/portal/dashboard#reports", icon: FileText },
   { label: "Billing", href: "/portal/billing", icon: CreditCard },
+  { label: "Backup & Recovery", href: "/portal/backups", icon: Database },
 ];
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -122,7 +112,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
-            const isActive = pathname === item.href || (item.href.includes("#") && pathname === item.href.split("#")[0]);
+            const isActive = pathname === item.href || (item.href !== "/portal/dashboard" && pathname.startsWith(item.href));
             return (
               <Link
                 key={item.href}
@@ -138,20 +128,6 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </Link>
             );
           })}
-          
-          {user?.client?.has_cloud_backup && (
-            <Link
-              href="/portal/backups"
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                pathname.startsWith("/portal/backups")
-                  ? "bg-emerald-50 text-emerald-700" 
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-              }`}
-            >
-              <Database className={`w-5 h-5 ${pathname.startsWith("/portal/backups") ? "text-emerald-600" : "text-slate-400"}`} />
-              Backup & Recovery
-            </Link>
-          )}
         </nav>
 
         <div className="p-4 border-t border-slate-100">
@@ -186,29 +162,23 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
               {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
+                const isActive = pathname === item.href || (item.href !== "/portal/dashboard" && pathname.startsWith(item.href));
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
-                    className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
+                    className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
+                      isActive 
+                        ? "bg-emerald-50 text-emerald-700" 
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    }`}
                   >
-                    <Icon className="w-5 h-5 text-slate-400" />
+                    <Icon className={`w-5 h-5 ${isActive ? "text-emerald-600" : "text-slate-400"}`} />
                     {item.label}
                   </Link>
                 );
               })}
-              
-              {user?.client?.has_cloud_backup && (
-                <Link
-                  href="/portal/backups"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
-                >
-                  <Database className="w-5 h-5 text-slate-400" />
-                  Backup & Recovery
-                </Link>
-              )}
             </nav>
             <div className="p-4 border-t border-slate-100">
               <button
