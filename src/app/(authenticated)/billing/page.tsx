@@ -112,7 +112,6 @@ export default function BillingPage() {
       const previousPeriodsExist = periodsForLicense.length > 1 || (periodsForLicense[0] && (periodsForLicense[0].status === "paid" || periodsForLicense[0].status === "waived"));
 
       const operationalStatus = deriveOperationalStatus(l);
-      const billingStatus = deriveBillingStatus(l, currentPeriod, previousPeriodsExist);
 
       // Aggregate ALL accrued periods for accurate account-level display
       let totalUnpaidAmountDue = 0;
@@ -124,6 +123,8 @@ export default function BillingPage() {
         totalUnpaidUsageCharges += (bp.usage_charges || 0);
         totalUnpaidInvoiceCount += (bp.invoice_count || 0);
       });
+
+      const billingStatus = deriveBillingStatus(l, currentPeriod, previousPeriodsExist, totalUnpaidAmountDue);
 
       // Calculate calendar days difference from authoritative license.expires_at
       let expiryDaysDiff: number | null = null;
@@ -293,6 +294,7 @@ export default function BillingPage() {
 
       if (statusFilter === "All" || statusFilter === "Per Invoice" || statusFilter === "Fixed") return true;
       if (statusFilter === "Paid" && item.billingStatus === "Paid") return true;
+      if (statusFilter === "Current" && item.billingStatus === "Current") return true;
       if (statusFilter === "Due Soon" && (item.billingStatus === "Due Soon" || item.billingStatus === "Due Today" || item.billingStatus === "Due Tomorrow")) return true;
       if (statusFilter === "Overdue" && item.billingStatus === "Overdue") return true;
       if (statusFilter === "Grace" && item.operationalStatus === "Grace Period") return true;
@@ -300,7 +302,7 @@ export default function BillingPage() {
 
       return false;
     }).sort((a: any, b: any) => {
-       // Sorting priority: Overdue > Grace > Due Today > Due Soon > Active/Paid
+       // Sorting priority: Overdue > Renewal Required > Grace > Due Today > Due Soon > Current > Paid
        const priority = (s: string) => {
          if (s === "Overdue") return 0;
          if (s === "Renewal Required") return 1;
@@ -308,7 +310,8 @@ export default function BillingPage() {
          if (s === "Due Today") return 3;
          if (s === "Due Tomorrow") return 4;
          if (s === "Due Soon") return 5;
-         return 6;
+         if (s === "Current") return 6;
+         return 7;
        };
        return priority(a.billingStatus) - priority(b.billingStatus) || priority(a.operationalStatus) - priority(b.operationalStatus);
     });
@@ -655,6 +658,7 @@ export default function BillingPage() {
             <SelectItem value="Fixed">Fixed</SelectItem>
             <SelectItem value="Per Invoice">Per Invoice</SelectItem>
             <SelectItem value="Paid">Paid</SelectItem>
+            <SelectItem value="Current">Current / Accruing</SelectItem>
             <SelectItem value="Due Soon">Due Soon</SelectItem>
             <SelectItem value="Overdue">Overdue</SelectItem>
             <SelectItem value="Grace">Grace Period</SelectItem>
@@ -755,11 +759,12 @@ export default function BillingPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {item.currentPeriod ? (
+                    {item.license.billing?.enabled ? (
                       <Badge variant="outline" className={
                         item.billingStatus === "Paid" ? "border-emerald-300 text-emerald-700 bg-emerald-50 text-[10px]" :
                         item.billingStatus === "Overdue" ? "border-red-300 text-red-700 bg-red-50 text-[10px]" :
                         item.billingStatus === "Due Tomorrow" || item.billingStatus === "Due Today" || item.billingStatus === "Due Soon" ? "border-amber-300 text-amber-700 bg-amber-50 text-[10px]" :
+                        item.billingStatus === "Current" ? "border-blue-300 text-blue-700 bg-blue-50 text-[10px]" :
                         "text-[10px]"
                       }>
                         {item.billingStatus}

@@ -369,6 +369,7 @@ export default function LicensesPage() {
 
   function billingVariant(s: string) {
     if (s === "Paid") return "default";
+    if (s === "Current") return "outline";
     if (s === "Due Tomorrow" || s === "Due Soon" || s === "Partially Paid") return "secondary";
     if (s === "Overdue" || s === "Unpaid") return "destructive";
     return "outline";
@@ -436,7 +437,13 @@ export default function LicensesPage() {
 
                 const previousPeriodsExist = periodsForLicense.length > 1 || (periodsForLicense[0] && (periodsForLicense[0].status === "paid" || periodsForLicense[0].status === "waived"));
 
-                const billingStatus = deriveBillingStatus(r, currentPeriod, previousPeriodsExist);
+                const totalOutstanding = periodsForLicense.reduce((sum: number, bp: any) => {
+                  if (bp.status === "paid" || bp.status === "waived") return sum;
+                  const bal = bp.outstanding ?? Math.max(0, (bp.amount_due || 0) - (bp.amount_paid || 0));
+                  return sum + bal;
+                }, 0);
+
+                const billingStatus = deriveBillingStatus(r, currentPeriod, previousPeriodsExist, totalOutstanding);
 
                 return (
                   <TableRow key={r.id}>

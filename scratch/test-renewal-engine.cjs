@@ -137,6 +137,50 @@ assert("Lifetime: newExpiry is null", lifetimeRenewal.newExpiry === null);
 assert("Lifetime: newGraceUntil is null", lifetimeRenewal.newGraceUntil === null);
 assert("Lifetime: Status is Active", deriveOperationalStatus({ status: "active", expires_at: null }) === "Active");
 
+// --------------------------------------------------------------------------
+// TEST 9: Care Point Medical Store (Expiry 2 months ahead, Outstanding PKR 5)
+// Expected: NOT Overdue! Returns "Current" as usage accrues normally.
+// --------------------------------------------------------------------------
+const carePointLicenseActive = {
+  expires_at: addDays(today, 60),
+  billing: { enabled: true, cycle: "monthly", model: "per_invoice" }
+};
+const carePointStatus = deriveBillingStatus(carePointLicenseActive, null, true, 5);
+assert("Care Point (2 months future expiry + PKR 5 debt) status is 'Current', NOT 'Overdue'", carePointStatus === "Current");
+
+// --------------------------------------------------------------------------
+// TEST 10: AR Pharmacy (Expiry 1 month ahead, Outstanding PKR 0)
+// Expected: Returns "Paid", NEVER "Overdue"!
+// --------------------------------------------------------------------------
+const arPharmacyActive = {
+  expires_at: addDays(today, 30),
+  billing: { enabled: true, cycle: "monthly", model: "per_invoice" }
+};
+const arStatus = deriveBillingStatus(arPharmacyActive, null, true, 0);
+assert("AR Pharmacy (PKR 0 debt) status is 'Paid', NOT 'Overdue'", arStatus === "Paid");
+
+// --------------------------------------------------------------------------
+// TEST 11: Hajvery Medical Store (Expired yesterday, Outstanding PKR 1000)
+// Expected: Expiry passed with unpaid debt -> Returns "Overdue"!
+// --------------------------------------------------------------------------
+const hajveryLicenseExpired = {
+  expires_at: subDays(today, 1),
+  billing: { enabled: true, cycle: "monthly", model: "fixed" }
+};
+const hajveryStatus = deriveBillingStatus(hajveryLicenseExpired, null, true, 1000);
+assert("Hajvery (expired license + PKR 1000 debt) status is 'Overdue'", hajveryStatus === "Overdue");
+
+// --------------------------------------------------------------------------
+// TEST 12: License with Near Expiry (5 days ahead, Outstanding PKR 200)
+// Expected: Expiry near with unpaid debt -> Returns "Due Soon"!
+// --------------------------------------------------------------------------
+const nearExpiryLicense = {
+  expires_at: addDays(today, 5),
+  billing: { enabled: true, cycle: "monthly", model: "fixed" }
+};
+const nearExpiryStatus = deriveBillingStatus(nearExpiryLicense, null, true, 200);
+assert("Near expiry (5 days ahead + debt) status is 'Due Soon'", nearExpiryStatus === "Due Soon");
+
 console.log(`\nTEST RESULTS: ${passed}/${total} PASSED.`);
 if (passed === total) {
   console.log("ALL TESTS PASSED SUCCESSFULLY!");

@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
         },
         project: project ? { id: project.id, name: project.name } : null,
         operationalStatus: deriveOperationalStatus(license),
-        billingStatus: deriveBillingStatus(license, currentPeriod, unpaidPeriods.length > 0),
+        billingStatus: deriveBillingStatus(license, currentPeriod, unpaidPeriods.length > 0, totalOutstanding),
         totalOutstanding: Math.max(0, totalOutstanding),
         currentPeriod,
         unpaidPeriods,
