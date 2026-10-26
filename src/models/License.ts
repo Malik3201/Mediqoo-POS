@@ -39,6 +39,13 @@ export interface ILicense extends Document {
       effective_from?: Date;
     } | null;
   };
+  backup_recovery_secret?: {
+    encrypted_value: string;
+    iv: string;
+    tag: string;
+    updated_at: Date;
+    updated_by?: string;
+  };
   created_at: Date;
   updated_at: Date;
 }
@@ -80,6 +87,16 @@ const LicenseSchema = new Schema<ILicense>(
         }, { _id: false }),
         default: null,
       },
+    },
+    backup_recovery_secret: {
+      type: new Schema({
+        encrypted_value: { type: String, required: true },
+        iv: { type: String, required: true },
+        tag: { type: String, required: true },
+        updated_at: { type: Date, default: Date.now },
+        updated_by: { type: String },
+      }, { _id: false }),
+      default: null,
     },
   },
   {

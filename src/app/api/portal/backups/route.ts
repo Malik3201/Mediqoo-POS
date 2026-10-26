@@ -65,7 +65,18 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ backups: enriched });
+    // Enforce 2 newest backups per license for clean portal view
+    const byLicense = new Map<string, any[]>();
+    for (const b of enriched) {
+      const list = byLicense.get(b.license_id) || [];
+      if (list.length < 2) {
+        list.push(b);
+        byLicense.set(b.license_id, list);
+      }
+    }
+    const resultBackups = Array.from(byLicense.values()).flat();
+
+    return NextResponse.json({ backups: resultBackups });
   } catch (error: any) {
     if (error instanceof PortalAuthError) return portalAuthErrorResponse(error);
     console.error("Portal Backup list error:", error);

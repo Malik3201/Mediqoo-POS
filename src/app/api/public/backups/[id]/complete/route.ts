@@ -126,6 +126,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
        return NextResponse.json({ error: "backup_state_conflict" }, { status: 409, headers: CORS });
     }
 
+    // 8. Enforce Server Retention (Keep only newest 2 successful backups)
+    try {
+      const { enforceBackupRetention } = await import("@/lib/cloud-backup-retention");
+      await enforceBackupRetention(license.id, s3);
+    } catch (retentionErr) {
+      console.warn("Non-fatal retention cleanup error:", retentionErr);
+    }
+
     return NextResponse.json({
       ok: true,
       backup_id: updated.id,

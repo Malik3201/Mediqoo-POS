@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard, AlertTriangle, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldCheck, Eye, EyeOff, Cloud, Download, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useQueryClient } from "@tanstack/react-query";
@@ -134,6 +134,70 @@ export default function LicensesPage() {
   const [billingSaving, setBillingSaving] = useState(false);
   const [eligibility, setEligibility] = useState<any>(null);
   const [eligibilityLoading, setEligibilityLoading] = useState(false);
+
+  // Cloud Backup & Recovery Secret Modal State
+  const [backupSecurityTarget, setBackupSecurityTarget] = useState<any | null>(null);
+  const [backupSecurityData, setBackupSecurityData] = useState<{
+    loading: boolean;
+    has_secret: boolean;
+    recovery_secret: string | null;
+    revealed: boolean;
+    backups: any[];
+  }>({
+    loading: false,
+    has_secret: false,
+    recovery_secret: null,
+    revealed: false,
+    backups: [],
+  });
+
+  async function openBackupSecurity(lic: any) {
+    setBackupSecurityTarget(lic);
+    setBackupSecurityData({
+      loading: true,
+      has_secret: false,
+      recovery_secret: null,
+      revealed: false,
+      backups: [],
+    });
+    try {
+      const res = await fetch(`/api/admin/licenses/${lic.id}/backup-secret`);
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setBackupSecurityData({
+          loading: false,
+          has_secret: data.has_secret,
+          recovery_secret: data.recovery_secret,
+          revealed: false,
+          backups: data.backups || [],
+        });
+      } else {
+        setBackupSecurityData(prev => ({ ...prev, loading: false }));
+      }
+    } catch {
+      setBackupSecurityData(prev => ({ ...prev, loading: false }));
+    }
+  }
+
+  async function revealSecretForTarget() {
+    if (!backupSecurityTarget) return;
+    try {
+      const res = await fetch(`/api/admin/licenses/${backupSecurityTarget.id}/backup-secret`);
+      const data = await res.json();
+      if (res.ok && data.ok && data.recovery_secret) {
+        setBackupSecurityData(prev => ({
+          ...prev,
+          revealed: true,
+          recovery_secret: data.recovery_secret,
+        }));
+        toast.success("Recovery Secret revealed (Audit logged)");
+      } else {
+        toast.error("Could not reveal secret", data.message || data.error);
+      }
+    } catch (err: any) {
+      toast.error("Error revealing secret", err.message);
+    }
+  }
 
   const selectedProject = useMemo(
     () => projects.find((p: Project) => p.id === form.project_id) ?? null,
@@ -503,17 +567,36 @@ export default function LicensesPage() {
                       </Button>
                     </TableCell>
                     <TableCell>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="h-7 text-xs px-2"
-                        onClick={() => toggleCloudBackup(r)}
-                      >
-                        {r.features?.cloud_backup ? "Enabled" : "Disabled"}
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="h-7 text-xs px-2"
+                          onClick={() => toggleCloudBackup(r)}
+                        >
+                          {r.features?.cloud_backup ? "Enabled" : "Disabled"}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-primary"
+                          title="Cloud Backup & Recovery Secret"
+                          onClick={() => openBackupSecurity(r)}
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Cloud Backup & Recovery Secret"
+                          onClick={() => openBackupSecurity(r)}
+                        >
+                          <ShieldCheck className="h-4 w-4 text-primary" />
+                        </Button>
                         <Button
                           size="icon"
                           variant="ghost"
@@ -929,6 +1012,15 @@ export default function LicensesPage() {
           onClose={() => setTerminalLicense(null)}
         />
       )}
+
+      {backupSecurityTarget && (
+        <BackupSecurityDialog
+          license={backupSecurityTarget}
+          data={backupSecurityData}
+          onClose={() => setBackupSecurityTarget(null)}
+          onReveal={revealSecretForTarget}
+        />
+      )}
     </div>
   );
 }
@@ -1064,3 +1156,178 @@ function TerminalsModal({ license, onClose }: { license: License; onClose: () =>
     </Dialog>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cloud Backup & Recovery Secret Modal (Super Admin / Admin access)
+// ─────────────────────────────────────────────────────────────────────────────
+function BackupSecurityDialog({
+  license,
+  data,
+  onClose,
+  onReveal,
+}: {
+  license: any | null;
+  data: {
+    loading: boolean;
+    has_secret: boolean;
+    recovery_secret: string | null;
+    revealed: boolean;
+    backups: any[];
+  };
+  onClose: () => void;
+  onReveal: () => void;
+}) {
+  if (!license) return null;
+
+  const latestBackup = data.backups[0] || null;
+  const previousBackup = data.backups[1] || null;
+
+  const copySecret = () => {
+    if (!data.recovery_secret) return;
+    navigator.clipboard.writeText(data.recovery_secret);
+    toast.success("Backup Recovery Secret copied to clipboard");
+  };
+
+  return (
+    <Dialog open={!!license} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            Cloud Backup &amp; Recovery Secret
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Pharmacy identity */}
+          <div className="rounded border bg-muted/40 p-3 text-xs space-y-1">
+            <div className="font-semibold text-foreground text-sm">
+              {license.projects?.name || "Pharmacy POS"}
+            </div>
+            <div className="text-muted-foreground flex justify-between">
+              <span>Client: {license.clients?.name ?? "—"}</span>
+              <span className="font-mono">{license.license_key?.slice(0, 16)}…</span>
+            </div>
+            <div className="text-muted-foreground flex justify-between pt-1 border-t">
+              <span>Cloud Backup Entitlement:</span>
+              <Badge variant={license.features?.cloud_backup ? "default" : "secondary"} className="text-[10px]">
+                {license.features?.cloud_backup ? "Enabled" : "Disabled"}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Stored Backups */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <span>Cloud Backups (Retention: Max 2)</span>
+              <span className="text-primary">{data.backups.length} / 2 Slots Active</span>
+            </div>
+
+            {data.loading ? (
+              <div className="text-xs text-muted-foreground py-3 text-center animate-pulse">
+                Loading cloud backup status…
+              </div>
+            ) : data.backups.length === 0 ? (
+              <div className="rounded border border-dashed p-3 text-center text-xs text-muted-foreground">
+                No cloud backups uploaded yet.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {latestBackup && (
+                  <div className="rounded border p-2.5 text-xs flex justify-between items-center bg-card">
+                    <div>
+                      <div className="font-medium flex items-center gap-1.5">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                        Latest Backup
+                      </div>
+                      <div className="text-muted-foreground text-[11px] mt-0.5">
+                        {latestBackup.uploaded_at ? new Date(latestBackup.uploaded_at).toLocaleString() : new Date(latestBackup.created_at).toLocaleString()}
+                        {latestBackup.size_bytes ? ` • ${Math.round(latestBackup.size_bytes / 1024)} KB` : ""}
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="text-[10px] text-emerald-700 bg-emerald-50 border-emerald-300">
+                      Verified
+                    </Badge>
+                  </div>
+                )}
+                {previousBackup && (
+                  <div className="rounded border p-2.5 text-xs flex justify-between items-center bg-card">
+                    <div>
+                      <div className="font-medium flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                        Previous Backup
+                      </div>
+                      <div className="text-muted-foreground text-[11px] mt-0.5">
+                        {previousBackup.uploaded_at ? new Date(previousBackup.uploaded_at).toLocaleString() : new Date(previousBackup.created_at).toLocaleString()}
+                        {previousBackup.size_bytes ? ` • ${Math.round(previousBackup.size_bytes / 1024)} KB` : ""}
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                      Prior
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Backup Recovery Secret (Admin Privileged Reveal) */}
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3.5 space-y-2">
+            <div className="flex justify-between items-center">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                <KeyRound className="h-3.5 w-3.5" />
+                Permanent Recovery Secret
+              </Label>
+              <span className="text-[10px] text-muted-foreground">Super Admin Access</span>
+            </div>
+            
+            <p className="text-[11px] text-muted-foreground">
+              Every cloud backup for this pharmacy is encrypted with this permanent secret.
+            </p>
+
+            <div className="flex items-center gap-2 pt-1">
+              <div className="flex-1 font-mono text-xs px-3 py-2 bg-background border rounded font-semibold tracking-wider select-all overflow-x-auto">
+                {data.revealed 
+                  ? data.recovery_secret 
+                  : (data.has_secret ? "••••••••••••••••••••" : "Not yet generated / synced from POS")}
+              </div>
+              
+              {data.has_secret && (
+                <>
+                  {!data.revealed ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={onReveal}
+                      className="text-xs shrink-0"
+                    >
+                      <Eye className="h-3.5 w-3.5 mr-1" />
+                      Reveal
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={copySecret}
+                      className="text-xs shrink-0"
+                    >
+                      <Copy className="h-3.5 w-3.5 mr-1" />
+                      Copy
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+

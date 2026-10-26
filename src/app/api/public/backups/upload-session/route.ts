@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "backup_too_large" }, { status: 413, headers: CORS });
     }
 
-    if (!backup_type || !["manual", "day_end", "weekly", "month_end"].includes(backup_type)) {
+    if (!backup_type || !["manual", "auto", "continuous", "day_end", "weekly", "month_end"].includes(backup_type)) {
       return NextResponse.json({ error: "invalid_backup_type" }, { status: 400, headers: CORS });
     }
 

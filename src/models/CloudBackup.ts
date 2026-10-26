@@ -5,7 +5,7 @@ export interface ICloudBackup extends Document {
   id: string;
   client_id: string;
   license_id: string;
-  backup_type: "manual" | "day_end" | "weekly" | "month_end";
+  backup_type: "manual" | "auto" | "continuous" | "day_end" | "weekly" | "month_end";
   period_key?: string;
   status: "pending_upload" | "uploaded" | "failed" | "deleted";
   object_key: string;
@@ -32,7 +32,7 @@ const CloudBackupSchema = new Schema<ICloudBackup>(
     license_id: { type: String, required: true },
     backup_type: { 
       type: String, 
-      enum: ["manual", "day_end", "weekly", "month_end"], 
+      enum: ["manual", "auto", "continuous", "day_end", "weekly", "month_end"], 
       required: true 
     },
     period_key: { type: String },
