@@ -18,6 +18,7 @@ import {
   Rocket,
   MessageSquare,
   CreditCard,
+  Sparkles,
 } from "lucide-react";
 
 import {
@@ -42,6 +43,7 @@ const primary = [
   { title: "Packages", url: "/packages", icon: Package },
   { title: "Releases", url: "/releases", icon: Rocket },
   { title: "Business Templates", url: "/templates", icon: Boxes },
+  { title: "AI Management", url: "/ai-management", icon: Sparkles },
 ];
 
 
