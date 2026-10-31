@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import AiCredential from "@/models/AiCredential";
-import AiModelRegistry from "@/models/AiModelRegistry";
 import { adminHandler } from "@/lib/ai/admin-http";
 import { aiAudit } from "@/lib/ai/audit";
 import { decryptApiKey } from "@/lib/ai/crypto";
 import { groqListModels } from "@/lib/ai/groq";
-import { seedModelsIfEmpty } from "@/lib/ai/models";
+import { seedModelsIfEmpty, syncModelsWithProviderList } from "@/lib/ai/models";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -36,32 +35,14 @@ export const POST = adminHandler(async (_req, actor) => {
   }
   if (!available) return NextResponse.json({ ok: false, available: [], verified: 0, message: `Could not list models. ${lastMsg}` });
 
-  const set = new Set(available);
-  const models: any[] = await AiModelRegistry.find({});
-  let verified = 0;
-  const missing: string[] = [];
-  for (const m of models) {
-    if (set.has(m.provider_model_id)) {
-      m.availability = "available";
-      m.last_verified_at = new Date();
-      m.last_error = null;
-      verified += 1;
-    } else {
-      m.availability = "unavailable";
-      m.last_verified_at = new Date();
-      m.last_error = "Not available on the configured Groq account.";
-      missing.push(m.provider_model_id);
-    }
-    await m.save();
-  }
+  const { verified, missing } = await syncModelsWithProviderList(available);
   await aiAudit(actor, "models_verified", "ai_model", "registry", { verified, missing });
   return NextResponse.json({
     ok: true,
     available,
     verified,
     message: missing.length
-      ? `${verified} model(s) verified. Not available on this account: ${missing.join(", ")}. They will not be routed to.`
+      ? `${verified} model(s) verified and enabled. Not available on this account: ${missing.join(", ")}.`
       : `All ${verified} registry model(s) verified.`,
   });
 });
-

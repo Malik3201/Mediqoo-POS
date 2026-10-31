@@ -22,7 +22,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   default_monthly_requests: 3000,
   default_daily_tokens: 150_000,
   default_monthly_tokens: 3_000_000,
-  default_max_output_tokens: 800,
+  default_max_output_tokens: 1536,
   max_payload_kb: 96,
   max_tool_steps: 4,
   chat_retention_days: 30,

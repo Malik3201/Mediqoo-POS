@@ -2,6 +2,7 @@ import AiCredential from "@/models/AiCredential";
 import AiOrgPool from "@/models/AiOrgPool";
 import { decryptApiKey } from "./crypto";
 import { groqListModels } from "./groq";
+import { syncModelsWithProviderList } from "./models";
 import { cooldownAfter429 } from "./routing-core";
 import { raiseAlert, autoResolveAlerts } from "./alerts";
 
@@ -38,6 +39,9 @@ export async function testCredential(credId: string) {
         { id: credId },
         { $set: { status, cooldown_until: null, last_success_at: now, consecutive_failures: 0, last_http_status: r.httpStatus } }
       );
+      if (r.models.length > 0) {
+        await syncModelsWithProviderList(r.models).catch(() => {});
+      }
       void autoResolveAlerts("api_key_invalid", "credential", credId);
       break;
     case "invalid_credentials":

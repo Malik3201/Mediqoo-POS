@@ -14,17 +14,55 @@ export interface ModelSnap {
 }
 
 /**
- * Suggested starting registry. These are NOT assumed to exist: availability starts "unknown",
- * gets verified against the live Groq account via "Verify with Groq", and a 404/model error at
- * request time marks a model unavailable so it is never silently routed to again.
+ * Starting registry covering current Groq production tool-capable chat models.
+ * Availability is verified against the live Groq account via "Test" or "Verify with Groq",
+ * and a 404/model error at request time marks a model unavailable so it is skipped.
  */
-const SEED_MODELS = [
+export const SEED_MODELS = [
+  {
+    model_name: "GPT-OSS 20B (Fast)",
+    provider_model_id: "openai/gpt-oss-20b",
+    is_default: true,
+    is_complex_default: false,
+    is_fallback: true,
+    supports_tools: true,
+    supports_structured_json: true,
+    context_window: 131072,
+    max_output_tokens: 2048,
+    usage_policy: "all_queries",
+  },
+  {
+    model_name: "GPT-OSS 120B (Reasoning)",
+    provider_model_id: "openai/gpt-oss-120b",
+    is_default: false,
+    is_complex_default: true,
+    is_fallback: true,
+    supports_tools: true,
+    supports_structured_json: true,
+    context_window: 131072,
+    max_output_tokens: 2048,
+    usage_policy: "all_queries",
+  },
+  {
+    model_name: "Qwen 3.8 27B",
+    provider_model_id: "qwen/qwen3.8-27b",
+    is_default: false,
+    is_complex_default: false,
+    is_fallback: true,
+    supports_tools: true,
+    supports_structured_json: true,
+    context_window: 131072,
+    max_output_tokens: 2048,
+    usage_policy: "all_queries",
+  },
   {
     model_name: "Llama 3.1 8B Instant",
     provider_model_id: "llama-3.1-8b-instant",
-    is_default: true,
+    is_default: false,
     is_complex_default: false,
-    is_fallback: false,
+    is_fallback: true,
+    supports_tools: true,
+    supports_structured_json: true,
     context_window: 131072,
     max_output_tokens: 1024,
     usage_policy: "all_queries",
@@ -33,20 +71,114 @@ const SEED_MODELS = [
     model_name: "Llama 3.3 70B Versatile",
     provider_model_id: "llama-3.3-70b-versatile",
     is_default: false,
-    is_complex_default: true,
+    is_complex_default: false,
     is_fallback: true,
+    supports_tools: true,
+    supports_structured_json: true,
     context_window: 131072,
     max_output_tokens: 2048,
     usage_policy: "all_queries",
   },
 ];
 
+const NON_CHAT_MODEL_RE = /whisper|orpheus|guard|safeguard|tts|embed|vision-preview|playai/i;
+
+export function isToolCapableChatModelId(modelId: string): boolean {
+  if (!modelId || NON_CHAT_MODEL_RE.test(modelId)) return false;
+  return /gpt-oss|qwen|llama-3|deepseek|mixtral|gemma/i.test(modelId);
+}
+
 export async function seedModelsIfEmpty() {
-  const count = await AiModelRegistry.estimatedDocumentCount();
-  if (count > 0) return;
   for (const m of SEED_MODELS) {
-    await AiModelRegistry.updateOne({ provider_model_id: m.provider_model_id }, { $setOnInsert: m }, { upsert: true });
+    await AiModelRegistry.updateOne(
+      { provider_model_id: m.provider_model_id },
+      { $setOnInsert: m },
+      { upsert: true }
+    );
   }
+}
+
+/**
+ * Synchronises the model registry with the list of model IDs returned by Groq's GET /models.
+ * Marks available models as "available", unavailable ones as "unavailable", auto-registers
+ * any new tool-capable chat models, and ensures valid default/complex/fallback flags.
+ */
+export async function syncModelsWithProviderList(availableIds: string[]): Promise<{
+  verified: number;
+  missing: string[];
+}> {
+  await seedModelsIfEmpty();
+  const set = new Set(availableIds);
+
+  for (const id of availableIds) {
+    if (!isToolCapableChatModelId(id)) continue;
+    await AiModelRegistry.updateOne(
+      { provider_model_id: id },
+      {
+        $setOnInsert: {
+          model_name: id,
+          provider_model_id: id,
+          enabled: true,
+          is_default: false,
+          is_complex_default: false,
+          is_fallback: true,
+          supports_tools: true,
+          supports_structured_json: true,
+          context_window: 131072,
+          max_output_tokens: 2048,
+          usage_policy: "all_queries",
+        },
+      },
+      { upsert: true }
+    );
+  }
+
+  const models: any[] = await AiModelRegistry.find({});
+  let verified = 0;
+  const missing: string[] = [];
+  const now = new Date();
+
+  for (const m of models) {
+    if (set.has(m.provider_model_id)) {
+      m.availability = "available";
+      m.last_verified_at = now;
+      m.last_error = null;
+      verified += 1;
+    } else {
+      m.availability = "unavailable";
+      m.last_verified_at = now;
+      m.last_error = "Not available on the configured Groq account.";
+      missing.push(m.provider_model_id);
+    }
+    await m.save();
+  }
+
+  // Ensure an available, enabled model is selected as default & complex default
+  const activeAvailable = models.filter((m) => m.enabled && m.availability === "available" && m.supports_tools);
+  if (activeAvailable.length > 0) {
+    const hasDefault = activeAvailable.some((m) => m.is_default);
+    if (!hasDefault) {
+      const preferredFast =
+        activeAvailable.find((m) => m.provider_model_id === "openai/gpt-oss-20b") ||
+        activeAvailable.find((m) => m.provider_model_id === "llama-3.1-8b-instant") ||
+        activeAvailable.find((m) => m.provider_model_id === "qwen/qwen3.8-27b") ||
+        activeAvailable[0];
+      await AiModelRegistry.updateMany({}, { $set: { is_default: false } });
+      await AiModelRegistry.updateOne({ provider_model_id: preferredFast.provider_model_id }, { $set: { is_default: true } });
+    }
+    const hasComplex = activeAvailable.some((m) => m.is_complex_default);
+    if (!hasComplex) {
+      const preferredComplex =
+        activeAvailable.find((m) => m.provider_model_id === "openai/gpt-oss-120b") ||
+        activeAvailable.find((m) => m.provider_model_id === "llama-3.3-70b-versatile") ||
+        activeAvailable.find((m) => m.provider_model_id === "qwen/qwen3.8-27b") ||
+        activeAvailable[0];
+      await AiModelRegistry.updateMany({}, { $set: { is_complex_default: false } });
+      await AiModelRegistry.updateOne({ provider_model_id: preferredComplex.provider_model_id }, { $set: { is_complex_default: true } });
+    }
+  }
+
+  return { verified, missing };
 }
 
 export interface ModelSelectionInput {
@@ -71,6 +203,13 @@ export function selectModelChain(models: ModelSnap[], input: ModelSelectionInput
   );
   if (candidates.length === 0) return [];
 
+  // Prefer verified "available" models ahead of "unknown" ones
+  const sortedCandidates = [...candidates].sort((a, b) => {
+    const scoreA = a.availability === "available" ? 0 : 1;
+    const scoreB = b.availability === "available" ? 0 : 1;
+    return scoreA - scoreB;
+  });
+
   const wantComplex =
     input.modelPolicy === "full_featured" ? true : input.modelPolicy === "fast_only" ? false : input.complexity === "complex" && input.advancedCopilot;
 
@@ -78,20 +217,20 @@ export function selectModelChain(models: ModelSnap[], input: ModelSelectionInput
     m.usage_policy === "all_queries" ||
     (wantComplex ? m.usage_policy === "complex_only" : m.usage_policy === "simple_only");
 
-  const primaryPool = candidates.filter(policyOk);
+  const primaryPool = sortedCandidates.filter(policyOk);
   let primary: ModelSnap | undefined;
   if (wantComplex) {
     primary = primaryPool.find((m) => m.is_complex_default) || primaryPool.find((m) => m.is_default) || primaryPool[0];
   } else {
     primary = primaryPool.find((m) => m.is_default) || primaryPool[0];
   }
-  if (!primary) primary = candidates.find((m) => m.usage_policy !== "fallback_only") || candidates[0];
+  if (!primary) primary = sortedCandidates.find((m) => m.usage_policy !== "fallback_only") || sortedCandidates[0];
 
   const chain: ModelSnap[] = [primary];
-  for (const m of candidates.filter((c) => c.is_fallback)) {
+  for (const m of sortedCandidates.filter((c) => c.is_fallback)) {
     if (!chain.includes(m)) chain.push(m);
   }
-  for (const m of candidates) {
+  for (const m of sortedCandidates) {
     if (chain.length >= 3) break;
     if (!chain.includes(m)) chain.push(m);
   }
@@ -114,4 +253,3 @@ export async function loadModelSnaps(): Promise<ModelSnap[]> {
     usage_policy: d.usage_policy,
   }));
 }
-

@@ -7,7 +7,9 @@ import AiCredential from "@/models/AiCredential";
 import { getAiSettings } from "./settings";
 import { verifyDeviceIdentity } from "./license";
 import { effectiveLimits, getOrCreateEntitlement, periodKeys, releaseQuota, reserveQuota, rolloverEntitlement, settleQuota } from "./quota";
-import { loadModelSnaps, selectModelChain } from "./models";
+import { loadModelSnaps, selectModelChain, syncModelsWithProviderList } from "./models";
+import { decryptApiKey } from "./crypto";
+import { groqListModels } from "./groq";
 import { allowedToolNames, providerToolSpecs, validateToolArguments, type OperatorRole } from "./tools";
 import { SYSTEM_PROMPT } from "./prompt";
 import { estimateTokens, sanitizeMessages } from "./sanitize";
@@ -199,18 +201,41 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
   const toolSpecs = providerToolSpecs(toolNames);
 
   // 6. Model chain (capability-aware; never a model without tools for tool workflows)
-  const models = await loadModelSnaps();
-  const chain = selectModelChain(models, {
+  let models = await loadModelSnaps();
+  let chain = selectModelChain(models, {
     complexity,
     needsTools: toolSpecs.length > 0,
     allowedModels: ent.allowed_models || [],
     modelPolicy: ent.model_policy || "auto",
     advancedCopilot: !!ent.advanced_copilot_enabled,
   });
+  if (chain.length === 0) {
+    // Auto-recover if all seeded models were marked unavailable before syncing with the active Groq account
+    try {
+      const cred: any = await AiCredential.findOne({ enabled: true, status: { $in: ["Healthy", "Rate Limited", "Temporarily Unavailable"] } }).select("+encrypted_key");
+      if (cred?.encrypted_key) {
+        const listed = await groqListModels(decryptApiKey(cred.encrypted_key));
+        if (listed.outcome === "ok" && listed.models.length > 0) {
+          await syncModelsWithProviderList(listed.models);
+          models = await loadModelSnaps();
+          chain = selectModelChain(models, {
+            complexity,
+            needsTools: toolSpecs.length > 0,
+            allowedModels: ent.allowed_models || [],
+            modelPolicy: ent.model_policy || "auto",
+            advancedCopilot: !!ent.advanced_copilot_enabled,
+          });
+        }
+      }
+    } catch {
+      /* best effort auto-discovery */
+    }
+  }
   if (chain.length === 0) return fail("provider_unavailable");
 
-  const maxOut = Math.max(64, Math.min(chain[0].max_output_tokens, ent.max_output_tokens || settings.default_max_output_tokens));
-  const estTokens = estimateTokens(san.messages, JSON.stringify(toolSpecs).length, SYSTEM_PROMPT.length, maxOut);
+  const baseMaxOut = Math.max(64, Math.min(chain[0].max_output_tokens, ent.max_output_tokens || settings.default_max_output_tokens));
+  const maxOut = /gpt-oss|qwen|deepseek/i.test(chain[0].provider_model_id) ? Math.min(chain[0].max_output_tokens, Math.max(1536, baseMaxOut)) : baseMaxOut;
+  const estTokens = estimateTokens(san.messages, JSON.stringify(toolSpecs).length, SYSTEM_PROMPT.length, baseMaxOut);
 
   // 7. Atomic reservation (request counted on first step of a turn only)
   const reservation = await reserveQuota(license.id, estTokens, step === 0);

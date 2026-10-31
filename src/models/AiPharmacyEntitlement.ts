@@ -56,7 +56,7 @@ const AiPharmacyEntitlementSchema = new Schema<IAiPharmacyEntitlement>(
     monthly_request_limit: { type: Number, default: 3000, min: 0 },
     daily_token_limit: { type: Number, default: 150000, min: 0 },
     monthly_token_limit: { type: Number, default: 3000000, min: 0 },
-    max_output_tokens: { type: Number, default: 800, min: 64, max: 4096 },
+    max_output_tokens: { type: Number, default: 1536, min: 64, max: 4096 },
     concurrent_request_limit: { type: Number, default: 2, min: 1, max: 20 },
     advanced_copilot_enabled: { type: Boolean, default: true },
     purchase_preparation_enabled: { type: Boolean, default: true },
