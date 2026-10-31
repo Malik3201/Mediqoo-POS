@@ -299,7 +299,11 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
   }
 
   if (!exec || !exec.ok) {
-    await releaseQuota(reservation, true);
+    try {
+      await releaseQuota(reservation, true);
+    } catch (e) {
+      console.error("[ai-gateway] releaseQuota failed:", (e as Error)?.message);
+    }
     const err = exec && !exec.ok ? exec : { error: "provider_unavailable" as const, attempts: 0 };
     const code: GatewayErrorCode = err.error === "capacity_exhausted" ? "capacity_exhausted" : "provider_unavailable";
     await recordModelStats(usedModel, false, Date.now() - started);
@@ -345,7 +349,11 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
   }
 
   // 10. Settle actual usage, record analytics (operational metadata only — never prompts/answers)
-  await settleQuota(reservation, usage.total);
+  try {
+    await settleQuota(reservation, usage.total);
+  } catch (e) {
+    console.error("[ai-gateway] settleQuota failed:", (e as Error)?.message);
+  }
   const modelDoc: any = await AiModelRegistry.findOne({ provider_model_id: usedModel }).lean();
   const cost = modelDoc ? (usage.input / 1e6) * (modelDoc.cost_per_million_input_usd || 0) + (usage.output / 1e6) * (modelDoc.cost_per_million_output_usd || 0) : 0;
   await recordModelStats(usedModel, true, exec.result.latencyMs);

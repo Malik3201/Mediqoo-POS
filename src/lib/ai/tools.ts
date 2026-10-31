@@ -109,9 +109,38 @@ export const TOOL_DEFS: ToolDef[] = [
     advanced: true,
   },
   {
+    name: "get_recent_sales",
+    level: 1,
+    description:
+      "Most recent sales invoices/bills recorded in the POS (invoice number, date/time, customer name, payment method, total amount and items sold). Use when asked about the last sale, recent bills, or latest customer transactions.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+        query: { type: "string", maxLength: 80 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_recent_purchases",
+    level: 1,
+    description:
+      "Most recent purchase bills (GRNs / stock receipts) added in the POS, ordered newest first (bill number, date, supplier name, total amount, paid amount, and medicines/quantities received). Use whenever the user asks which purchase was added last time, recent purchases, or what stock was bought recently.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+        supplier: { type: "string", maxLength: 80 },
+      },
+      additionalProperties: false,
+    },
+    roles: ["admin", "manager", "senior-cashier", "none"],
+  },
+  {
     name: "get_smart_purchase_plan",
     level: 1,
-    description: "Run the existing Smart Purchase engine: items likely to run out, suggested quantities, supplier-wise plan and estimated cost.",
+    description: "Run the existing Smart Purchase engine: items likely to run out, suggested quantities, supplier-wise plan and estimated cost. Use only when the user wants reorder suggestions or a purchase plan/order list to buy.",
     parameters: {
       type: "object",
       properties: {
@@ -256,10 +285,24 @@ function checkType(schema: any, value: any, path: string): string | null {
   if (schema.type === "object") {
     if (!value || typeof value !== "object" || Array.isArray(value)) return `${path} must be an object`;
     const props = schema.properties || {};
+    const requiredSet = new Set<string>(schema.required || []);
     for (const k of Object.keys(value)) {
-      if (!(k in props)) return `${path}.${k} is not permitted`;
+      if (!(k in props)) {
+        delete (value as any)[k];
+        continue;
+      }
+      const v = (value as any)[k];
+      // Strip null/undefined or empty optional strings that LLMs often emit for unused optional fields
+      if (v === null || v === undefined || (!requiredSet.has(k) && v === "")) {
+        delete (value as any)[k];
+        continue;
+      }
+      if ((props[k]?.type === "integer" || props[k]?.type === "number") && typeof v === "string" && v.trim() !== "") {
+        const coerced = Number(v);
+        if (Number.isFinite(coerced)) (value as any)[k] = coerced;
+      }
     }
-    for (const r of schema.required || []) {
+    for (const r of requiredSet) {
       if (!(r in value)) return `${path}.${r} is required`;
     }
     for (const [k, v] of Object.entries(value)) {

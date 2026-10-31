@@ -150,19 +150,30 @@ export async function reserveQuota(
 
 /** Settles a reservation using actual provider usage (success path). */
 export async function settleQuota(r: Reservation, actualTokens: number) {
-  await AiPharmacyEntitlement.updateOne(
+  const safeTokens = Math.max(0, Math.round(Number(actualTokens) || 0));
+  const doc: any = await AiPharmacyEntitlement.findOneAndUpdate(
     { license_id: r.licenseId },
-    [
+    {
+      $inc: {
+        in_flight_requests: -1,
+        reserved_tokens: -r.estTokens,
+        daily_tokens_used: safeTokens,
+        monthly_tokens_used: safeTokens,
+      },
+    },
+    { new: true }
+  );
+  if (doc && (doc.in_flight_requests < 0 || doc.reserved_tokens < 0)) {
+    await AiPharmacyEntitlement.updateOne(
+      { license_id: r.licenseId },
       {
         $set: {
-          in_flight_requests: { $max: [0, { $subtract: ["$in_flight_requests", 1] }] },
-          reserved_tokens: { $max: [0, { $subtract: ["$reserved_tokens", r.estTokens] }] },
-          daily_tokens_used: { $add: ["$daily_tokens_used", actualTokens] },
-          monthly_tokens_used: { $add: ["$monthly_tokens_used", actualTokens] },
+          in_flight_requests: Math.max(0, doc.in_flight_requests || 0),
+          reserved_tokens: Math.max(0, doc.reserved_tokens || 0),
         },
-      },
-    ]
-  );
+      }
+    );
+  }
 }
 
 /**
@@ -171,18 +182,36 @@ export async function settleQuota(r: Reservation, actualTokens: number) {
  */
 export async function releaseQuota(r: Reservation, refundRequest: boolean) {
   const refund = refundRequest && r.countedRequest ? 1 : 0;
-  await AiPharmacyEntitlement.updateOne(
+  const doc: any = await AiPharmacyEntitlement.findOneAndUpdate(
     { license_id: r.licenseId },
-    [
+    {
+      $inc: {
+        in_flight_requests: -1,
+        reserved_tokens: -r.estTokens,
+        daily_requests_used: -refund,
+        monthly_requests_used: -refund,
+      },
+    },
+    { new: true }
+  );
+  if (
+    doc &&
+    (doc.in_flight_requests < 0 ||
+      doc.reserved_tokens < 0 ||
+      doc.daily_requests_used < 0 ||
+      doc.monthly_requests_used < 0)
+  ) {
+    await AiPharmacyEntitlement.updateOne(
+      { license_id: r.licenseId },
       {
         $set: {
-          in_flight_requests: { $max: [0, { $subtract: ["$in_flight_requests", 1] }] },
-          reserved_tokens: { $max: [0, { $subtract: ["$reserved_tokens", r.estTokens] }] },
-          daily_requests_used: { $max: [0, { $subtract: ["$daily_requests_used", refund] }] },
-          monthly_requests_used: { $max: [0, { $subtract: ["$monthly_requests_used", refund] }] },
+          in_flight_requests: Math.max(0, doc.in_flight_requests || 0),
+          reserved_tokens: Math.max(0, doc.reserved_tokens || 0),
+          daily_requests_used: Math.max(0, doc.daily_requests_used || 0),
+          monthly_requests_used: Math.max(0, doc.monthly_requests_used || 0),
         },
-      },
-    ]
-  );
+      }
+    );
+  }
 }
 
