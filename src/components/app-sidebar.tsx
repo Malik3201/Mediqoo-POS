@@ -19,6 +19,7 @@ import {
   MessageSquare,
   CreditCard,
   Sparkles,
+  Database,
 } from "lucide-react";
 
 import {
@@ -39,6 +40,7 @@ const primary = [
   { title: "Clients", url: "/clients", icon: Building2 },
   { title: "Projects", url: "/projects", icon: FolderKanban },
   { title: "Licenses", url: "/licenses", icon: KeyRound },
+  { title: "Data Migration", url: "/migration", icon: Database },
   { title: "Billing & Renewals", url: "/billing", icon: CreditCard },
   { title: "Packages", url: "/packages", icon: Package },
   { title: "Releases", url: "/releases", icon: Rocket },
