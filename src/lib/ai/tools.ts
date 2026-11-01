@@ -80,10 +80,15 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "get_customer_balances",
     level: 1,
-    description: "Customer outstanding balances (phone numbers are masked). Optional name filter.",
+    description:
+      "Customer outstanding credit/khata balances with last payment date, days since last payment, and last credit bill date. Optional name/phone query or inactive_days filter (e.g. 180 for customers who have not paid in the last 6 months).",
     parameters: {
       type: "object",
-      properties: { query: { type: "string", maxLength: 80 }, limit: { type: "integer", minimum: 1, maximum: 20 } },
+      properties: {
+        query: { type: "string", maxLength: 80 },
+        inactive_days: { type: "integer", minimum: 1, maximum: 3650 },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+      },
       additionalProperties: false,
     },
     roles: ["admin", "manager", "senior-cashier", "none"],
@@ -91,8 +96,15 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: "get_supplier_dues",
     level: 1,
-    description: "Supplier payables (what the pharmacy owes).",
-    parameters: { type: "object", properties: { limit: { type: "integer", minimum: 1, maximum: 20 } }, additionalProperties: false },
+    description: "Supplier payables (what the pharmacy owes) with last payment date, days since last payment, and last purchase date.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", maxLength: 80 },
+        limit: { type: "integer", minimum: 1, maximum: 20 },
+      },
+      additionalProperties: false,
+    },
     roles: ["admin", "manager", "none"],
   },
   {
@@ -170,6 +182,37 @@ export const TOOL_DEFS: ToolDef[] = [
     advanced: true,
   },
   {
+    name: "get_pos_software_guide",
+    level: 1,
+    description:
+      "Complete guide to AivraSol POS software features, screens, exact UI buttons, step-by-step instructions, keyboard shortcuts, and recommended pharmacy workflows. Call this whenever the user asks how to do something in the software, how a feature works, or what steps to follow.",
+    parameters: {
+      type: "object",
+      properties: {
+        topic: {
+          type: "string",
+          enum: [
+            "overview",
+            "billing",
+            "returns",
+            "products_inventory",
+            "expiry_dead_stock",
+            "purchases_grn",
+            "smart_purchase",
+            "customers_khata",
+            "suppliers",
+            "cash_drawer",
+            "cashbook_expenses",
+            "daily_closing",
+            "reports_insights",
+            "settings_users_sync",
+          ],
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: "open_screen",
     level: 2,
     description: "Navigate the POS to an existing screen so the user can see the full report.",
@@ -182,6 +225,49 @@ export const TOOL_DEFS: ToolDef[] = [
         },
       },
       required: ["screen"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "propose_pos_action",
+    level: 3,
+    description:
+      "Prepare an interactive in-chat Approval Card for any POS operation requested by the user (receive customer khata payment, record supplier payment, add expense or income, cash drawer cash-in/cash-out/open, add/update customer, add/update supplier, or add/update product price/stock/reorder level). The action executes ONLY when the user clicks Approve in the chat, and then automatically opens the relevant page and section.",
+    parameters: {
+      type: "object",
+      properties: {
+        action_type: {
+          type: "string",
+          enum: [
+            "receive_customer_payment",
+            "record_supplier_payment",
+            "add_expense",
+            "add_income",
+            "cash_drawer_movement",
+            "add_customer",
+            "update_customer",
+            "add_supplier",
+            "update_supplier",
+            "update_product",
+            "add_product",
+          ],
+        },
+        target_name: { type: "string", minLength: 1, maxLength: 100 },
+        amount: { type: "number", minimum: 0, maximum: 100000000 },
+        method: { type: "string", enum: ["cash", "bank", "cheque", "other"] },
+        category: { type: "string", maxLength: 60 },
+        price: { type: "number", minimum: 0, maximum: 10000000 },
+        cost: { type: "number", minimum: 0, maximum: 10000000 },
+        stock_qty: { type: "number", minimum: 0, maximum: 10000000 },
+        reorder_level: { type: "number", minimum: 0, maximum: 1000000 },
+        phone: { type: "string", maxLength: 40 },
+        address: { type: "string", maxLength: 160 },
+        unit: { type: "string", maxLength: 24 },
+        generic: { type: "string", maxLength: 100 },
+        location: { type: "string", maxLength: 60 },
+        note: { type: "string", maxLength: 200 },
+      },
+      required: ["action_type", "target_name"],
       additionalProperties: false,
     },
   },

@@ -11,7 +11,7 @@ import { loadModelSnaps, selectModelChain, syncModelsWithProviderList } from "./
 import { decryptApiKey } from "./crypto";
 import { groqListModels } from "./groq";
 import { allowedToolNames, providerToolSpecs, validateToolArguments, type OperatorRole } from "./tools";
-import { SYSTEM_PROMPT } from "./prompt";
+import { SYSTEM_PROMPT, buildSystemPrompt } from "./prompt";
 import { estimateTokens, sanitizeMessages } from "./sanitize";
 import { executeChat, type ExecuteDeps, type ExecuteResult } from "./router";
 import { raiseAlert } from "./alerts";
@@ -271,7 +271,7 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
   }
 
   // 8. Provider call through the shared-quota-aware router
-  const providerMessages: any[] = [{ role: "system", content: SYSTEM_PROMPT }, ...san.messages];
+  const providerMessages: any[] = [{ role: "system", content: buildSystemPrompt(language) }, ...san.messages];
   let exec: ExecuteResult | null = null;
   let usedModel = chain[0].provider_model_id;
   try {
