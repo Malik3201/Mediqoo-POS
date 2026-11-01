@@ -55,7 +55,7 @@ export function sanitizeMessages(input: any[]): { ok: true; messages: CleanMessa
     if (role === "assistant") {
       const msg: CleanMessage = { role: "assistant", content: typeof m.content === "string" ? stripControl(m.content).slice(0, MAX_ASSISTANT_CHARS) : null };
       if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
-        msg.tool_calls = m.tool_calls.slice(0, 1).map((tc: any) => ({
+        msg.tool_calls = m.tool_calls.slice(0, 4).map((tc: any) => ({
           id: String(tc?.id || "").slice(0, 64),
           type: "function" as const,
           function: {
@@ -78,10 +78,10 @@ export function sanitizeMessages(input: any[]): { ok: true; messages: CleanMessa
   return { ok: true, messages: trimmed };
 }
 
-/** Conservative token estimate (chars/3 covers Urdu/Roman Urdu well) plus the output budget. */
+/** Conservative token estimate plus expected completion output budget. */
 export function estimateTokens(messages: CleanMessage[], toolSpecsJsonLength: number, systemChars: number, maxOutput: number): number {
   let chars = systemChars + toolSpecsJsonLength;
   for (const m of messages) chars += (m.content?.length || 0) + (m.tool_calls ? JSON.stringify(m.tool_calls).length : 0);
-  return Math.ceil(chars / 3) + maxOutput;
+  return Math.ceil(chars / 4) + Math.min(maxOutput, 512);
 }
 

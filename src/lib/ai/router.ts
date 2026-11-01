@@ -273,12 +273,21 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
         const cool = cooldownAfter429(h);
         const until = new Date(Date.now() + cool);
         retryAfterSeconds = Math.max(retryAfterSeconds ?? 0, Math.ceil(cool / 1000));
-        // Shared organization quota: cool down the WHOLE pool, never try sibling keys of this org.
+        // Exclude this org pool for the current model attempt; only lock the pool across models
+        // if multiple consecutive 429s occur across the fallback model chain.
         excludedPools.add(orgId);
+        const prev429s = orgPool?.consecutive_429s || 0;
+        const shouldLockPool = prev429s + 1 >= 3;
         const updated: any = await AiOrgPool.findOneAndUpdate(
           { organization_id: orgId },
           {
-            $set: { ...poolHeaderPatch, status: "Rate Limited", rate_limited_until: until, last_rate_limit_at: new Date(), last_error: "Provider rate limit (429)" },
+            $set: {
+              ...poolHeaderPatch,
+              status: shouldLockPool ? "Rate Limited" : "Healthy",
+              rate_limited_until: shouldLockPool ? until : null,
+              last_rate_limit_at: new Date(),
+              last_error: `Provider rate limit (429) on ${input.model}`,
+            },
             $inc: { consecutive_429s: 1 },
           },
           { new: true }
@@ -286,11 +295,17 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
         await AiCredential.updateOne(
           { id: cred.id },
           {
-            $set: { status: "Rate Limited", cooldown_until: until, last_failure_at: new Date(), last_failure_reason: "Rate limited by provider (429) — temporary", last_http_status: 429 },
+            $set: {
+              status: shouldLockPool ? "Rate Limited" : "Healthy",
+              cooldown_until: shouldLockPool ? until : null,
+              last_failure_at: new Date(),
+              last_failure_reason: `Rate limited by provider (429) on ${input.model} — temporary`,
+              last_http_status: 429,
+            },
             $inc: { total_failures: 1, consecutive_failures: 1, total_requests: 1 },
           }
         );
-        await pushHealth(cred.id, "Rate Limited", 429, result.latencyMs, `Cooldown ${Math.ceil(cool / 1000)}s`);
+        await pushHealth(cred.id, "Rate Limited", 429, result.latencyMs, `Cooldown ${Math.ceil(cool / 1000)}s (${input.model})`);
         if ((updated?.consecutive_429s || 0) >= 5) {
           await raiseAlert({
             type: "sustained_rate_limiting",
@@ -303,7 +318,7 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
             entityName: orgPool?.organization_name || orgId,
           });
         }
-        continue; // another INDEPENDENT pool may still serve the request
+        continue; // another INDEPENDENT pool or fallback model in the chain may still serve the request
       }
 
       case "invalid_credentials": {

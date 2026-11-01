@@ -101,23 +101,8 @@ export function poolIsAvailable(p: PoolSnapshot | undefined, estTokens: number, 
   if (p.daily_request_limit > 0 && dayReq + 1 > p.daily_request_limit) return { ok: false, reason: "daily_requests" };
   if (p.daily_token_limit > 0 && dayTok + estTokens > p.daily_token_limit) return { ok: false, reason: "daily_tokens" };
 
-  // Trust provider-reported remaining capacity while its reset time is in the future.
-  if (
-    p.provider_remaining_requests !== null &&
-    p.provider_remaining_requests <= 0 &&
-    p.provider_reset_requests_at &&
-    p.provider_reset_requests_at.getTime() > now.getTime()
-  ) {
-    return { ok: false, reason: "provider_requests_exhausted" };
-  }
-  if (
-    p.provider_remaining_tokens !== null &&
-    p.provider_remaining_tokens < estTokens &&
-    p.provider_reset_tokens_at &&
-    p.provider_reset_tokens_at.getTime() > now.getTime()
-  ) {
-    return { ok: false, reason: "provider_tokens_exhausted" };
-  }
+  // Note: Groq x-ratelimit-remaining-* headers are per-model (not shared across fallback models
+  // in the model chain), so we do not pre-emptively block the entire org pool before calling the provider.
   return { ok: true };
 }
 

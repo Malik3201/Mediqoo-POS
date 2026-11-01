@@ -204,7 +204,7 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
   let models = await loadModelSnaps();
   let chain = selectModelChain(models, {
     complexity,
-    needsTools: toolSpecs.length > 0,
+    needsTools: true,
     allowedModels: ent.allowed_models || [],
     modelPolicy: ent.model_policy || "auto",
     advancedCopilot: !!ent.advanced_copilot_enabled,
@@ -220,7 +220,7 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
           models = await loadModelSnaps();
           chain = selectModelChain(models, {
             complexity,
-            needsTools: toolSpecs.length > 0,
+            needsTools: true,
             allowedModels: ent.allowed_models || [],
             modelPolicy: ent.model_policy || "auto",
             advancedCopilot: !!ent.advanced_copilot_enabled,
@@ -289,8 +289,7 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
         deps
       );
       if (exec.ok) break;
-      if (exec.error === "model_unsupported") continue; // try the next permitted model
-      if (m === chain[0] && chain.length > 1 && exec.error === "provider_unavailable") continue;
+      if (exec.error === "model_unsupported" || exec.error === "capacity_exhausted" || exec.error === "provider_unavailable") continue;
       break;
     }
   } catch (e) {
@@ -327,16 +326,19 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
   const usage = exec.result.usage || { input: 0, output: 0, cached: 0, total: 0 };
   let toolCalls: { id: string; name: string; arguments: any }[] | undefined;
   if (Array.isArray(rawMsg.tool_calls) && rawMsg.tool_calls.length > 0 && step < settings.max_tool_steps) {
-    const tc = rawMsg.tool_calls[0];
-    const name = String(tc?.function?.name || "");
-    let args: any = {};
-    try {
-      args = tc?.function?.arguments ? JSON.parse(tc.function.arguments) : {};
-    } catch {
-      args = null;
+    const validCalls: { id: string; name: string; arguments: any }[] = [];
+    for (const tc of rawMsg.tool_calls.slice(0, 3)) {
+      const name = String(tc?.function?.name || "");
+      let args: any = {};
+      try {
+        args = tc?.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+      } catch {
+        args = null;
+      }
+      const valid = args !== null && toolNames.includes(name) && validateToolArguments(name, args) === null;
+      if (valid) validCalls.push({ id: String(tc.id || crypto.randomUUID()).slice(0, 64), name, arguments: args });
     }
-    const valid = args !== null && toolNames.includes(name) && validateToolArguments(name, args) === null;
-    if (valid) toolCalls = [{ id: String(tc.id || crypto.randomUUID()).slice(0, 64), name, arguments: args }];
+    if (validCalls.length > 0) toolCalls = validCalls;
   }
   let content: string | null = typeof rawMsg.content === "string" ? rawMsg.content.slice(0, 4000) : null;
   if (!toolCalls && !content) {
@@ -371,7 +373,7 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
     latency_ms: Date.now() - started,
     status: "success",
     http_status: 200,
-    tool_calls_count: toolCalls ? 1 : 0,
+    tool_calls_count: toolCalls ? toolCalls.length : 0,
   });
   void checkUnusualTokens(license.id, client?.name || license.id, usage.total, settings.unusual_token_multiplier);
 
