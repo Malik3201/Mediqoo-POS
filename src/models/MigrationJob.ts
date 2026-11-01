@@ -49,12 +49,16 @@ export interface IMigrationJob extends Document {
   source_file_hash: string;
   source_object_key: string;
 
-  // Target Pharmacy Binding
+  // Target Pharmacy Binding (Optional for Portable Migration)
   client_id?: string;
   project_id?: string;
   license_id?: string;
   license_key?: string;
   pharmacy_name?: string;
+
+  // Portability & Package Classification
+  is_portable?: boolean;
+  package_type?: "portable-legacy-migration" | "license-bound-legacy-migration" | string;
 
   created_by: {
     id: string;
@@ -121,6 +125,8 @@ export interface IMigrationJob extends Document {
     checksum_sha256: string;
     format: "aivrasol-backup";
     version: number;
+    package_type?: string;
+    is_portable?: boolean;
     created_at: Date;
   };
 
@@ -161,6 +167,9 @@ const MigrationJobSchema = new Schema<IMigrationJob>(
     license_id: { type: String, index: true },
     license_key: { type: String },
     pharmacy_name: { type: String },
+
+    is_portable: { type: Boolean, default: true, index: true },
+    package_type: { type: String, default: "portable-legacy-migration" },
 
     created_by: {
       id: { type: String, required: true },
@@ -256,6 +265,8 @@ const MigrationJobSchema = new Schema<IMigrationJob>(
       checksum_sha256: { type: String },
       format: { type: String, default: "aivrasol-backup" },
       version: { type: Number, default: 2 },
+      package_type: { type: String, default: "portable-legacy-migration" },
+      is_portable: { type: Boolean, default: true },
       created_at: { type: Date },
     },
 

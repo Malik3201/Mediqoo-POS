@@ -224,10 +224,10 @@ export class ServerMigrationEngine {
    */
   async convertBackup(
     localFile: string,
-    targetPharmacyBinding: {
+    targetPharmacyBinding?: {
       pharmacyId?: string;
-      pharmacyName: string;
-      licenseKey: string;
+      pharmacyName?: string;
+      licenseKey?: string;
     },
     batchId?: string
   ): Promise<{
@@ -580,26 +580,39 @@ export class ServerMigrationEngine {
             totalArchiveRecords: archiveCounts.total,
             notes: "Preserved 155 populated tables, CMH reference tables, and orphan lines.",
           },
-          targetPharmacy: {
-            pharmacyName: targetPharmacyBinding.pharmacyName,
-            licenseKey: targetPharmacyBinding.licenseKey,
-          },
+          targetPharmacy: targetPharmacyBinding?.licenseKey
+            ? {
+                pharmacyName: targetPharmacyBinding.pharmacyName,
+                licenseKey: targetPharmacyBinding.licenseKey,
+              }
+            : {
+                isPortable: true,
+                packageType: "portable-legacy-migration",
+                compatibility: "Any activated AivraSol POS with an empty database",
+              },
         },
       ],
     };
 
-    const rawRestoreKey = generateUniqueRestoreKey(isAbuzar ? "ABZ" : "KEY");
-    const outputFilename = `${targetPharmacyBinding.pharmacyName.replace(/[^a-zA-Z0-9_-]/g, "_")}_migrated_${Date.now()}.aivrabak`;
+    const isPortable = !targetPharmacyBinding?.licenseKey;
+    const rawRestoreKey = generateUniqueRestoreKey(isAbuzar ? "ABZ" : "KEY", isPortable);
+    const outputFilename = isPortable
+      ? `${sourceSystem.toLowerCase()}_portable_migration_${Date.now()}.aivrabak`
+      : `${(targetPharmacyBinding?.pharmacyName || "pharmacy").replace(/[^a-zA-Z0-9_-]/g, "_")}_migrated_${Date.now()}.aivrabak`;
 
     const { buffer: aivrabakBuffer, sha256: outputSha256, snapshot } = createEncryptedAivrabak(
       collections,
       rawRestoreKey,
       {
-        pharmacyId: targetPharmacyBinding.pharmacyId,
-        pharmacyName: targetPharmacyBinding.pharmacyName,
-        targetLicenseKey: targetPharmacyBinding.licenseKey,
+        packageType: isPortable ? "portable-legacy-migration" : "license-bound-legacy-migration",
+        isPortable,
+        pharmacyId: isPortable ? undefined : targetPharmacyBinding?.pharmacyId,
+        pharmacyName: isPortable ? undefined : targetPharmacyBinding?.pharmacyName,
+        targetLicenseKey: isPortable ? undefined : targetPharmacyBinding?.licenseKey,
         migrationJobId: effectiveBatchId,
         sourceSoftware,
+        sourceFileName: path.basename(localFile),
+        sourceDatabaseName: canonical.sourceDatabaseName,
         losslessArchive: canonical.losslessArchive || {
           populatedTablesCount: 155,
           orphanSaleDetails: 416,
@@ -665,20 +678,19 @@ export class ServerMigrationEngine {
       throw new Error("Job is already completed.");
     }
 
-    // Apply target pharmacy binding if provided
-    if (targetPharmacyBinding) {
+    // Apply target pharmacy binding if provided (backward compatibility)
+    if (targetPharmacyBinding?.license_key) {
       job.client_id = targetPharmacyBinding.client_id;
       job.project_id = targetPharmacyBinding.project_id;
       job.license_id = targetPharmacyBinding.license_id;
       job.license_key = targetPharmacyBinding.license_key;
       job.pharmacy_name = targetPharmacyBinding.pharmacy_name;
-    }
-
-    // Ensure pharmacy binding is valid
-    if (!job.license_key || !job.pharmacy_name) {
-      throw new Error(
-        "Target pharmacy binding is required before converting. Please select an existing pharmacy license."
-      );
+      job.is_portable = false;
+      job.package_type = "license-bound-legacy-migration";
+    } else {
+      // General portable migration workflow: Unbound, portable package
+      job.is_portable = true;
+      job.package_type = "portable-legacy-migration";
     }
 
     job.status = "converting";
@@ -688,7 +700,9 @@ export class ServerMigrationEngine {
       timestamp: new Date(),
       actor: actorEmail,
       action: "CONVERT_STARTED",
-      details: `Starting conversion for target pharmacy: ${job.pharmacy_name} (${job.license_key})`,
+      details: job.is_portable
+        ? `Starting portable general migration conversion (unbound package)`
+        : `Starting conversion for target pharmacy: ${job.pharmacy_name} (${job.license_key})`,
     });
     await job.save();
 
@@ -1024,10 +1038,16 @@ export class ServerMigrationEngine {
             totalArchiveRecords: job.archive_counts.total,
             notes: "Preserved 155 populated tables, CMH reference tables, and orphan lines.",
           },
-          targetPharmacy: {
-            pharmacyName: job.pharmacy_name,
-            licenseKey: job.license_key,
-          },
+          targetPharmacy: job.is_portable
+            ? {
+                isPortable: true,
+                packageType: "portable-legacy-migration",
+                compatibility: "Any activated AivraSol POS with an empty database",
+              }
+            : {
+                pharmacyName: job.pharmacy_name,
+                licenseKey: job.license_key,
+              },
         },
       ],
     };
@@ -1052,10 +1072,11 @@ export class ServerMigrationEngine {
     job.stage = "Generating unique restore key and encrypting .aivrabak V2";
     await job.save();
 
-    // 4. Generate unique cryptographically strong restore key
-    const rawRestoreKey = generateUniqueRestoreKey("ABZ");
+    // 4. Generate unique cryptographically strong restore key (256-bit CSPRNG entropy)
+    const isPortable = Boolean(job.is_portable ?? !job.license_key);
+    const rawRestoreKey = generateUniqueRestoreKey("ABZ", isPortable);
     const encryptedKeyEnvelope = encryptRecoverySecret(rawRestoreKey);
-    const keyPreview = `${rawRestoreKey.slice(0, 8)}••••-••••-${rawRestoreKey.slice(-4)}`;
+    const keyPreview = `${rawRestoreKey.slice(0, 12)}••••-••••-${rawRestoreKey.slice(-4)}`;
 
     job.restore_key = {
       encrypted_key: encryptedKeyEnvelope.encrypted_value,
@@ -1066,15 +1087,23 @@ export class ServerMigrationEngine {
     };
 
     // 5. Generate genuine encrypted .aivrabak package
-    const outputFilename = `${job.pharmacy_name.replace(/[^a-zA-Z0-9_-]/g, "_")}_migrated_${Date.now()}.aivrabak`;
+    const outputFilename = isPortable
+      ? `${job.source_software.toLowerCase()}_portable_migration_${job.job_number}.aivrabak`
+      : `${(job.pharmacy_name || "pharmacy").replace(/[^a-zA-Z0-9_-]/g, "_")}_migrated_${Date.now()}.aivrabak`;
+
     const { buffer: aivrabakBuffer, sha256: outputSha256 } = createEncryptedAivrabak(
       collections,
       rawRestoreKey,
       {
-        pharmacyName: job.pharmacy_name,
-        targetLicenseKey: job.license_key,
+        packageType: isPortable ? "portable-legacy-migration" : "license-bound-legacy-migration",
+        isPortable,
+        pharmacyName: isPortable ? undefined : job.pharmacy_name,
+        targetLicenseKey: isPortable ? undefined : job.license_key,
         migrationJobId: job.id,
         sourceSoftware: job.source_software,
+        sourceFileName: job.source_filename,
+        sourceSha256: job.source_file_hash,
+        sourceDatabaseName: job.source_database,
         losslessArchive: canonical.losslessArchive,
       }
     );
@@ -1109,6 +1138,8 @@ export class ServerMigrationEngine {
       checksum_sha256: outputSha256,
       format: "aivrasol-backup",
       version: 2,
+      package_type: isPortable ? "portable-legacy-migration" : "license-bound-legacy-migration",
+      is_portable: isPortable,
       created_at: new Date(),
     };
 

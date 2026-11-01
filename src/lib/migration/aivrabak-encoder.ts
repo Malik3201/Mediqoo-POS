@@ -100,6 +100,8 @@ export function createEncryptedAivrabak(
       printing: { general: { autoPrint: false } },
       migration: {
         isMigratedPackage: true,
+        packageType: extraSettings.packageType || (extraSettings.targetLicenseKey ? "license-bound-legacy-migration" : "portable-legacy-migration"),
+        isPortable: extraSettings.isPortable ?? !extraSettings.targetLicenseKey,
         migratedAt: createdAt,
         ...extraSettings,
       },
@@ -239,14 +241,18 @@ export function verifyEncryptedAivrabak(
 }
 
 /**
- * Generates a cryptographically strong unique restore key.
- * Format: MIG-[SRC]-[XXXX]-[XXXX]-[XXXX]
+ * Generates a cryptographically strong unique restore key with 256 bits of CSPRNG entropy.
+ * Format: MIG-PORTABLE-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX
+ * (32 random bytes = 256 bits of entropy, split into 8 readable 8-character hex blocks)
  */
-export function generateUniqueRestoreKey(sourcePrefix = "ABZ"): string {
-  const part1 = crypto.randomBytes(2).toString("hex").toUpperCase();
-  const part2 = crypto.randomBytes(2).toString("hex").toUpperCase();
-  const part3 = crypto.randomBytes(2).toString("hex").toUpperCase();
-  return `MIG-${sourcePrefix.toUpperCase().slice(0, 3)}-${part1}-${part2}-${part3}`;
+export function generateUniqueRestoreKey(sourcePrefix = "ABZ", isPortable = true): string {
+  const randomBuf = crypto.randomBytes(32);
+  const chunks: string[] = [];
+  for (let i = 0; i < 32; i += 4) {
+    chunks.push(randomBuf.subarray(i, i + 4).toString("hex").toUpperCase());
+  }
+  const prefix = isPortable ? "MIG-PORTABLE" : `MIG-${sourcePrefix.toUpperCase().slice(0, 3)}`;
+  return `${prefix}-${chunks.join("-")}`;
 }
 
 export const decryptAivrabakSnapshot = verifyEncryptedAivrabak;

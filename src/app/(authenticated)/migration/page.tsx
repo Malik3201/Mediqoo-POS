@@ -315,30 +315,17 @@ export default function DataMigrationPage() {
     }
   };
 
-  // Step 5: Convert Job
+  // Step 4: Convert Job into Portable Migration Package
   const triggerConversion = async () => {
     if (!currentJob) return;
-    if (!selectedPharmacy) {
-      toast.error("Target Pharmacy Required", {
-        description: "Please select an existing pharmacy license to bind this backup.",
-      });
-      return;
-    }
 
     setConverting(true);
+    setWizardStep(4);
     try {
       const res = await fetch(`/api/admin/migration/${currentJob.id}/convert`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetPharmacyBinding: {
-            client_id: selectedPharmacy.client_id,
-            project_id: selectedPharmacy.project_id,
-            license_id: selectedPharmacy.license_id,
-            license_key: selectedPharmacy.license_key,
-            pharmacy_name: selectedPharmacy.pharmacy_name,
-          },
-        }),
+        body: JSON.stringify({}),
       });
 
       const data = await res.json();
@@ -346,12 +333,13 @@ export default function DataMigrationPage() {
 
       setCurrentJob(data.job);
       toast.success("Conversion completed!", {
-        description: "Encrypted .aivrabak package and unique restore key generated.",
+        description: "Encrypted portable .aivrabak package and unique 256-bit restore key generated.",
       });
-      setWizardStep(6); // Step 6: Download & Restore Key
+      setWizardStep(5); // Step 5: Download & Restore Key
       fetchJobs();
     } catch (err: any) {
       toast.error("Conversion failed", { description: err.message });
+      setWizardStep(3);
     } finally {
       setConverting(false);
     }
@@ -463,14 +451,13 @@ export default function DataMigrationPage() {
         {/* ── TAB 1: NEW MIGRATION WORKFLOW ────────────────────────────── */}
         <TabsContent value="new" className="space-y-6">
           {/* Stepper Header */}
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-2 border rounded-xl p-3 bg-muted/30 text-xs">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 border rounded-xl p-3 bg-muted/30 text-xs">
             {[
               { num: 1, label: "Upload Backup" },
               { num: 2, label: "Analyze" },
-              { num: 3, label: "Review & Reconcile" },
-              { num: 4, label: "Target Pharmacy" },
-              { num: 5, label: "Convert" },
-              { num: 6, label: "Download & Key" },
+              { num: 3, label: "Review Data" },
+              { num: 4, label: "Convert Backup" },
+              { num: 5, label: "Download Backup & Key" },
             ].map((s) => {
               const isActive = wizardStep === s.num;
               const isDone = wizardStep > s.num;
@@ -733,8 +720,8 @@ export default function DataMigrationPage() {
                     <Button variant="outline" onClick={() => setWizardStep(1)}>
                       Back to Upload
                     </Button>
-                    <Button onClick={() => setWizardStep(4)}>
-                      Proceed to Target Pharmacy <ArrowRight className="h-4 w-4 ml-2" />
+                    <Button onClick={triggerConversion} disabled={converting}>
+                      Convert to Portable Package <ArrowRight className="h-4 w-4 ml-2" />
                     </Button>
                   </div>
                 </CardContent>
@@ -742,98 +729,20 @@ export default function DataMigrationPage() {
             </div>
           )}
 
-          {/* STEP 4: TARGET PHARMACY BINDING */}
-          {wizardStep === 4 && currentJob && (
+          {/* STEP 4: CONVERTING */}
+          {wizardStep === 4 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Step 4: Select Target Pharmacy &amp; License</CardTitle>
+                <CardTitle className="text-lg">Step 4: Server-Side Conversion &amp; Encryption</CardTitle>
                 <CardDescription>
-                  Cryptographically binds this migration package to an authorized AivraSol pharmacy license.
-                  Cross-pharmacy restoration is prevented by authenticated encryption binding.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">
-                    Select Pharmacy License
-                  </label>
-                  <div className="grid gap-3 max-h-[300px] overflow-y-auto pr-1">
-                    {pharmacies.map((pharmacy) => {
-                      const isSelected = selectedPharmacy?.license_id === pharmacy.license_id;
-                      return (
-                        <div
-                          key={pharmacy.license_id}
-                          onClick={() => setSelectedPharmacy(pharmacy)}
-                          className={`p-4 border rounded-xl cursor-pointer transition-all flex items-center justify-between ${
-                            isSelected
-                              ? "border-primary bg-primary/5 ring-1 ring-primary"
-                              : "hover:border-line"
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-primary/10 rounded-lg text-primary">
-                              <Building2 className="h-5 w-5" />
-                            </div>
-                            <div>
-                              <div className="font-semibold text-sm">{pharmacy.pharmacy_name}</div>
-                              <div className="text-xs text-muted-foreground">
-                                Owner: {pharmacy.client_name} • License:{" "}
-                                <span className="font-mono text-foreground font-semibold">{pharmacy.license_key}</span>
-                              </div>
-                            </div>
-                          </div>
-                          <Badge variant={pharmacy.status === "active" ? "default" : "outline"}>
-                            {pharmacy.status}
-                          </Badge>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {selectedPharmacy && (
-                  <div className="p-4 border rounded-xl bg-success/5 border-success/30 flex items-center gap-3">
-                    <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
-                    <div className="text-xs">
-                      <strong>Target Bound:</strong> {selectedPharmacy.pharmacy_name} (
-                      <span className="font-mono">{selectedPharmacy.license_key}</span>). Conversion will produce
-                      a dedicated package encrypted exclusively for this pharmacy.
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center pt-4 border-t">
-                  <Button variant="outline" onClick={() => setWizardStep(3)}>
-                    Back to Review
-                  </Button>
-                  <Button
-                    disabled={!selectedPharmacy}
-                    onClick={() => {
-                      setWizardStep(5);
-                      triggerConversion();
-                    }}
-                  >
-                    Convert &amp; Generate .aivrabak <ArrowRight className="h-4 w-4 ml-2" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* STEP 5: CONVERTING */}
-          {wizardStep === 5 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Step 5: Server-Side Conversion &amp; Encryption</CardTitle>
-                <CardDescription>
-                  Extracting canonical records, compiling Lossless Source Archive, deriving unique restore key, and encrypting .aivrabak V2.
+                  Extracting canonical records, compiling Lossless Source Archive, deriving 256-bit CSPRNG restore key, and encrypting portable .aivrabak V2.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex items-center gap-4 p-6 border rounded-xl bg-muted/20">
                   <RefreshCw className="h-8 w-8 text-primary animate-spin" />
                   <div>
-                    <h4 className="font-semibold text-sm">Generating Verified Migration Package...</h4>
+                    <h4 className="font-semibold text-sm">Generating Verified Portable Migration Package...</h4>
                     <p className="text-xs text-muted-foreground">
                       Running AES-256-GCM encryption with 200,000 PBKDF2 iterations and strict manifest validation.
                     </p>
@@ -843,8 +752,8 @@ export default function DataMigrationPage() {
             </Card>
           )}
 
-          {/* STEP 6: DOWNLOAD & RESTORE KEY */}
-          {wizardStep === 6 && currentJob && (
+          {/* STEP 5: DOWNLOAD & RESTORE KEY */}
+          {wizardStep === 5 && currentJob && (
             <Card className="border-success/30 bg-success/5">
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -852,9 +761,14 @@ export default function DataMigrationPage() {
                     <CheckCircle2 className="h-6 w-6" />
                   </div>
                   <div>
-                    <CardTitle className="text-xl">Migration Package Ready for Customer POS</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-xl">Portable Migration Package Ready</CardTitle>
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 text-[11px]">
+                        Portable General Mode
+                      </Badge>
+                    </div>
                     <CardDescription>
-                      The legacy backup was safely converted into a genuine encrypted .aivrabak file.
+                      The legacy backup was safely converted into a general encrypted .aivrabak file that can initialize any activated, empty AivraSol POS.
                     </CardDescription>
                   </div>
                 </div>
@@ -887,11 +801,11 @@ export default function DataMigrationPage() {
                   {/* Restore Key Card */}
                   <div className="p-4 border rounded-xl bg-card space-y-2">
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Unique Restore Security Key
+                      Unique Restore Security Key (256-bit CSPRNG)
                     </span>
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 font-mono text-sm bg-muted px-3 py-2 rounded-lg truncate border">
-                        {revealedKey ? revealedKey : currentJob.restore_key?.key_preview || "MIG-ABZ-••••-••••"}
+                      <div className="flex-1 font-mono text-xs bg-muted px-3 py-2 rounded-lg truncate border">
+                        {revealedKey ? revealedKey : currentJob.restore_key?.key_preview || "MIG-PORTABLE-••••"}
                       </div>
                       <Button
                         variant="outline"
@@ -949,8 +863,10 @@ export default function DataMigrationPage() {
                       <span className="font-bold text-sm">{currentJob.normalized_counts.invoices.toLocaleString()} invoices</span>
                     </div>
                     <div>
-                      <span className="text-muted-foreground block">Target License</span>
-                      <span className="font-mono font-bold text-sm">{currentJob.license_key}</span>
+                      <span className="text-muted-foreground block">Target Scope</span>
+                      <span className="font-bold text-sm text-primary">
+                        {currentJob.pharmacy_name ? currentJob.pharmacy_name : "Any Activated POS (Empty DB)"}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1007,7 +923,7 @@ export default function DataMigrationPage() {
                       <tr>
                         <th className="py-2.5 px-4 font-medium">Job #</th>
                         <th className="py-2.5 px-4 font-medium">Source</th>
-                        <th className="py-2.5 px-4 font-medium">Target Pharmacy</th>
+                        <th className="py-2.5 px-4 font-medium">Target / Scope</th>
                         <th className="py-2.5 px-4 font-medium">Status</th>
                         <th className="py-2.5 px-4 font-medium">Products</th>
                         <th className="py-2.5 px-4 font-medium">Created</th>
@@ -1023,10 +939,18 @@ export default function DataMigrationPage() {
                             <span className="text-[11px] text-muted-foreground">{job.source_filename}</span>
                           </td>
                           <td className="py-3 px-4">
-                            <span className="font-medium block">{job.pharmacy_name || "—"}</span>
-                            <span className="text-[11px] font-mono text-muted-foreground">
-                              {job.license_key || "Unassigned"}
-                            </span>
+                            {job.license_key ? (
+                              <>
+                                <span className="font-medium block">{job.pharmacy_name || "Bound Pharmacy"}</span>
+                                <span className="text-[11px] font-mono text-muted-foreground">
+                                  {job.license_key}
+                                </span>
+                              </>
+                            ) : (
+                              <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[11px]">
+                                Portable (Any POS)
+                              </Badge>
+                            )}
                           </td>
                           <td className="py-3 px-4">
                             <Badge
