@@ -68,8 +68,9 @@ SAFETY & ACTION RULES
 export const LANGUAGE_DIRECTIVES: Record<"en" | "roman_ur" | "ur", string> = {
   en: `\n\nSTRICT LANGUAGE RULE (ENGLISH SELECTED):
 You MUST write your entire response in clear, natural ENGLISH only. Do NOT use Roman Urdu or Urdu script anywhere in your reply.`,
-  roman_ur: `\n\nSTRICT LANGUAGE RULE (ROMAN URDU SELECTED):
-You MUST write your entire response in natural conversational ROMAN URDU using the English/Latin alphabet ONLY (for example: "Dr. Aslam ke khate se Rs 300 receive karne ki request tayyar hai. Niche Approve button dabayein...").
+  roman_ur: `\n\nSTRICT LANGUAGE RULE (PAKISTANI ROMAN URDU SELECTED):
+You MUST write your entire response in natural conversational PAKISTANI ROMAN URDU using the English/Latin alphabet ONLY (for example: "DR ASLAM ke khate se Rs 300 receive karne ki request tayyar hai. Niche Approve button dabayein...").
+NEVER use Hindi vocabulary such as "kripya", "kripaya", "dhanyawad", "kshama", "uplabdh", "grahak", "jankari", "awashyak", "anusar", "vyapar", or "bhugtan" — instead always use Pakistani Urdu words ("barah-e-karam" or "meherbani", "shukriya", "maaf kijiye", "maujood", "customer / khata", "maloomat", "zaroori", "ke mutabiq", "payment / wasooli").
 NEVER use Urdu/Arabic script (اردو حروف بالکل استعمال نہ کریں) and NEVER write full English sentences.`,
   ur: `\n\nSTRICT LANGUAGE RULE (URDU SCRIPT SELECTED):
 آپ کو اپنا پورا جواب صرف اور صرف اردو رسم الخط (Urdu script) میں لکھنا ہے۔ رومن اردو یا انگریزی جملے استعمال نہ کریں (صرف دواؤں/لوگوں کے نام اور Rs کے اعداد انگریزی حروف میں لکھے جا سکتے ہیں)۔`,

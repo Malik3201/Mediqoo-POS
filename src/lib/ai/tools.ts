@@ -221,7 +221,13 @@ export const TOOL_DEFS: ToolDef[] = [
       properties: {
         screen: {
           type: "string",
-          enum: ["dashboard", "billing", "products", "purchases", "customers", "reports", "cashbook", "suppliers", "daily-closing", "cash-drawer"],
+          enum: [
+            "dashboard", "billing", "master", "products", "products:expiry", "products:dead",
+            "purchases", "purchases:smart", "returns", "customers", "suppliers",
+            "prescriptions", "narcotics", "cashbook", "cash-drawer",
+            "reports", "daily-closing", "reports:money", "reports:staff",
+            "printing", "settings",
+          ],
         },
       },
       required: ["screen"],
@@ -232,7 +238,7 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "propose_pos_action",
     level: 3,
     description:
-      "Prepare an interactive in-chat Approval Card for any POS operation requested by the user (receive customer khata payment, record supplier payment, add expense or income, cash drawer cash-in/cash-out/open, add/update customer, add/update supplier, or add/update product price/stock/reorder level). The action executes ONLY when the user clicks Approve in the chat, and then automatically opens the relevant page and section.",
+      "Prepare an interactive in-chat Approval Card for any POS operation requested by the user (receive customer khata payment, record supplier payment, add expense or income, cash drawer cash-in/cash-out/open/close, save daily closing, add/update customer, add/update supplier, add/update product price/stock/reorder level, or open customer/supplier ledger). The action executes ONLY when the user clicks Approve in the chat, and then automatically opens the relevant page and section.",
     parameters: {
       type: "object",
       properties: {
@@ -244,12 +250,16 @@ export const TOOL_DEFS: ToolDef[] = [
             "add_expense",
             "add_income",
             "cash_drawer_movement",
+            "close_cash_drawer",
+            "save_daily_closing",
             "add_customer",
             "update_customer",
             "add_supplier",
             "update_supplier",
             "update_product",
             "add_product",
+            "open_customer_ledger",
+            "open_supplier_ledger",
           ],
         },
         target_name: { type: "string", minLength: 1, maxLength: 100 },
