@@ -83,9 +83,44 @@ export function classifyStatus(status: number, bodyText: string): ProviderOutcom
   if (status === 401) return "invalid_credentials";
   if (status === 403) return "access_denied";
   if (status === 429) return "rate_limited";
-  if (status === 404 || (status === 400 && /model/i.test(bodyText))) return "model_unsupported";
+  if (
+    status === 404 ||
+    (status === 400 &&
+      /model_not_found|model_decommissioned|does not exist|model.*not.*exist|model.*not.*supported|decommissioned/i.test(bodyText))
+  ) {
+    return "model_unsupported";
+  }
   if (status >= 500) return "provider_error";
   return "invalid_response";
+}
+
+/**
+ * Converts assistant tool_calls and tool role messages into plain-text messages
+ * when sending a follow-up completion without active tools, preventing Groq Harmony
+ * models (gpt-oss-20b / gpt-oss-120b) from throwing `tool_use_failed` ("Tool choice is none, but model called a tool").
+ */
+export function flattenMessagesForPlainText(messages: any[]): any[] {
+  const out: any[] = [];
+  for (const m of messages) {
+    if (!m || typeof m !== "object") continue;
+    if (m.role === "tool") {
+      out.push({
+        role: "user",
+        content: `[Tool Result${m.name ? ` (${m.name})` : ""}]: ${typeof m.content === "string" ? m.content : JSON.stringify(m.content)}`,
+      });
+    } else if (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+      const summary = m.tool_calls
+        .map((tc: any) => `${tc?.function?.name || "tool"}(${tc?.function?.arguments || "{}"})`)
+        .join(", ");
+      out.push({
+        role: "assistant",
+        content: m.content ? `${m.content}\n[Called: ${summary}]` : `[Called: ${summary}]`,
+      });
+    } else {
+      out.push({ role: m.role, content: typeof m.content === "string" ? m.content : "" });
+    }
+  }
+  return out;
 }
 
 export interface ChatCompletionInput {
@@ -104,14 +139,15 @@ export interface ChatCompletionInput {
  */
 export async function groqChat(input: ChatCompletionInput): Promise<ProviderResult> {
   const started = Date.now();
+  const hasTools = Boolean(input.tools && input.tools.length > 0);
   const body: any = {
     model: input.model,
-    messages: input.messages,
+    messages: hasTools ? input.messages : flattenMessagesForPlainText(input.messages),
     max_tokens: input.maxTokens,
     temperature: input.temperature ?? 0.2,
     stream: false,
   };
-  if (input.tools && input.tools.length) {
+  if (hasTools) {
     body.tools = input.tools;
     body.tool_choice = "auto";
     body.parallel_tool_calls = false;
@@ -140,8 +176,45 @@ export async function groqChat(input: ChatCompletionInput): Promise<ProviderResu
     };
   }
 
-  const headers = readRateHeaders(res.headers);
-  const text = await res.text().catch(() => "");
+  let headers = readRateHeaders(res.headers);
+  let text = await res.text().catch(() => "");
+
+  // If Groq's Harmony parser rejected a malformed tool call or a tool call when tools were disabled
+  // ("Tool choice is none, but model called a tool" / "tool_use_failed"), automatically recover
+  // by requesting a plain-text response with flattened tool history.
+  if (res.status === 400 && /tool_use_failed|Tool choice is none|Failed to call a function/i.test(text)) {
+    try {
+      const fallbackMessages = [
+        ...flattenMessagesForPlainText(input.messages),
+        {
+          role: "system",
+          content: "Do NOT call any tools or functions now. Respond directly to the user in plain text using the information already gathered.",
+        },
+      ];
+      const retryRes = await fetch(`${GROQ_BASE}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${input.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: input.model,
+          messages: fallbackMessages,
+          max_tokens: input.maxTokens,
+          temperature: input.temperature ?? 0.2,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(input.timeoutMs ?? 20_000),
+        cache: "no-store",
+      });
+      headers = readRateHeaders(retryRes.headers);
+      text = await retryRes.text().catch(() => "");
+      res = retryRes;
+    } catch {
+      // Keep original response if fallback network call fails
+    }
+  }
+
   const outcome = classifyStatus(res.status, text);
   if (outcome !== "ok") {
     return {

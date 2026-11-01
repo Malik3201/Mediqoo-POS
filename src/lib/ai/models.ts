@@ -55,30 +55,6 @@ export const SEED_MODELS = [
     max_output_tokens: 2048,
     usage_policy: "all_queries",
   },
-  {
-    model_name: "Llama 3.1 8B Instant",
-    provider_model_id: "llama-3.1-8b-instant",
-    is_default: false,
-    is_complex_default: false,
-    is_fallback: true,
-    supports_tools: true,
-    supports_structured_json: true,
-    context_window: 131072,
-    max_output_tokens: 1024,
-    usage_policy: "all_queries",
-  },
-  {
-    model_name: "Llama 3.3 70B Versatile",
-    provider_model_id: "llama-3.3-70b-versatile",
-    is_default: false,
-    is_complex_default: false,
-    is_fallback: true,
-    supports_tools: true,
-    supports_structured_json: true,
-    context_window: 131072,
-    max_output_tokens: 2048,
-    usage_policy: "all_queries",
-  },
 ];
 
 const NON_CHAT_MODEL_RE = /whisper|orpheus|guard|safeguard|tts|embed|vision-preview|playai/i;
@@ -95,6 +71,24 @@ export async function seedModelsIfEmpty() {
       { $setOnInsert: m },
       { upsert: true }
     );
+  }
+  // Self-heal false tool_use_failed / "Tool choice is none" errors and remove unused legacy disabled seed rows
+  try {
+    await AiModelRegistry.updateMany(
+      { last_error: { $regex: /Tool choice is none|tool_use_failed|Failed to call a function/i } },
+      { $set: { availability: "available", last_error: null } }
+    );
+    await AiModelRegistry.deleteMany({
+      provider_model_id: { $in: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"] },
+      enabled: false,
+      total_requests: { $in: [0, null] },
+    });
+    await AiModelRegistry.updateMany(
+      { enabled: false, last_error: { $ne: null } },
+      { $set: { last_error: null } }
+    );
+  } catch {
+    /* best effort self-heal */
   }
 }
 
@@ -144,13 +138,19 @@ export async function syncModelsWithProviderList(availableIds: string[]): Promis
       m.last_verified_at = now;
       m.last_error = null;
       verified += 1;
+      await m.save();
     } else {
-      m.availability = "unavailable";
-      m.last_verified_at = now;
-      m.last_error = "Not available on the configured Groq account.";
       missing.push(m.provider_model_id);
+      if (!m.total_requests) {
+        await AiModelRegistry.deleteOne({ _id: m._id });
+      } else {
+        m.availability = "unavailable";
+        m.enabled = false;
+        m.last_verified_at = now;
+        m.last_error = null;
+        await m.save();
+      }
     }
-    await m.save();
   }
 
   // Ensure an available, enabled model is selected as default & complex default

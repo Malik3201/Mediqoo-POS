@@ -143,7 +143,14 @@ async function recordModelStats(modelId: string, ok: boolean, latencyMs: number)
     const avg = ok ? Math.round(((m.avg_latency_ms || 0) * n + latencyMs) / (n + 1)) : m.avg_latency_ms || 0;
     await AiModelRegistry.updateOne(
       { provider_model_id: modelId },
-      { $set: { avg_latency_ms: avg, availability: ok ? "available" : m.availability }, $inc: { total_requests: 1, successful_requests: ok ? 1 : 0, failed_requests: ok ? 0 : 1 } }
+      {
+        $set: {
+          avg_latency_ms: avg,
+          availability: ok ? "available" : m.availability,
+          ...(ok ? { last_error: null } : {}),
+        },
+        $inc: { total_requests: 1, successful_requests: ok ? 1 : 0, failed_requests: ok ? 0 : 1 },
+      }
     );
   } catch {
     /* stats are best effort */

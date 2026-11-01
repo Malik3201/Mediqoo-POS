@@ -243,8 +243,25 @@ export function ModelsTab() {
   };
 
   const unavailable = syncResult?.ok
-    ? models.filter((m) => !syncResult.available.includes(m.provider_model_id))
-    : models.filter((m) => m.last_error);
+    ? models.filter((m) => m.enabled && !syncResult.available.includes(m.provider_model_id))
+    : models.filter((m) => m.enabled && m.last_error);
+
+  const formatModelError = (err: string | null | undefined) => {
+    if (!err) return null;
+    const trimmed = err.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed?.error?.message === "string") return parsed.error.message;
+        if (typeof parsed?.message === "string") return parsed.message;
+      } catch {
+        // Fallback if truncated JSON
+        const m = /"message"\s*:\s*"([^"]+)"/.exec(trimmed);
+        if (m?.[1]) return m[1];
+      }
+    }
+    return trimmed;
+  };
 
   return (
     <div className="space-y-6">
@@ -336,8 +353,8 @@ export function ModelsTab() {
                             <div className="font-medium">{m.model_name}</div>
                             <div className="font-mono text-[11px] text-muted-foreground">{m.provider_model_id}</div>
                             {m.last_error && (
-                              <div className="mt-0.5 max-w-[220px] truncate text-[11px] text-red-700" title={m.last_error}>
-                                {m.last_error}
+                              <div className="mt-0.5 max-w-[260px] truncate text-[11px] text-red-700" title={formatModelError(m.last_error) ?? ""}>
+                                {formatModelError(m.last_error)}
                               </div>
                             )}
                             {m.last_verified_at && (
