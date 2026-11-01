@@ -76,6 +76,15 @@ export interface CanonicalBundle {
     customerReceivablePkr: number;
     supplierPayablePkr: number;
   };
+  losslessArchive?: {
+    populatedTablesCount: number;
+    orphanSaleDetails: any[];
+    orphanPurchaseDetails: any[];
+    headerOnlyReturns: any[];
+    cmhReferenceTables: Record<string, any[]>;
+    tableManifest: any[];
+    sanitizedSecurityFieldsCount: number;
+  };
 }
 
 export interface MigrationSourceAdapter {

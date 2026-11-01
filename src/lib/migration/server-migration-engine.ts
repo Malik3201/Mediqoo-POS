@@ -600,7 +600,7 @@ export class ServerMigrationEngine {
         targetLicenseKey: targetPharmacyBinding.licenseKey,
         migrationJobId: effectiveBatchId,
         sourceSoftware,
-        losslessArchive: {
+        losslessArchive: canonical.losslessArchive || {
           populatedTablesCount: 155,
           orphanSaleDetails: 416,
           orphanPurchaseDetails: 1107,
@@ -1075,6 +1075,7 @@ export class ServerMigrationEngine {
         targetLicenseKey: job.license_key,
         migrationJobId: job.id,
         sourceSoftware: job.source_software,
+        losslessArchive: canonical.losslessArchive,
       }
     );
 

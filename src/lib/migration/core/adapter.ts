@@ -149,6 +149,7 @@ export interface CanonicalBundle {
   salesReturns: unknown[];
   purchaseReturns: unknown[];
   ledgerEntries: unknown[];
+  losslessArchive?: any;
 }
 
 export interface ReconciliationMetric {
