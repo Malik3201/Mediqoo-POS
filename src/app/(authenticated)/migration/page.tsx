@@ -83,6 +83,9 @@ interface MigrationJobData {
     total: number;
   };
   archive_counts: {
+    tables?: number;
+    source_rows?: number;
+    archive_records?: number;
     cmh_tables: number;
     orphan_sales: number;
     orphan_purchases: number;
@@ -117,6 +120,18 @@ interface MigrationJobData {
     size_bytes: number;
     checksum_sha256: string;
     created_at: string;
+    verified_at?: string;
+    expires_at?: string;
+    deleted_at?: string;
+  };
+  outdated?: boolean;
+  review_summary?: Record<string, any>;
+  source_cleanup?: {
+    status: string;
+    delete_after?: string;
+    deleted_at?: string;
+    attempts?: number;
+    failure_reason?: string;
   };
   restore_key?: {
     key_preview?: string;
@@ -649,13 +664,15 @@ export default function DataMigrationPage() {
 
                     <div className="p-4 border rounded-xl bg-card">
                       <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1">
-                        <Archive className="h-4 w-4 text-indigo-600" /> Lossless Archive Records
+                        <Archive className="h-4 w-4 text-indigo-600" /> Lossless Archive (source rows)
                       </div>
                       <div className="text-2xl font-bold">
-                        {currentJob.archive_counts.total.toLocaleString()}
+                        {(currentJob.archive_counts.source_rows ?? currentJob.archive_counts.total).toLocaleString()}
                       </div>
                       <div className="text-[11px] text-muted-foreground mt-1">
-                        CMH tables, orphan lines &amp; audits preserved
+                        {currentJob.archive_counts.tables
+                          ? `${currentJob.archive_counts.tables} tables · ${(currentJob.archive_counts.archive_records || 0).toLocaleString()} archive records · ${currentJob.archive_counts.orphan_sales} orphan sale lines · ${currentJob.archive_counts.orphan_purchases} orphan purchase lines`
+                          : "Counted after conversion"}
                       </div>
                     </div>
                   </div>
@@ -787,13 +804,48 @@ export default function DataMigrationPage() {
                       Size: {((currentJob.output_backup?.size_bytes || 0) / 1024 / 1024).toFixed(2)} MB • SHA-256:{" "}
                       {currentJob.output_backup?.checksum_sha256?.slice(0, 16)}...
                     </div>
-                    <div className="pt-2">
+                    <div className="text-[11px] text-muted-foreground space-y-0.5">
+                      <div>Mapping v{currentJob.mapping_version || "?"}{currentJob.outdated ? " — OUTDATED, re-convert required" : ""}</div>
+                      <div>
+                        Package retention:{" "}
+                        {currentJob.output_backup?.deleted_at
+                          ? `deleted ${new Date(currentJob.output_backup.deleted_at).toLocaleString()}`
+                          : currentJob.output_backup?.expires_at
+                          ? `until ${new Date(currentJob.output_backup.expires_at).toLocaleString()}`
+                          : "—"}
+                      </div>
+                      <div>
+                        Original upload:{" "}
+                        {currentJob.source_cleanup?.status === "deleted"
+                          ? `deleted from storage ${currentJob.source_cleanup.deleted_at ? new Date(currentJob.source_cleanup.deleted_at).toLocaleString() : ""}`
+                          : currentJob.source_cleanup?.status
+                          ? `${currentJob.source_cleanup.status}${currentJob.source_cleanup.failure_reason ? ` (${currentJob.source_cleanup.failure_reason})` : ""}`
+                          : "pending cleanup"}
+                      </div>
+                    </div>
+                    <div className="pt-2 flex gap-2">
                       <Button
                         size="sm"
-                        className="w-full bg-success text-success-foreground hover:bg-success/90"
+                        className="flex-1 bg-success text-success-foreground hover:bg-success/90"
                         onClick={() => handleDownloadBackup(currentJob.id)}
+                        disabled={Boolean(currentJob.output_backup?.deleted_at || currentJob.outdated)}
                       >
                         <Download className="h-4 w-4 mr-2" /> Download .aivrabak Package
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={Boolean(currentJob.output_backup?.deleted_at)}
+                        onClick={async () => {
+                          if (!confirm("Delete the generated package from Mediqoo storage? Do this only after the pharmacy has restored it successfully.")) return;
+                          const res = await fetch(`/api/admin/migration/${currentJob.id}/output`, { method: "DELETE" });
+                          const data = await res.json();
+                          if (!res.ok) return toast.error(data.error || "Delete failed");
+                          setCurrentJob(data.job);
+                          toast.success("Package deleted from storage");
+                        }}
+                      >
+                        Delete package
                       </Button>
                     </div>
                   </div>

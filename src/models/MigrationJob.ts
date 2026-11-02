@@ -95,12 +95,29 @@ export interface IMigrationJob extends Document {
 
   // Lossless Source Archive Counts
   archive_counts: {
+    tables?: number;
+    source_rows?: number;
+    archive_records?: number;
     cmh_tables: number;
     orphan_sales: number;
     orphan_purchases: number;
     header_only_returns: number;
     unmapped_tables: number;
     total: number;
+  };
+
+  /** Data that is incomplete/unverifiable in the source (shown as Needs Review). */
+  review_summary?: Record<string, any>;
+
+  /** Uploaded legacy source lifecycle (R2 object under uploads/migration-sources/{id}/). */
+  source_cleanup?: {
+    status: "pending" | "retained" | "deleted" | "failed" | "not_applicable";
+    delete_after?: Date;
+    attempts?: number;
+    last_attempt_at?: Date;
+    deleted_at?: Date;
+    failure_reason?: string;
+    reason?: string;
   };
 
   // Reconciled Financials
@@ -128,6 +145,9 @@ export interface IMigrationJob extends Document {
     package_type?: string;
     is_portable?: boolean;
     created_at: Date;
+    verified_at?: Date;
+    expires_at?: Date;
+    deleted_at?: Date;
   };
 
   // Unique Restore Key (Stored securely encrypted with server master secret)
@@ -195,8 +215,8 @@ const MigrationJobSchema = new Schema<IMigrationJob>(
     stage: { type: String, default: "Backup Uploaded" },
     progress: { type: Number, default: 0 },
 
-    mapping_version: { type: String, default: "1.0.0" },
-    converter_version: { type: String, default: "2.0.0-cloud" },
+    mapping_version: { type: String, default: "3.0.0" },
+    converter_version: { type: String, default: "3.0.0" },
 
     source_metrics: {
       total_tables: { type: Number, default: 0 },
@@ -218,12 +238,27 @@ const MigrationJobSchema = new Schema<IMigrationJob>(
     },
 
     archive_counts: {
+      tables: { type: Number, default: 0 },
+      source_rows: { type: Number, default: 0 },
+      archive_records: { type: Number, default: 0 },
       cmh_tables: { type: Number, default: 0 },
       orphan_sales: { type: Number, default: 0 },
       orphan_purchases: { type: Number, default: 0 },
       header_only_returns: { type: Number, default: 0 },
       unmapped_tables: { type: Number, default: 0 },
       total: { type: Number, default: 0 },
+    },
+
+    review_summary: { type: Schema.Types.Mixed },
+
+    source_cleanup: {
+      status: { type: String, enum: ["pending", "retained", "deleted", "failed", "not_applicable"] },
+      delete_after: { type: Date, index: true },
+      attempts: { type: Number, default: 0 },
+      last_attempt_at: { type: Date },
+      deleted_at: { type: Date },
+      failure_reason: { type: String },
+      reason: { type: String },
     },
 
     reconciliation: {
@@ -268,6 +303,9 @@ const MigrationJobSchema = new Schema<IMigrationJob>(
       package_type: { type: String, default: "portable-legacy-migration" },
       is_portable: { type: Boolean, default: true },
       created_at: { type: Date },
+      verified_at: { type: Date },
+      expires_at: { type: Date, index: true },
+      deleted_at: { type: Date },
     },
 
     restore_key: {

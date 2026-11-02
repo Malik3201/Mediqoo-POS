@@ -3,6 +3,8 @@ import connectToDatabase from "@/lib/db";
 import MigrationJob from "@/models/MigrationJob";
 import { requireSuperAdmin } from "@/lib/ai/admin-auth";
 import { deleteR2Object } from "@/lib/r2";
+import { isOwnedSourceKey, isOwnedOutputKey, cleanupLocalJobArtifacts } from "@/lib/migration/cleanup";
+import { isOutdatedMigrationJob } from "@/lib/migration/server-migration-engine";
 
 export async function GET(
   req: NextRequest,
@@ -19,7 +21,7 @@ export async function GET(
       return NextResponse.json({ error: "Migration job not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ job });
+    return NextResponse.json({ job: { ...job, outdated: (job as any).status === "completed" && isOutdatedMigrationJob(job as any) } });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -41,17 +43,18 @@ export async function DELETE(
     }
 
     // Clean up R2 objects if any
-    if (job.source_object_key) {
+    if (isOwnedSourceKey(job, job.source_object_key)) {
       try {
         await deleteR2Object(job.source_object_key);
       } catch {}
     }
-    if (job.output_backup?.object_key) {
+    if (isOwnedOutputKey(job, job.output_backup?.object_key)) {
       try {
         await deleteR2Object(job.output_backup.object_key);
       } catch {}
     }
 
+    cleanupLocalJobArtifacts(job.id);
     await MigrationJob.deleteOne({ id });
 
     return NextResponse.json({ success: true, message: "Migration job deleted." });

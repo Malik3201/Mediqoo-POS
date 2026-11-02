@@ -3,6 +3,7 @@ import connectToDatabase from "@/lib/db";
 import MigrationJob from "@/models/MigrationJob";
 import { requireSuperAdmin } from "@/lib/ai/admin-auth";
 import { getPresignedUploadUrl } from "@/lib/r2";
+import { triggerOpportunisticSweep } from "@/lib/migration/cleanup";
 import crypto from "crypto";
 import path from "path";
 
@@ -10,6 +11,7 @@ export async function GET(req: NextRequest) {
   const auth = await requireSuperAdmin(req);
   if ("error" in auth) return auth.error;
 
+  triggerOpportunisticSweep();
   try {
     await connectToDatabase();
     const { searchParams } = new URL(req.url);

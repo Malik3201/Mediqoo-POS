@@ -1110,81 +1110,175 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
       });
     }
 
-    // 2. Cutover Stock & Latest Pricing from StockReport (911 distinct ICodes)
-    const latestStockReportByItem = new Map<number, Record<string, any>>();
-    for (const sr of tbl("StockReport")) {
-      const icode = Number(sr.ICode);
-      if (!icode) continue;
-      const prev = latestStockReportByItem.get(icode);
-      if (!prev) {
-        latestStockReportByItem.set(icode, sr);
-      } else {
-        const dNew = sr.Date ? new Date(sr.Date).getTime() : 0;
-        const dOld = prev.Date ? new Date(prev.Date).getTime() : 0;
-        if (dNew >= dOld) {
-          latestStockReportByItem.set(icode, sr);
-        }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Mapping v3 helpers. A missing/invalid source value is `undefined`, never 0.
+    // ─────────────────────────────────────────────────────────────────────────
+    const num = (v: any): number | undefined => {
+      if (v === null || v === undefined || v === "") return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const pos = (v: any): number | undefined => {
+      const n = num(v);
+      return n !== undefined && n > 0 ? n : undefined;
+    };
+    const cleanBatch = (v: any): string | undefined => {
+      const s = cleanLegacyString(v);
+      return s && !/^[.\-\s0]+$/.test(s) ? s : undefined;
+    };
+    const tsOf = (v: any): string => (v ? String(v) : "");
+
+    // Phantom bonus detection (barcode typed into Purdetail.BonusQty)
+    const PHANTOM_BONUS_LIMIT = 10000;
+    const phantomBonusBaseUnitsByItem = new Map<number, number>();
+    for (const pd of tbl("Purdetail")) {
+      const bonusQty = num(pd.BonusQty) || 0;
+      if (bonusQty > PHANTOM_BONUS_LIMIT) {
+        const icode = Number(pd.ICode);
+        const pUnits = Math.max(1, Math.round(num(pd.PackUnits) || 1));
+        phantomBonusBaseUnitsByItem.set(icode, (phantomBonusBaseUnitsByItem.get(icode) || 0) + bonusQty * pUnits);
       }
     }
 
-    // 3. Batch & Expiry Discovery from Purdetail and StockLedger
-    const latestBatchByItem = new Map<number, { batchNo: string; expiryDate?: string }>();
-    const latestStockLedgerByItem = new Map<number, Record<string, any>>();
-    const negativeStockItemsInLedger = new Set<number>();
-    const phantomBonusBaseUnitsByItem = new Map<number, number>();
+    // 2. Cut-over stock (StockReport = periodic snapshots of NON-ZERO stock only).
+    //    Base = latest FULL snapshot; later partial snapshots and later StockLedger
+    //    movements override it. Items absent from the base full snapshot had zero stock.
+    const snapshots = new Map<string, Record<string, any>[]>();
+    for (const sr of tbl("StockReport")) {
+      const ts = tsOf(sr.Date);
+      if (!ts || !Number(sr.ICode)) continue;
+      let list = snapshots.get(ts);
+      if (!list) {
+        list = [];
+        snapshots.set(ts, list);
+      }
+      list.push(sr);
+    }
+    const snapshotTimes = Array.from(snapshots.keys()).sort();
+    const maxSnapshotSize = snapshotTimes.reduce((m, ts) => Math.max(m, snapshots.get(ts)!.length), 0);
+    const fullSnapshotThreshold = Math.max(1, Math.floor(maxSnapshotSize * 0.6));
+    const fullSnapshotTimes = snapshotTimes.filter((ts) => snapshots.get(ts)!.length >= fullSnapshotThreshold);
+    const baseSnapshotTs = fullSnapshotTimes[fullSnapshotTimes.length - 1] || "";
+
+    type StockEvidence = {
+      stock: number;
+      avgPrice?: number;
+      packSalePrice?: number;
+      packPurPrice?: number;
+      source: string;
+      asOf: string;
+    };
+    const stockByItem = new Map<number, StockEvidence>();
+    if (baseSnapshotTs) {
+      for (const r of snapshots.get(baseSnapshotTs)!) {
+        stockByItem.set(Number(r.ICode), {
+          stock: num(r.Stock) ?? 0,
+          avgPrice: pos(r.AvgPrice),
+          packSalePrice: pos(r.SalePrice),
+          packPurPrice: pos(r.PurchasePrice),
+          source: "StockReport full snapshot",
+          asOf: baseSnapshotTs,
+        });
+      }
+      for (const ts of snapshotTimes.filter((t) => t > baseSnapshotTs)) {
+        for (const r of snapshots.get(ts)!) {
+          stockByItem.set(Number(r.ICode), {
+            stock: num(r.Stock) ?? 0,
+            avgPrice: pos(r.AvgPrice),
+            packSalePrice: pos(r.SalePrice),
+            packPurPrice: pos(r.PurchasePrice),
+            source: "StockReport later partial snapshot",
+            asOf: ts,
+          });
+        }
+      }
+    }
+    // Items that appeared with positive stock only in older snapshots (sold out before base)
+    const lastSeenBeforeBase = new Map<number, { stock: number; asOf: string }>();
+    for (const ts of snapshotTimes.filter((t) => t < baseSnapshotTs)) {
+      for (const r of snapshots.get(ts)!) {
+        lastSeenBeforeBase.set(Number(r.ICode), { stock: num(r.Stock) ?? 0, asOf: ts });
+      }
+    }
+
     const sortedStockLedger = [...tbl("StockLedger")].sort((a, b) => {
-      const da = String(a.Date || "");
-      const db = String(b.Date || "");
+      const da = tsOf(a.Date);
+      const db = tsOf(b.Date);
       if (da !== db) return da.localeCompare(db);
       return (Number(a.UTN) || 0) - (Number(b.UTN) || 0);
     });
     for (const sl of sortedStockLedger) {
       const icode = Number(sl.ICode);
       if (!icode) continue;
-      latestStockLedgerByItem.set(icode, sl);
-      if (Number(sl.NewStock) < 0) {
-        negativeStockItemsInLedger.add(icode);
-      }
-      const batchNo = cleanLegacyString(sl.Batch);
-      const expiryDate = normalizeValidCalendarDate(sl.Expiry);
-      if (batchNo || expiryDate) {
-        const prev = latestBatchByItem.get(icode);
-        latestBatchByItem.set(icode, {
-          batchNo: batchNo || prev?.batchNo || "LEGACY-OPENING",
-          expiryDate: expiryDate || prev?.expiryDate,
-        });
-      }
-    }
-    for (const pd of tbl("Purdetail")) {
-      const icode = Number(pd.ICode);
-      if (!icode) continue;
-      const bonusQty = Number(pd.BonusQty) || 0;
-      if (bonusQty > 10000) {
-        const pUnits = Math.max(1, Math.round(Number(pd.PackUnits) || 1));
-        phantomBonusBaseUnitsByItem.set(
-          icode,
-          (phantomBonusBaseUnitsByItem.get(icode) || 0) + bonusQty * pUnits
-        );
-      }
-      const batchNo = cleanLegacyString(pd.Batch);
-      const expiryDate = normalizeValidCalendarDate(pd.Expiry);
-      if (batchNo || expiryDate) {
-        const prev = latestBatchByItem.get(icode);
-        latestBatchByItem.set(icode, {
-          batchNo: batchNo || prev?.batchNo || "LEGACY-OPENING",
-          expiryDate: expiryDate || prev?.expiryDate,
+      const slTs = tsOf(sl.Date);
+      const cur = stockByItem.get(icode);
+      const newStock = num(sl.NewStock);
+      if (newStock === undefined) continue;
+      if ((cur && slTs > cur.asOf) || (!cur && slTs > baseSnapshotTs)) {
+        stockByItem.set(icode, {
+          stock: newStock,
+          avgPrice: pos(sl.NewAvgPrice),
+          source: `StockLedger ${cleanLegacyString(sl.DocumentType) || "movement"} after snapshot`,
+          asOf: slTs,
         });
       }
     }
 
-    // 4. Products (Item table + referenced active items recovered from ItemLog)
-    const itemByCode = new Map<number, { row: Record<string, any>; fromItemLog: boolean }>();
+    // 3. Purchase receipts per item (Purdetail incl. orphan lines + StockLedger PV rows)
+    type Receipt = { purInvCode: number; batchNo?: string; expiry?: string; baseQty: number; baseNetCost?: number };
+    const receiptsByItem = new Map<number, Receipt[]>();
+    const seenReceiptKeys = new Set<string>();
+    const pushReceipt = (icode: number, r: Receipt) => {
+      let list = receiptsByItem.get(icode);
+      if (!list) {
+        list = [];
+        receiptsByItem.set(icode, list);
+      }
+      list.push(r);
+    };
+    for (const pd of tbl("Purdetail")) {
+      const icode = Number(pd.ICode);
+      const purInvCode = Number(pd.PurInvCode);
+      if (!icode) continue;
+      const pu = Math.max(1, Math.round(num(pd.PackUnits) || 1));
+      const baseQty = round4((num(pd.PackQty) || 0) * pu + (num(pd.LooseQty) || 0));
+      if (baseQty <= 0) continue;
+      const netRate = pos(pd.NetRate);
+      pushReceipt(icode, {
+        purInvCode,
+        batchNo: cleanBatch(pd.Batch),
+        expiry: normalizeValidCalendarDate(pd.Expiry),
+        baseQty,
+        baseNetCost: netRate !== undefined ? round4(netRate / pu) : undefined,
+      });
+      seenReceiptKeys.add(`${purInvCode}|${icode}`);
+    }
+    for (const sl of tbl("StockLedger")) {
+      if (cleanLegacyString(sl.DocumentType).toUpperCase() !== "PV") continue;
+      const icode = Number(sl.ICode);
+      const doc = Number(sl.DocumentCode);
+      if (!icode || seenReceiptKeys.has(`${doc}|${icode}`)) continue;
+      const baseQty = num(sl.Qty) || 0;
+      if (baseQty <= 0) continue;
+      const pu = Math.max(1, Math.round(num(sl.PackUnits) || 1));
+      const rate = pos(sl.Rate);
+      pushReceipt(icode, {
+        purInvCode: doc,
+        batchNo: cleanBatch(sl.Batch),
+        expiry: normalizeValidCalendarDate(sl.Expiry),
+        baseQty,
+        baseNetCost: rate !== undefined ? round4((rate * (1 - (num(sl.DiscPerc) || 0) / 100)) / pu) : undefined,
+      });
+      seenReceiptKeys.add(`${doc}|${icode}`);
+    }
+
+    // 4. Products (Item table + referenced items recovered from ItemLog / transactions)
+    const itemByCode = new Map<number, { row: Record<string, any>; fromItemLog: boolean; synthesized?: boolean }>();
     for (const it of tbl("Item")) {
       const icode = Number(it.ICode);
       if (icode) itemByCode.set(icode, { row: it, fromItemLog: false });
     }
 
-    // Recover any ICode referenced in StockReport, StockLedger, Saledetail, Purdetail, SRdetail
     const referencedICodes = new Set<number>();
     for (const r of tbl("StockReport")) if (r.ICode) referencedICodes.add(Number(r.ICode));
     for (const r of tbl("StockLedger")) if (r.ICode) referencedICodes.add(Number(r.ICode));
@@ -1192,192 +1286,239 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
     for (const r of tbl("Purdetail")) if (r.ICode) referencedICodes.add(Number(r.ICode));
     for (const r of tbl("SRdetail")) if (r.Icode ?? r.ICode) referencedICodes.add(Number(r.Icode ?? r.ICode));
 
+    // Latest ItemLog row per ICode (ItemLog holds successive definitions)
     for (const il of tbl("ItemLog")) {
       const icode = Number(il.ICode);
-      if (icode && referencedICodes.has(icode) && !itemByCode.has(icode)) {
-        itemByCode.set(icode, { row: il, fromItemLog: true });
-      }
+      if (!icode || !referencedICodes.has(icode)) continue;
+      const existing = itemByCode.get(icode);
+      if (!existing || existing.fromItemLog) itemByCode.set(icode, { row: il, fromItemLog: true });
     }
 
-    // Ensure any remaining referenced ICode (e.g. 88005) has a fallback entry from Purdetail/Saledetail
     for (const icode of referencedICodes) {
-      if (!itemByCode.has(icode)) {
-        const pd = tbl("Purdetail").find((r) => Number(r.ICode) === icode);
-        const sd = tbl("Saledetail").find((r) => Number(r.ICode) === icode);
-        const packUnits = Number(pd?.PackUnits || sd?.PackUnits || 1) || 1;
-        const salePrice = sd ? Number(sd.SalePrice) * packUnits : Number(pd?.SalePrice || 0);
-        const purPrice = Number(pd?.PurPrice || 0);
-        itemByCode.set(icode, {
-          row: {
-            ICode: icode,
-            CustomICode: String(icode),
-            Name: `RECOVERED MEDICINE #${icode}`,
-            PackUnits: packUnits,
-            PurPrice: purPrice,
-            SalePrice: salePrice,
-            RetailPrice: salePrice,
-            AvgPrice: sd ? Number(sd.AvgPrice || 0) : round4(purPrice / packUnits),
-            Active: 1,
-          },
-          fromItemLog: true,
-        });
-      }
+      if (itemByCode.has(icode)) continue;
+      const pd = tbl("Purdetail").find((r) => Number(r.ICode) === icode);
+      const sd = tbl("Saledetail").find((r) => Number(r.ICode) === icode);
+      const packUnits = Math.max(1, Math.round(num(pd?.PackUnits) || num(sd?.PackUnits) || 1));
+      itemByCode.set(icode, {
+        row: {
+          ICode: icode,
+          CustomICode: String(icode),
+          Name: `RECOVERED ITEM #${icode}`,
+          PackUnits: packUnits,
+          PurPrice: pos(pd?.PurPrice),
+          SalePrice: pos(pd?.SalePrice) ?? (pos(sd?.SalePrice) !== undefined ? round4(pos(sd?.SalePrice)! * packUnits) : undefined),
+          AvgPrice: pos(pd?.NewAvgPrice) ?? pos(sd?.AvgPrice),
+          Active: 1,
+        },
+        fromItemLog: true,
+        synthesized: true,
+      });
     }
+
+    const genericUsage = new Map<number, number>();
+    for (const { row } of itemByCode.values()) {
+      const g = Number(row.GenericCode);
+      if (g) genericUsage.set(g, (genericUsage.get(g) || 0) + 1);
+    }
+    const placeholderGenericCodes = new Set<number>(
+      Array.from(genericUsage.entries()).filter(([, n]) => n > itemByCode.size * 0.25).map(([g]) => g)
+    );
+    const purCategoryName = new Map<number, string>();
+    for (const pc of tbl("PurCategory")) purCategoryName.set(Number(pc.PurCatCode), cleanLegacyString(pc.Name));
 
     const products: CanonicalRecord<CanonicalProduct>[] = [];
     const stockBatches: CanonicalRecord<CanonicalBatch>[] = [];
+    const stockEvidenceArchive: Record<string, any>[] = [];
 
     let negativeStockCount = 0;
     let zeroPriceProductsCount = 0;
     let currentStockQty = 0;
     let stockValuationCost = 0;
     let stockValuationRetail = 0;
+    let stockedWithoutCost = 0;
+    let unverifiedOpeningBatchUnits = 0;
+    let allocatedBatchUnits = 0;
     const barcodeFreq = new Map<string, number>();
 
     const sortedICodes = Array.from(itemByCode.keys()).sort((a, b) => a - b);
     for (const icode of sortedICodes) {
-      const { row: raw, fromItemLog } = itemByCode.get(icode)!;
+      const { row: raw, fromItemLog, synthesized } = itemByCode.get(icode)!;
       const warnings: string[] = [];
-      if (fromItemLog) {
-        warnings.push("Recovered product definition from ItemLog / transaction history");
-      }
+      if (synthesized) warnings.push("Product master row is missing from the backup; definition reconstructed from transaction lines (name unavailable)");
+      else if (fromItemLog) warnings.push("Product master recovered from ItemLog history");
 
-      const name = cleanLegacyString(raw.Name) || `MEDICINE #${icode}`;
+      const name = cleanLegacyString(raw.Name) || `RECOVERED ITEM #${icode}`;
       const customCode = cleanLegacyString(raw.CustomICode);
       const code = customCode || `ABZ-${icode}`;
       const barcode = /^\d{7,14}$/.test(customCode) ? customCode : undefined;
-      if (barcode) {
-        barcodeFreq.set(barcode, (barcodeFreq.get(barcode) || 0) + 1);
-      }
+      if (barcode) barcodeFreq.set(barcode, (barcodeFreq.get(barcode) || 0) + 1);
 
-      const packUnits = Math.max(1, Math.round(Number(raw.PackUnits) || 1));
+      const packUnits = Math.max(1, Math.round(num(raw.PackUnits) || 1));
       const baseUnit = inferBaseUnitFromName(name);
+      const ev = stockByItem.get(icode);
 
-      const sr = latestStockReportByItem.get(icode);
-      const slLatest = latestStockLedgerByItem.get(icode);
-      let rawStock = sr
-        ? Number(sr.Stock) || 0
-        : slLatest && Number(slLatest.NewStock) < 0
-        ? Number(slLatest.NewStock)
-        : 0;
-      const phantomBonus = phantomBonusBaseUnitsByItem.get(icode) || 0;
-      if (phantomBonus > 0 && rawStock > phantomBonus) {
-        rawStock -= phantomBonus;
-        warnings.push(
-          `Deducted ${phantomBonus.toLocaleString()} phantom bonus base units (barcode scan in BonusQty) from cutover stock`
-        );
+      // ---- Stock ----
+      let requiresStockReview = false;
+      const stockNotes: string[] = [];
+      let sourceStock = ev ? ev.stock : 0;
+      let currentStock = sourceStock;
+      const phantom = phantomBonusBaseUnitsByItem.get(icode) || 0;
+      if (phantom > 0 && currentStock >= phantom) {
+        currentStock = round4(currentStock - phantom);
+        requiresStockReview = true;
+        stockNotes.push(`Source stock ${sourceStock} includes ${phantom} phantom bonus units (barcode typed into BonusQty); corrected to ${currentStock}`);
       }
-      let currentStock = rawStock;
-      if (rawStock < 0 || (!sr && negativeStockItemsInLedger.has(icode))) {
+      if (currentStock < 0) {
         negativeStockCount++;
+        requiresStockReview = true;
+        stockNotes.push(`Negative source stock ${currentStock} imported as 0; original preserved for review`);
         currentStock = 0;
-        warnings.push(`Negative source stock (${rawStock < 0 ? rawStock : slLatest?.NewStock}) clamped to 0`);
       }
+      if (!Number.isInteger(currentStock) && currentStock > 0) {
+        requiresStockReview = true;
+        stockNotes.push(`Fractional source stock ${currentStock} (loose quantity) preserved`);
+      }
+      const lastSeen = !ev ? lastSeenBeforeBase.get(icode) : undefined;
+      if (lastSeen && lastSeen.stock > 0) {
+        stockNotes.push(`Absent from latest full stock snapshot (${baseSnapshotTs.slice(0, 10)}); last seen with ${lastSeen.stock} units on ${lastSeen.asOf.slice(0, 10)} → sold out, imported as 0`);
+      }
+      warnings.push(...stockNotes);
 
-      // Pack selling price -> Base unit selling price
-      const packSalePrice =
-        sr && Number(sr.SalePrice) > 0
-          ? Number(sr.SalePrice)
-          : Number(raw.SalePrice) > 0
-          ? Number(raw.SalePrice)
-          : Number(raw.RetailPrice) > 0
-          ? Number(raw.RetailPrice)
-          : 0;
-      const baseSalePrice = packSalePrice > 0 ? round4(packSalePrice / packUnits) : 0;
-
-      // Pack purchase price & Base unit AvgPrice -> Base unit WAC cost
-      const packPurPrice =
-        sr && Number(sr.PurchasePrice) > 0
-          ? Number(sr.PurchasePrice)
-          : Number(raw.PurPrice) > 0
-          ? Number(raw.PurPrice)
-          : Number(raw.RecentPurPrice) > 0
-          ? Number(raw.RecentPurPrice)
-          : 0;
-      const basePurCost = packPurPrice > 0 ? round4(packPurPrice / packUnits) : 0;
-      const rawAvgCost =
-        sr && Number(sr.AvgPrice) > 0
-          ? Number(sr.AvgPrice)
-          : Number(raw.AvgPrice) > 0
-          ? Number(raw.AvgPrice)
-          : 0;
-
-      let baseCost = 0;
-      if (rawAvgCost > 0) {
-        if (basePurCost <= 0 || (rawAvgCost / basePurCost >= 0.2 && rawAvgCost / basePurCost <= 5.0)) {
-          baseCost = round4(rawAvgCost);
-        } else {
-          baseCost = basePurCost;
+      // ---- Prices (Item master is authoritative; Item.SalePrice/PurPrice are PER PACK, AvgPrice is PER BASE UNIT) ----
+      const packSalePrice = pos(raw.SalePrice) ?? pos(raw.RetailPrice) ?? ev?.packSalePrice;
+      const priceKnown = packSalePrice !== undefined;
+      const baseSalePrice = priceKnown ? round4(packSalePrice! / packUnits) : undefined;
+      const packPurPrice = pos(raw.PurPrice) ?? pos(raw.RecentPurPrice) ?? ev?.packPurPrice;
+      const basePurCost = packPurPrice !== undefined ? round4(packPurPrice / packUnits) : undefined;
+      const avgCandidates: { v: number; src: string }[] = [];
+      if (pos(raw.AvgPrice) !== undefined) avgCandidates.push({ v: pos(raw.AvgPrice)!, src: fromItemLog ? "ItemLog.AvgPrice" : "Item.AvgPrice" });
+      if (ev?.avgPrice !== undefined) avgCandidates.push({ v: ev.avgPrice, src: `${ev.source} AvgPrice` });
+      let baseCost: number | undefined;
+      let costSource = "unavailable";
+      for (const c of avgCandidates) {
+        const ratio = basePurCost ? c.v / basePurCost : 1;
+        if (!basePurCost || (ratio >= 0.2 && ratio <= 5)) {
+          baseCost = round4(c.v);
+          costSource = `${c.src} (base-unit WAC)`;
+          break;
         }
-      } else if (basePurCost > 0) {
+        warnings.push(`${c.src}=${c.v} rejected as WAC (ratio ${ratio.toFixed(3)} vs purchase price ${basePurCost}/unit)`);
+      }
+      if (baseCost === undefined && basePurCost !== undefined) {
         baseCost = basePurCost;
+        costSource = "PurPrice ÷ PackUnits (no valid AvgPrice)";
+      }
+      const costKnown = baseCost !== undefined;
+      if (!priceKnown) {
+        zeroPriceProductsCount++;
+        warnings.push("Selling price unavailable in source");
+      }
+      if (!costKnown && currentStock > 0) {
+        stockedWithoutCost++;
+        warnings.push("Stocked item has no recoverable unit cost");
       }
 
-      if (baseSalePrice <= 0) {
-        zeroPriceProductsCount++;
-        warnings.push("Missing or zero selling price");
+      // ---- Batches: allocate current stock to most recent purchase receipts (FIFO consumption) ----
+      const batches: { batchNo: string; expiry?: string; qty: number; cost?: number; isLegacyOpeningBatch: boolean; requiresExpiryReview: boolean; allocation: string; sourcePurInvCode?: number }[] = [];
+      if (currentStock > 0) {
+        let remaining = currentStock;
+        const receipts = [...(receiptsByItem.get(icode) || [])].sort((a, b) => b.purInvCode - a.purInvCode);
+        for (const r of receipts) {
+          if (remaining <= 0) break;
+          const take = round4(Math.min(remaining, r.baseQty));
+          const batchNo = r.batchNo || `ABZ-GRN-${r.purInvCode}`;
+          const existing = batches.find((b) => b.batchNo === batchNo && b.expiry === r.expiry);
+          if (existing) existing.qty = round4(existing.qty + take);
+          else
+            batches.push({
+              batchNo,
+              expiry: r.expiry,
+              qty: take,
+              cost: r.baseNetCost ?? baseCost,
+              isLegacyOpeningBatch: true,
+              requiresExpiryReview: !r.expiry,
+              allocation: "PURCHASE_HISTORY_FIFO",
+              sourcePurInvCode: r.purInvCode,
+            });
+          remaining = round4(remaining - take);
+        }
+        allocatedBatchUnits += round4(currentStock - remaining);
+        if (remaining > 0) {
+          unverifiedOpeningBatchUnits += remaining;
+          batches.push({
+            batchNo: "LEGACY-OPENING",
+            expiry: undefined,
+            qty: remaining,
+            cost: baseCost,
+            isLegacyOpeningBatch: true,
+            requiresExpiryReview: true,
+            allocation: "UNVERIFIED_OPENING",
+          });
+        }
+        currentStockQty += currentStock;
+        if (costKnown) stockValuationCost += currentStock * baseCost!;
+        if (priceKnown) stockValuationRetail += currentStock * baseSalePrice!;
+        for (let b = 0; b < batches.length; b++) {
+          stockBatches.push({
+            sourceSystem: "ABUZAR_LEGACY",
+            sourceEntity: batches[b].allocation === "UNVERIFIED_OPENING" ? "StockReport" : "Purdetail",
+            legacyId: `ABZ-BATCH-${icode}-${b + 1}`,
+            mappingStatus: batches[b].expiry ? "mapped" : "partial",
+            warnings: batches[b].expiry ? [] : ["Expiry unavailable in source"],
+            sourceData: {},
+            normalizedData: {
+              legacyId: `ABZ-BATCH-${icode}-${b + 1}`,
+              productId: icode,
+              productCode: code,
+              productName: name,
+              batchNo: batches[b].batchNo,
+              expiryDate: batches[b].expiry,
+              qty: batches[b].qty,
+              cost: batches[b].cost,
+              salePrice: baseSalePrice,
+              isLegacyOpeningBatch: true,
+              requiresExpiryReview: batches[b].requiresExpiryReview,
+            },
+            migrationBatchId: batchId,
+          });
+        }
       }
-      if (baseCost <= 0 && currentStock > 0) {
-        warnings.push("Stocked item missing verified unit cost; flagged for pricing review");
+      const requiresExpiryReview = batches.some((b) => b.requiresExpiryReview);
+
+      if (ev || stockNotes.length > 0) {
+        stockEvidenceArchive.push({
+          ICode: icode,
+          importedStock: currentStock,
+          sourceStock,
+          stockSource: ev?.source || "not in latest full snapshot",
+          stockAsOf: ev?.asOf || null,
+          lastSeenBeforeBase: lastSeen || null,
+          phantomBonusUnits: phantom || 0,
+          costSource,
+          itemAvgPrice: num(raw.AvgPrice) ?? null,
+          snapshotAvgPrice: ev?.avgPrice ?? null,
+          basePurCost: basePurCost ?? null,
+          notes: stockNotes,
+        });
       }
 
       const packings =
         packUnits > 1
-          ? [
-              {
-                name: "Pack",
-                multiplier: packUnits,
-                price: packSalePrice > 0 ? round2(packSalePrice) : undefined,
-                barcode,
-              },
-            ]
+          ? [{ name: "Pack", multiplier: packUnits, price: priceKnown ? round2(packSalePrice!) : undefined, barcode }]
           : [];
-
-      const genericName = genericMap.get(Number(raw.GenericCode));
+      // GenericCode used as a default by a large share of items (e.g. code 1 on 43% incl. bandages) is a placeholder, not data.
+      const genericName = placeholderGenericCodes.has(Number(raw.GenericCode)) ? undefined : genericMap.get(Number(raw.GenericCode));
       const manufacturerName = manfMap.get(Number(raw.ManfCode));
-      const categoryName = classMap.get(Number(raw.ICCode)) || "MEDICINE";
+      // ItemClass holds owner/partner names (all items = ICCode 1) and ItemCategory is empty → no source category.
+      const categoryName: string | undefined = undefined;
+      const legacyItemClass = classMap.get(Number(raw.ICCode));
       const location = cleanLegacyString(raw.Location) || undefined;
       const isControlled =
-        cleanLegacyString(raw.AntiNorCotix).toUpperCase() === "Y" ||
-        categoryName.toUpperCase() === "NARCOTICS";
-      const isActive = raw.Active === undefined || raw.Active === null ? true : Boolean(raw.Active);
+        cleanLegacyString(raw.AntiNorCotix).toUpperCase() === "Y";
+      const isActive = raw.Active === undefined || raw.Active === null ? true : Boolean(Number(raw.Active));
+      const reorderLevel = num(raw.ReorderLevel) ?? num(raw.ReorderQty);
 
-      const batchInfo = latestBatchByItem.get(icode);
-      if (currentStock > 0) {
-        currentStockQty += currentStock;
-        stockValuationCost += currentStock * baseCost;
-        stockValuationRetail += currentStock * baseSalePrice;
-
-        const hasValidExpiry = Boolean(batchInfo?.expiryDate);
-        if (!hasValidExpiry) {
-          warnings.push("Cutover stock has no verified calendar expiry date; flagged for expiry review");
-        }
-
-        stockBatches.push({
-          sourceSystem: "ABUZAR_LEGACY",
-          sourceEntity: "StockReport",
-          legacyId: `ABZ-BATCH-${icode}`,
-          mappingStatus: hasValidExpiry ? "mapped" : "partial",
-          warnings: hasValidExpiry ? [] : ["Missing batch expiry date in source"],
-          sourceData: sr || raw,
-          normalizedData: {
-            legacyId: `ABZ-BATCH-${icode}`,
-            productId: icode,
-            productCode: code,
-            productName: name,
-            batchNo: batchInfo?.batchNo || "LEGACY-OPENING",
-            expiryDate: batchInfo?.expiryDate,
-            qty: currentStock,
-            cost: baseCost,
-            salePrice: baseSalePrice,
-            isLegacyOpeningBatch: true,
-            requiresExpiryReview: !hasValidExpiry,
-          },
-          migrationBatchId: batchId,
-        });
-      }
-
-      const normProd: CanonicalProduct = {
+      const normProd: CanonicalProduct & Record<string, any> = {
         legacyId: icode,
         code,
         barcode,
@@ -1385,22 +1526,37 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
         genericName,
         categoryName,
         manufacturerName,
-        salePrice: baseSalePrice,
-        mrp: Number(raw.RetailPrice) > 0 ? round4(Number(raw.RetailPrice) / packUnits) : baseSalePrice,
-        costPrice: baseCost,
-        avgCost: rawAvgCost > 0 ? round4(rawAvgCost) : baseCost,
-        lastPurchaseRate: basePurCost > 0 ? basePurCost : baseCost,
-        taxPct: Number(raw.STaxP) || 0,
+        salePrice: baseSalePrice ?? 0,
+        priceKnown,
+        mrp: pos(raw.RetailPrice) !== undefined ? round4(pos(raw.RetailPrice)! / packUnits) : undefined,
+        costPrice: baseCost ?? 0,
+        costKnown,
+        costSource,
+        avgCost: baseCost,
+        lastPurchaseRate: basePurCost,
+        legacyPackSalePrice: packSalePrice,
+        legacyPackPurPrice: packPurPrice,
+        taxPct: num(raw.GSTPerc1) ?? num(raw.SalesTax) ?? 0,
         baseUnit,
         packingSize: packUnits,
         packingType: packUnits > 1 ? "Pack" : baseUnit,
         packingsConfidence: packUnits > 1 ? "exact" : "safe_single",
         packings,
         currentStock,
-        reorderLevel: Math.max(0, Number(raw.ReorderQty) || 0),
+        sourceStock,
+        stockSource: ev?.source || (lastSeen ? "Sold out before latest full snapshot" : "No stock record"),
+        stockAsOf: ev?.asOf,
+        requiresStockReview,
+        reorderLevel: reorderLevel !== undefined ? Math.max(0, reorderLevel) : undefined,
         isControlled,
         isActive,
         location,
+        batches,
+        requiresPricingReview: !priceKnown || (currentStock > 0 && !costKnown) || costSource.startsWith("PurPrice"),
+        requiresExpiryReview,
+        recoveredFrom: synthesized ? "TRANSACTIONS" : fromItemLog ? "ItemLog" : "Item",
+        legacyItemClass,
+        legacyCategoryCode: num(raw.ICatCode),
       };
 
       products.push({
@@ -1410,43 +1566,10 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
         legacyReference: code,
         mappingStatus: warnings.length === 0 ? "mapped" : "partial",
         warnings,
-        sourceData: raw,
+        sourceData: {},
         normalizedData: normProd,
         migrationBatchId: batchId,
-        // Flat fields for direct MigrationEngine compatibility
-        code,
-        barcode,
-        name,
-        generic: genericName,
-        category: categoryName,
-        manufacturer: manufacturerName,
-        unit: baseUnit,
-        packings,
-        packingConfidence: packUnits > 1 ? "EXACT" : "SAFE_SINGLE",
-        packingDetails: packUnits > 1 ? `1 Pack = ${packUnits} ${baseUnit}s` : undefined,
-        price: baseSalePrice,
-        cost: baseCost,
-        currentStock,
-        reorderLevel: Math.max(0, Number(raw.ReorderQty) || 0),
-        controlled: isControlled,
-        archived: !isActive,
-        location,
-        requiresPricingReview: baseSalePrice <= 0 || (currentStock > 0 && baseCost <= 0),
-        requiresExpiryReview: currentStock > 0 && !batchInfo?.expiryDate,
-        batches:
-          currentStock > 0
-            ? [
-                {
-                  batchNo: batchInfo?.batchNo || "LEGACY-OPENING",
-                  expiry: batchInfo?.expiryDate,
-                  qty: currentStock,
-                  cost: baseCost,
-                  isLegacyOpeningBatch: true,
-                  requiresExpiryReview: !batchInfo?.expiryDate,
-                },
-              ]
-            : [],
-      } as any);
+      });
     }
 
     let duplicateBarcodeCount = 0;
@@ -1454,50 +1577,61 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
       if (count > 1) duplicateBarcodeCount += count - 1;
     }
 
-    // 5. Customers (Accounts where SubCode == 3)
+    // 5. Accounts / historical GL (VirtualGl is partial → balances are UNVERIFIED, never used as live balances)
     const accountsByCode = new Map<number, Record<string, any>>();
-    for (const acc of tbl("Accounts")) {
-      accountsByCode.set(Number(acc.AccCode), acc);
+    for (const acc of tbl("Accounts")) accountsByCode.set(Number(acc.AccCode), acc);
+    const glNetByAccount = new Map<number, number>();
+    const cashReceiptBySale = new Map<number, number>();
+    for (const g of tbl("VirtualGl")) {
+      const acc = Number(g.AccCode);
+      const net = (num(g.Debit) || 0) - (num(g.Credit) || 0);
+      glNetByAccount.set(acc, round2((glNetByAccount.get(acc) || 0) + net));
+      if (cleanLegacyString(g.DocumentType).toUpperCase() === "SV" && acc === 2 && (num(g.Debit) || 0) > 0) {
+        const inv = Number(g.INVOICECODE ?? g.DocumentCode);
+        cashReceiptBySale.set(inv, round2((cashReceiptBySale.get(inv) || 0) + (num(g.Debit) || 0)));
+      }
     }
 
+    const WALK_IN_CASH_ACCOUNT = 19;
     const customers: CanonicalRecord<CanonicalCustomer>[] = [];
     for (const acc of tbl("Accounts")) {
       if (Number(acc.SubCode) !== 3) continue;
       const accCode = Number(acc.AccCode);
+      if (accCode === WALK_IN_CASH_ACCOUNT) continue; // cash walk-in account → POS walk-in, not a named customer
       const name = cleanLegacyString(acc.Name) || `Customer #${accCode}`;
-      const openingBalance = round2(Number(acc.OpeningBalance) || 0);
       customers.push({
         sourceSystem: "ABUZAR_LEGACY",
         sourceEntity: "Accounts",
         legacyId: accCode,
-        mappingStatus: "mapped",
-        warnings: [],
-        sourceData: acc,
+        mappingStatus: "partial",
+        warnings: ["Opening/current balance is not stored in the Accounts table; live khata starts unset (Needs Review)"],
+        sourceData: {},
         normalizedData: {
           legacyId: accCode,
           name,
-          openingBalance,
-          currentBalance: openingBalance,
-          isActive: Boolean(acc.Active ?? 1),
-        },
+          openingBalance: 0,
+          currentBalance: 0,
+          balanceKnown: false,
+          legacyLedgerNet: glNetByAccount.get(accCode),
+          isActive: cleanLegacyString(acc.Active).toUpperCase() !== "N",
+        } as any,
         migrationBatchId: batchId,
-        name,
-        creditBalance: openingBalance,
-        isMigrationAccount: true,
-        notes: "Migrated from Abuzar Pharmacy Legacy Database",
-      } as any);
+      });
     }
 
-    // 6. Suppliers (Supplier joined with Accounts where SubCode == 7)
+    // 6. Suppliers (Supplier joined with Accounts SubCode 7)
     const suppManufacturers = new Map<number, Set<string>>();
     const purHeaderByCode = new Map<number, Record<string, any>>();
+    for (const pl of tbl("Purledger")) purHeaderByCode.set(Number(pl.PurInvCode), pl);
+    const outstandingBySupplier = new Map<number, number>();
     for (const pl of tbl("Purledger")) {
-      purHeaderByCode.set(Number(pl.PurInvCode), pl);
+      const sc = Number(pl.SuppCode);
+      outstandingBySupplier.set(sc, round2((outstandingBySupplier.get(sc) || 0) + (num(pl.OutstandingAmt) || 0)));
     }
     for (const pd of tbl("Purdetail")) {
       const pHeader = purHeaderByCode.get(Number(pd.PurInvCode));
       if (!pHeader) continue;
-      const supCode = Number(pHeader.SuppCode ?? pHeader.SupCode);
+      const supCode = Number(pHeader.SuppCode);
       const itemEntry = itemByCode.get(Number(pd.ICode));
       const mfName = itemEntry ? manfMap.get(Number(itemEntry.row.ManfCode)) : undefined;
       if (supCode && mfName) {
@@ -1515,61 +1649,46 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
     for (const s of tbl("Supplier")) {
       const suppCode = Number(s.SuppCode);
       const acc = accountsByCode.get(suppCode);
-      const name =
-        cleanLegacyString(acc?.Name) ||
-        cleanLegacyString(s.CP) ||
-        `Supplier #${suppCode}`;
+      const name = cleanLegacyString(acc?.Name) || cleanLegacyString(s.CP) || `Supplier #${suppCode}`;
       supplierNameByCode.set(suppCode, name);
-
-      const addressParts = [
-        cleanLegacyString(s.Address1),
-        cleanLegacyString(s.Address2),
-        cleanLegacyString(s.City),
-      ].filter(Boolean);
-
-      const openingBalance = round2(Number(acc?.OpeningBalance) || 0);
-      const phone = cleanLegacyString(s.Phone) || cleanLegacyString(s.MobileNo) || undefined;
-      const email = cleanLegacyString(s.Email) || undefined;
-      const address = addressParts.join(", ") || undefined;
-      const manufacturers = Array.from(suppManufacturers.get(suppCode) || []);
+      const addressParts = [cleanLegacyString(s.Address1), cleanLegacyString(s.Address2), cleanLegacyString(s.City)].filter(Boolean);
       suppliers.push({
         sourceSystem: "ABUZAR_LEGACY",
         sourceEntity: "Supplier",
         legacyId: suppCode,
-        mappingStatus: "mapped",
+        mappingStatus: "partial",
         warnings: [
-          "Historical supplier payment vouchers (CPV/BPV) are not present in backup; opening balance defaults to 0 for manual verification.",
+          "Supplier payable cannot be verified: payment vouchers and later invoices are missing from the truncated backup. Legacy figures kept for reference only.",
         ],
-        sourceData: { ...s, AccountName: acc?.Name },
+        sourceData: {},
         normalizedData: {
           legacyId: suppCode,
           name,
           contactPerson: cleanLegacyString(s.CP) || undefined,
-          phone,
+          phone: cleanLegacyString(s.Phone) || cleanLegacyString(s.MobileNo) || undefined,
           mobile: cleanLegacyString(s.MobileNo) || undefined,
-          email,
-          address,
+          email: cleanLegacyString(s.Email) || undefined,
+          address: addressParts.join(", ") || undefined,
           city: cleanLegacyString(s.City) || undefined,
-          ntn: cleanLegacyString(s.NTNno ?? s.NTNNo) || undefined,
-          strn: cleanLegacyString(s.SalesTaxRegNo ?? s.StNo) || undefined,
-          openingBalance,
-          currentBalance: openingBalance,
-          isActive: Boolean(acc?.Active ?? 1),
-          providedManufacturers: manufacturers,
-        },
+          ntn: cleanLegacyString(s.NTNno) || undefined,
+          strn: cleanLegacyString(s.SalesTaxRegNo) || undefined,
+          openingBalance: 0,
+          currentBalance: 0,
+          balanceKnown: false,
+          legacyLedgerNet: glNetByAccount.get(suppCode),
+          legacyInvoiceOutstanding: outstandingBySupplier.get(suppCode),
+          isActive: cleanLegacyString(acc?.Active).toUpperCase() !== "N",
+          providedManufacturers: Array.from(suppManufacturers.get(suppCode) || []),
+        } as any,
         migrationBatchId: batchId,
-        name,
-        phone,
-        email,
-        address,
-        manufacturers,
-        openingBalance,
-        excludeMigratedPurchasesFromBalance: true,
-        notes: cleanLegacyString(s.CP) ? `Contact: ${cleanLegacyString(s.CP)}` : undefined,
-      } as any);
+      });
     }
 
-    // 7. Historical Sales (SaleLedger + Saledetail)
+    const itemName = (icode: number) => cleanLegacyString(itemByCode.get(icode)?.row.Name) || `RECOVERED ITEM #${icode}`;
+    const itemCode = (icode: number) => cleanLegacyString(itemByCode.get(icode)?.row.CustomICode) || `ABZ-${icode}`;
+    const itemManf = (icode: number) => manfMap.get(Number(itemByCode.get(icode)?.row.ManfCode));
+
+    // 7. Historical Sales (SaleLedger + Saledetail). Saledetail.SalePrice / AvgPrice are per BASE unit.
     const saleLinesByInv = new Map<number, Record<string, any>[]>();
     for (const sd of tbl("Saledetail")) {
       const invCode = Number(sd.SaleInvcode ?? sd.SaleInvCode);
@@ -1586,127 +1705,138 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
     let salesLinesCount = 0;
     let salesTotalRevenue = 0;
     let salesTotalReceived = 0;
+    let salesPaymentVerified = 0;
+    let salesReconciliationFailures = 0;
+    const salesWithoutLines: number[] = [];
 
-    const sortedSaleHeaders = [...tbl("SaleLedger")].sort(
-      (a, b) => Number(a.SaleInvCode) - Number(b.SaleInvCode)
-    );
+    const sortedSaleHeaders = [...tbl("SaleLedger")].sort((a, b) => Number(a.SaleInvCode) - Number(b.SaleInvCode));
+    const recoveredSaleCodes = new Set<number>();
     for (const sl of sortedSaleHeaders) {
       const invCode = Number(sl.SaleInvCode);
       const rawLines = saleLinesByInv.get(invCode) || [];
+      const invTotal = num(sl.InvTotal);
+      if (rawLines.length === 0 || invTotal === undefined) {
+        salesWithoutLines.push(invCode);
+        continue; // header-only → archive
+      }
       const custCode = Number(sl.CustCode);
       const custAcc = accountsByCode.get(custCode);
-      const custName = cleanLegacyString(custAcc?.Name) || "Walk-in Customer";
+      const isWalkIn = !custCode || custCode === WALK_IN_CASH_ACCOUNT;
 
-      const lines: CanonicalSaleLine[] = [];
-      let computedLinesSubtotal = 0;
-      let computedLinesDiscount = 0;
-
+      const lines: (CanonicalSaleLine & Record<string, any>)[] = [];
+      let gross = 0;
+      let lineDiscTotal = 0;
+      let lineTaxTotal = 0;
+      let linesNet = 0;
+      let invalidLine = false;
       for (let idx = 0; idx < rawLines.length; idx++) {
         const rl = rawLines[idx];
         const icode = Number(rl.ICode);
-        const itemEntry = itemByCode.get(icode);
-        const packUnits = Math.max(
-          1,
-          Math.round(Number(rl.PackUnits) || Number(itemEntry?.row.PackUnits) || 1)
-        );
-        const packQty = Number(rl.PackQty) || 0;
-        const looseQty = Number(rl.LooseQty) || 0;
-        const baseQty = round4(packQty * packUnits + looseQty);
-        if (baseQty <= 0) continue;
-
-        // Saledetail.SalePrice and Saledetail.AvgPrice are already per base unit!
-        const unitPrice = round4(Number(rl.SalePrice) || 0);
-        const unitCost = round4(Number(rl.AvgPrice) || 0);
-        const discPct = Number(rl.DiscPerc) || 0;
-        const flatDisc = Number(rl.itemflatdisc) || 0;
-        const grossLine = round2(baseQty * unitPrice);
-        const discAmt = round2(grossLine * (discPct / 100) + flatDisc);
-        const lineTotal = round2(Math.max(0, grossLine - discAmt));
-
-        computedLinesSubtotal += grossLine;
-        computedLinesDiscount += discAmt;
-
+        const pu = Math.max(1, Math.round(num(rl.PackUnits) || num(itemByCode.get(icode)?.row.PackUnits) || 1));
+        const packQty = num(rl.PackQty) || 0;
+        const looseQty = num(rl.LooseQty) || 0;
+        const baseQty = round4(packQty * pu + looseQty);
+        const unitPrice = num(rl.SalePrice);
+        if (baseQty <= 0 || unitPrice === undefined || unitPrice < 0) {
+          invalidLine = true;
+          continue;
+        }
+        const discPct = num(rl.DiscPerc) || 0;
+        const flatDisc = num(rl.itemflatdisc) || 0;
+        const lineGross = baseQty * unitPrice;
+        const discAmt = lineGross * (discPct / 100) + flatDisc;
+        const taxAmt = (num(rl.UnitSalesTax) || 0) * baseQty;
+        const lineTotal = lineGross - discAmt + taxAmt;
+        gross += lineGross;
+        lineDiscTotal += discAmt;
+        lineTaxTotal += taxAmt;
+        linesNet += round2(lineTotal);
         lines.push({
-          legacyLineId: `${invCode}-${idx + 1}`,
+          legacyLineId: `${invCode}-${num(rl.RowID) ?? idx + 1}`,
           productId: icode,
-          productCode: cleanLegacyString(itemEntry?.row.CustomICode) || `ABZ-${icode}`,
-          productName: cleanLegacyString(itemEntry?.row.Name) || `Medicine #${icode}`,
-          batchNo: cleanLegacyString(rl.Batch) || undefined,
-          unit: inferBaseUnitFromName(cleanLegacyString(itemEntry?.row.Name) || ""),
+          productCode: itemCode(icode),
+          productName: itemName(icode),
+          manufacturer: itemManf(icode),
+          batchNo: cleanBatch(rl.Batch),
+          expiry: normalizeValidCalendarDate(rl.Expiry),
+          unit: inferBaseUnitFromName(itemName(icode)),
           multiplier: 1,
           qty: baseQty,
-          unitPrice,
-          price: unitPrice,
-          cost: unitCost,
-          discountPct: discPct,
-          discount: discPct,
-          discountAmt: discAmt,
-          taxPct: Number(rl.SalesTax ?? rl.STaxP) || 0,
-          lineTotal,
-        } as any);
+          packUnits: pu,
+          packQty,
+          looseQty,
+          unitPrice: round4(unitPrice),
+          cost: pos(rl.AvgPrice) !== undefined ? round4(pos(rl.AvgPrice)!) : undefined,
+          discountPct: discPct || undefined,
+          discountAmt: round2(discAmt) || undefined,
+          taxPct: num(rl.SalesTax) || undefined,
+          taxAmt: round2(taxAmt) || undefined,
+          lineTotal: round2(lineTotal),
+        });
+      }
+      if (lines.length === 0) {
+        salesWithoutLines.push(invCode);
+        continue;
       }
 
-      const billDisc = round2(Number(sl.FlatDisc ?? sl.BillDisc) || 0);
-      const totalDiscount = round2(computedLinesDiscount + billDisc);
-      const grandTotal = round2(Number(sl.InvTotal) || Math.max(0, computedLinesSubtotal - totalDiscount));
-      const subtotal = round2(computedLinesSubtotal > 0 ? computedLinesSubtotal : grandTotal + totalDiscount);
+      const hdrDiscPct = num(sl.DiscPerc) || 0;
+      const hdrDisc = linesNet * (hdrDiscPct / 100) + (num(sl.FlatDisc) || 0);
+      const misc = num(sl.MiscCharges) || 0;
+      const hdrTax = num(sl.SalesTax) || 0;
+      const computed = linesNet - hdrDisc + misc + hdrTax;
+      const rounding = round2(invTotal - computed);
+      const reconciled = Math.abs(rounding) <= 1 && !invalidLine;
+      if (!reconciled) salesReconciliationFailures++;
 
-      // Verified in VirtualGl & CashierActivity: CustCode 19 / CashAccCode 2 are 100% cash sales
-      const isCashSale = custCode === 19 || Number(sl.CashAccCode) === 2 || Number(sl.SaleCatCode) === 3;
-      const paymentMethod = isCashSale ? "cash" : "credit";
-      const paidAmount = isCashSale ? grandTotal : round2(grandTotal - (Number(sl.Balance) || 0));
-      const balance = isCashSale ? 0 : round2(Number(sl.Balance) || 0);
+      const isCashAccount = Number(sl.CashAccCode) === 2 || isWalkIn;
+      const glCash = cashReceiptBySale.get(invCode);
+      const paymentVerified = glCash !== undefined && Math.abs(glCash - invTotal) <= 1;
+      if (paymentVerified) salesPaymentVerified++;
+      const paymentMethod = isCashAccount ? "cash" : "credit";
+      const outstanding = num(sl.OutstandingAmt);
+      const paidAmount = isCashAccount ? invTotal : round2(invTotal - (outstanding ?? 0));
 
       salesLinesCount += lines.length;
-      salesTotalRevenue += grandTotal;
+      salesTotalRevenue += invTotal;
       salesTotalReceived += paidAmount;
+      recoveredSaleCodes.add(invCode);
 
-      const saleDate = sl.date || sl.Date || new Date().toISOString();
+      const saleDate = sl.date || sl.Date || sl.OriginalDate;
       salesInvoices.push({
         sourceSystem: "ABUZAR_LEGACY",
         sourceEntity: "SaleLedger",
         legacyId: invCode,
         legacyReference: `INV-ABZ-${invCode}`,
-        mappingStatus: "mapped",
-        warnings: [],
-        sourceData: sl,
+        mappingStatus: reconciled ? "mapped" : "conflict",
+        warnings: reconciled ? [] : [`Header InvTotal ${invTotal} differs from line computation ${round2(computed)}`],
+        sourceData: {},
         normalizedData: {
           legacyId: invCode,
           invoiceNo: `INV-ABZ-${invCode}`,
           date: saleDate,
-          customerId: custCode === 19 ? undefined : custCode,
-          customerName: custName,
-          operatorName: cleanLegacyString(sl.PostedBy ?? sl.UserID) || "admin",
-          subtotal,
-          discount: totalDiscount,
-          tax: round2(Number(sl.SalesTax ?? sl.STaxRs) || 0),
-          grandTotal,
-          paidAmount,
-          balance,
+          customerId: isWalkIn ? undefined : custCode,
+          customerName: isWalkIn ? "Walk-in Customer" : cleanLegacyString(custAcc?.Name) || `Customer #${custCode}`,
+          operatorName: cleanLegacyString(sl.PostedBy) || undefined,
+          subtotal: round2(gross),
+          discount: round2(lineDiscTotal + hdrDisc),
+          tax: round2(lineTaxTotal + hdrTax),
+          miscCharges: round2(misc) || undefined,
+          roundingAdjustment: rounding || undefined,
+          grandTotal: round2(invTotal),
+          paidAmount: round2(paidAmount),
+          balance: round2(invTotal - paidAmount),
           paymentMethod,
+          paymentVerified,
+          reconciled,
           status: "paid",
           lines,
           notes: cleanLegacyString(sl.Remarks) || undefined,
-        },
+        } as any,
         migrationBatchId: batchId,
-        invoiceNo: `INV-ABZ-${invCode}`,
-        date: saleDate,
-        customerId: custCode === 19 ? undefined : custCode,
-        customerName: custName,
-        operatorName: cleanLegacyString(sl.PostedBy ?? sl.UserID) || "admin",
-        subtotal,
-        discount: totalDiscount,
-        tax: round2(Number(sl.SalesTax ?? sl.STaxRs) || 0),
-        grandTotal,
-        paidAmount,
-        balance,
-        paymentMethod,
-        isReturn: false,
-        lines,
-      } as any);
+      });
     }
 
-    // 8. Historical Purchases (Purledger + Purdetail)
+    // 8. Historical Purchases (Purledger + Purdetail). Purdetail.PurPrice is per PACK.
     const purLinesByInv = new Map<number, Record<string, any>[]>();
     for (const pd of tbl("Purdetail")) {
       const invCode = Number(pd.PurInvCode);
@@ -1722,135 +1852,148 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
     const purchases: CanonicalRecord<CanonicalPurchase>[] = [];
     let purchasesLinesCount = 0;
     let purchasesTotalCost = 0;
+    let purchasesReconciliationFailures = 0;
+    const purchasesWithoutLines: number[] = [];
 
-    const sortedPurHeaders = [...tbl("Purledger")].sort(
-      (a, b) => Number(a.PurInvCode) - Number(b.PurInvCode)
-    );
+    const sortedPurHeaders = [...tbl("Purledger")].sort((a, b) => Number(a.PurInvCode) - Number(b.PurInvCode));
     for (const pl of sortedPurHeaders) {
       const purCode = Number(pl.PurInvCode);
       const rawLines = purLinesByInv.get(purCode) || [];
-      if (rawLines.length === 0) {
-        // PurInvCode 264 has 0 lines in Purdetail; skip empty purchase header
+      const invTotal = num(pl.InvTotal);
+      if (rawLines.length === 0 || invTotal === undefined) {
+        purchasesWithoutLines.push(purCode);
         continue;
       }
-
-      const supCode = Number(pl.SuppCode ?? pl.SupCode);
-      const supplierName = supplierNameByCode.get(supCode) || `Supplier #${supCode}`;
+      const supCode = Number(pl.SuppCode);
+      const supplierName = supplierNameByCode.get(supCode) || cleanLegacyString(accountsByCode.get(supCode)?.Name) || `Supplier #${supCode}`;
       const warnings: string[] = [];
-      const lines: CanonicalPurchaseLine[] = [];
-      let computedSubtotal = 0;
+      const lines: (CanonicalPurchaseLine & Record<string, any>)[] = [];
+      let gross = 0;
+      let discTotal = 0;
+      let taxTotal = 0;
+      let linesNet = 0;
+      let invalidLine = false;
 
       for (let idx = 0; idx < rawLines.length; idx++) {
         const rl = rawLines[idx];
         const icode = Number(rl.ICode);
-        const itemEntry = itemByCode.get(icode);
-        const packUnits = Math.max(
-          1,
-          Math.round(Number(rl.PackUnits) || Number(itemEntry?.row.PackUnits) || 1)
-        );
-        const packQty = Number(rl.PackQty) || 0;
-        const looseQty = Number(rl.LooseQty) || 0;
-        const baseQty = round4(packQty * packUnits + looseQty);
-        if (baseQty <= 0) continue;
-
-        let rawBonus = Number(rl.BonusQty) || 0;
-        if (rawBonus > 10000) {
-          warnings.push(
-            `Sanitized anomalous BonusQty (${rawBonus}) on ICode ${icode} to 0 (barcode entry in bonus field)`
-          );
-          rawBonus = 0;
+        const pu = Math.max(1, Math.round(num(rl.PackUnits) || num(itemByCode.get(icode)?.row.PackUnits) || 1));
+        const packQty = num(rl.PackQty) || 0;
+        const looseQty = num(rl.LooseQty) || 0;
+        const baseQty = round4(packQty * pu + looseQty);
+        const packCost = num(rl.PurPrice);
+        if (baseQty <= 0 || packCost === undefined || packCost < 0) {
+          invalidLine = true;
+          continue;
         }
-
-        // Purdetail.PurPrice and SalePrice are per PACK -> divide by packUnits for base unit
-        const packPurPrice = Number(rl.PurPrice) || 0;
-        const baseCostPerUnit = round4(packPurPrice / packUnits);
-        const packSalePrice = Number(rl.SalePrice) || 0;
-        const baseRetailPrice = packSalePrice > 0 ? round4(packSalePrice / packUnits) : undefined;
-        const discPct = Number(rl.DiscPerc ?? rl.DiscP) || 0;
-        const flatDisc = Number(rl.ItemFlatDisc ?? rl.FlatDiscForItem ?? rl.FlatDisc) || 0;
-        const grossLine = round2(baseQty * baseCostPerUnit);
-        const lineTotal = round2(Math.max(0, grossLine * (1 - discPct / 100) - flatDisc));
-
-        computedSubtotal += grossLine;
+        let bonus = num(rl.BonusQty) || 0;
+        let originalBonusQty: number | undefined;
+        if (bonus > PHANTOM_BONUS_LIMIT || bonus < 0) {
+          originalBonusQty = bonus;
+          warnings.push(`BonusQty ${bonus} on ICode ${icode} is a data-entry error (barcode in bonus field); imported as 0, original preserved`);
+          bonus = 0;
+        }
+        const discPct = num(rl.DiscPerc) || 0;
+        const lineGross = packQty * packCost + (looseQty * packCost) / pu;
+        const discAmt = lineGross * (discPct / 100) + (num(rl.ItemFlatDisc) || 0) + (num(rl.FlatDiscForItem) || 0);
+        const taxAmt = (num(rl.UnitSalesTax) || 0) * baseQty;
+        const netBeforeTax = lineGross - discAmt;
+        const lineTotal = netBeforeTax + taxAmt;
+        gross += lineGross;
+        discTotal += discAmt;
+        taxTotal += taxAmt;
+        linesNet += round2(lineTotal);
 
         lines.push({
-          legacyLineId: `${purCode}-${idx + 1}`,
+          legacyLineId: `${purCode}-${num(rl.PurRowId) ?? idx + 1}`,
           productId: icode,
-          productCode: cleanLegacyString(itemEntry?.row.CustomICode) || `ABZ-${icode}`,
-          productName: cleanLegacyString(itemEntry?.row.Name) || `Medicine #${icode}`,
-          batchNo: cleanLegacyString(rl.Batch) || "LEGACY-GRN",
+          productCode: itemCode(icode),
+          productName: itemName(icode),
+          manufacturer: itemManf(icode),
+          batchNo: cleanBatch(rl.Batch) || "",
           expiry: normalizeValidCalendarDate(rl.Expiry),
-          unit: inferBaseUnitFromName(cleanLegacyString(itemEntry?.row.Name) || ""),
+          unit: inferBaseUnitFromName(itemName(icode)),
           multiplier: 1,
           qty: baseQty,
-          freeQty: rawBonus,
-          costPerUnit: baseCostPerUnit,
-          cost: baseCostPerUnit,
-          discountPct: discPct,
-          discount: discPct,
-          lineTotal,
-          retailPrice: baseRetailPrice,
-          salePrice: baseRetailPrice,
-        } as any);
+          freeQty: bonus * pu,
+          originalBonusQty,
+          costPerUnit: round4(packCost / pu),
+          packCost,
+          packUnits: pu,
+          packQty,
+          looseQty,
+          discountPct: discPct || undefined,
+          grossAmount: round2(lineGross),
+          discountAmount: round2(discAmt),
+          netBeforeTax: round2(netBeforeTax),
+          taxAmount: round2(taxAmt),
+          lineTotal: round2(lineTotal),
+          retailPrice: pos(rl.SalePrice) !== undefined ? round4(pos(rl.SalePrice)! / pu) : undefined,
+          newAvgPrice: pos(rl.NewAvgPrice),
+        });
+      }
+      if (lines.length === 0) {
+        purchasesWithoutLines.push(purCode);
+        continue;
       }
 
-      if (lines.length === 0) continue;
-
-      const discount = round2(Number(pl.FlatDisc ?? pl.DiscTotal) || 0);
-      const tax = round2(Number(pl.SalesTax ?? pl.STaxTotal) || 0);
-      const grandTotal = round2(Number(pl.InvTotal) || Math.max(0, computedSubtotal - discount + tax));
-      const purSubtotal = round2(computedSubtotal > 0 ? computedSubtotal : grandTotal + discount - tax);
-      const purDate = pl.Date || new Date().toISOString();
-      const invRef = cleanLegacyString(pl.SuppInvCode ?? pl.InvNo) || undefined;
+      const hdrDiscPct = num(pl.DiscPerc) || 0;
+      const hdrDisc = linesNet * (hdrDiscPct / 100) + (num(pl.FlatDisc) || 0);
+      const misc = num(pl.MiscCharges) || 0;
+      const hdrTax = num(pl.SalesTax) || 0;
+      const computed = linesNet - hdrDisc + misc + hdrTax;
+      const rounding = round2(invTotal - computed);
+      const reconciled = Math.abs(rounding) <= 1 && !invalidLine;
+      if (!reconciled) {
+        purchasesReconciliationFailures++;
+        warnings.push(`Header InvTotal ${invTotal} differs from line computation ${round2(computed)}`);
+      } else if (rounding !== 0) {
+        warnings.push(`Source invoice total rounded by ${rounding > 0 ? "+" : ""}${rounding.toFixed(2)} (lines ${round2(computed).toFixed(2)} → InvTotal ${invTotal})`);
+      }
 
       purchasesLinesCount += lines.length;
-      purchasesTotalCost += grandTotal;
-
+      purchasesTotalCost += invTotal;
+      const purDate = pl.Date || pl.OriginalDate;
+      const paymentCategory = purCategoryName.get(Number(pl.PurCatCode));
+      const isCashPurchase = /cash/i.test(paymentCategory || "");
+      const paid = isCashPurchase ? round2(invTotal) : num(pl.Amt);
       purchases.push({
         sourceSystem: "ABUZAR_LEGACY",
         sourceEntity: "Purledger",
         legacyId: purCode,
         legacyReference: `GRN-ABZ-${purCode}`,
-        mappingStatus: warnings.length === 0 ? "mapped" : "partial",
+        mappingStatus: reconciled ? (warnings.length ? "partial" : "mapped") : "conflict",
         warnings,
-        sourceData: pl,
+        sourceData: {},
         normalizedData: {
           legacyId: purCode,
           purchaseNo: `GRN-ABZ-${purCode}`,
-          invoiceReference: invRef,
+          invoiceReference: cleanLegacyString(pl.SuppInvCode) || undefined,
           date: purDate,
           supplierId: supCode,
           supplierName,
-          operatorName: cleanLegacyString(pl.PostedBy ?? pl.UserID) || "admin",
-          subtotal: purSubtotal,
-          discount,
-          tax,
-          grandTotal,
-          paidAmount: 0,
-          balance: 0,
+          operatorName: cleanLegacyString(pl.PostedBy) || undefined,
+          subtotal: round2(gross),
+          discount: round2(discTotal + hdrDisc),
+          tax: round2(taxTotal + hdrTax),
+          miscCharges: round2(misc) || undefined,
+          roundingAdjustment: rounding || undefined,
+          grandTotal: round2(invTotal),
+          paidAmount: paid ?? 0,
+          paidAmountKnown: paid !== undefined,
+          legacyOutstandingAmount: num(pl.OutstandingAmt),
+          paymentCategory,
+          balance: num(pl.OutstandingAmt) ?? 0,
+          reconciled,
           lines,
-          notes: cleanLegacyString(pl.Remarks) || "Migrated from Abuzar Pharmacy Legacy Database",
+          notes: cleanLegacyString(pl.Remarks) || undefined,
           excludeFromSupplierBalance: true,
-        },
+        } as any,
         migrationBatchId: batchId,
-        purchaseNo: `GRN-ABZ-${purCode}`,
-        invoiceReference: invRef,
-        date: purDate,
-        supplierId: supCode,
-        supplierName,
-        operatorName: cleanLegacyString(pl.PostedBy ?? pl.UserID) || "admin",
-        subtotal: purSubtotal,
-        discount,
-        tax,
-        grandTotal,
-        paidAmount: 0,
-        balance: 0,
-        lines,
-        excludeFromSupplierBalance: true,
-      } as any);
+      });
     }
 
-    // 9. Historical Sales Returns (SRLedger + SRdetail)
+    // 9. Historical Sales Returns (SRLedger + SRdetail). SRdetail key column is "SRInvcode".
     const srLinesByInv = new Map<number, Record<string, any>[]>();
     for (const srd of tbl("SRdetail")) {
       const srCode = Number(srd.SRInvcode ?? srd.SRInvCode);
@@ -1865,107 +2008,112 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
 
     const salesReturns: CanonicalRecord<CanonicalSaleReturn>[] = [];
     let salesReturnsTotal = 0;
+    let returnsReconciliationFailures = 0;
+    const returnsWithoutLines: number[] = [];
 
-    const sortedSrHeaders = [...tbl("SRLedger")].sort(
-      (a, b) => Number(a.SRInvCode) - Number(b.SRInvCode)
-    );
+    const sortedSrHeaders = [...tbl("SRLedger")].sort((a, b) => Number(a.SRInvCode) - Number(b.SRInvCode));
     for (const srl of sortedSrHeaders) {
       const srCode = Number(srl.SRInvCode);
       const rawLines = srLinesByInv.get(srCode) || [];
-      if (rawLines.length === 0) {
-        // Header-only return whose SRdetail lines were on a truncated page; skip to preserve line integrity
+      const invTotal = num(srl.invtotal ?? srl.InvTotal);
+      if (rawLines.length === 0 || invTotal === undefined) {
+        returnsWithoutLines.push(srCode);
         continue;
       }
-
       const custCode = Number(srl.CustCode);
-      const custAcc = accountsByCode.get(custCode);
-      const custName = cleanLegacyString(custAcc?.Name) || "Walk-in Customer";
-
-      const lines: CanonicalSaleReturnLine[] = [];
-      let computedSubtotal = 0;
-
+      const isWalkIn = !custCode || custCode === WALK_IN_CASH_ACCOUNT;
+      const lines: (CanonicalSaleReturnLine & Record<string, any>)[] = [];
+      let gross = 0;
+      let discTotal = 0;
+      let taxTotal = 0;
+      let linesNet = 0;
+      let invalidLine = false;
       for (let idx = 0; idx < rawLines.length; idx++) {
         const rl = rawLines[idx];
         const icode = Number(rl.Icode ?? rl.ICode);
-        const itemEntry = itemByCode.get(icode);
-        const packUnits = Math.max(
-          1,
-          Math.round(Number(rl.PackUnits) || Number(itemEntry?.row.PackUnits) || 1)
-        );
-        const packQty = Number(rl.PackQty) || 0;
-        const looseQty = Number(rl.LooseQty) || 0;
-        const baseQty = round4(packQty * packUnits + looseQty);
-        if (baseQty <= 0) continue;
-
-        const unitPrice = round4(Number(rl.SRPrice ?? rl.SalePrice) || 0);
-        const discPct = Number(rl.DiscPerc) || 0;
-        const gross = round2(baseQty * unitPrice);
-        const discDed = round2(gross * (discPct / 100));
-        const lineTotal = round2(Math.max(0, gross - discDed));
-
-        computedSubtotal += gross;
-
+        const pu = Math.max(1, Math.round(num(rl.PackUnits) || num(itemByCode.get(icode)?.row.PackUnits) || 1));
+        const baseQty = round4((num(rl.PackQty) || 0) * pu + (num(rl.LooseQty) || 0));
+        const price = num(rl.SRPrice) ?? num(rl.SalePrice);
+        if (baseQty <= 0 || price === undefined || price < 0) {
+          invalidLine = true;
+          continue;
+        }
+        const discPct = num(rl.DiscPerc) || 0;
+        const lineGross = baseQty * price;
+        const discAmt = lineGross * (discPct / 100);
+        const taxAmt = (num(rl.UnitSalesTax) || 0) * baseQty;
+        const lineTotal = lineGross - discAmt + taxAmt;
+        gross += lineGross;
+        discTotal += discAmt;
+        taxTotal += taxAmt;
+        linesNet += round2(lineTotal);
         lines.push({
-          legacyLineId: `${srCode}-${idx + 1}`,
+          legacyLineId: `${srCode}-${num(rl.RowId) ?? idx + 1}`,
           productId: icode,
-          productCode: cleanLegacyString(itemEntry?.row.CustomICode) || `ABZ-${icode}`,
-          productName: cleanLegacyString(itemEntry?.row.Name) || `Medicine #${icode}`,
+          productCode: itemCode(icode),
+          productName: itemName(icode),
+          unit: inferBaseUnitFromName(itemName(icode)),
           qty: baseQty,
-          price: unitPrice,
-          discountDeducted: discDed,
-          lineTotal,
+          price: round4(price),
+          cost: pos(rl.AvgPrice),
+          discountPct: discPct || undefined,
+          discountDeducted: round2(discAmt),
+          taxAmt: round2(taxAmt) || undefined,
+          batchNo: cleanBatch(rl.Batch),
+          expiry: normalizeValidCalendarDate(rl.Expiry),
+          lineTotal: round2(lineTotal),
         });
       }
-
-      if (lines.length === 0) continue;
-
-      const discount = round2(Number(srl.FlatDisc ?? srl.BillDisc) || 0);
-      const total = round2(Number(srl.invtotal ?? srl.InvTotal) || Math.max(0, computedSubtotal - discount));
-      const srSubtotal = round2(computedSubtotal > 0 ? computedSubtotal : total + discount);
-      const srDate = srl.Date || new Date().toISOString();
-      salesReturnsTotal += total;
+      if (lines.length === 0) {
+        returnsWithoutLines.push(srCode);
+        continue;
+      }
+      const hdrDisc = linesNet * ((num(srl.DiscPerc) || 0) / 100) + (num(srl.FlatDisc) || 0);
+      const misc = num(srl.MiscCharges) || 0;
+      const hdrTax = num(srl.SalesTax) || 0;
+      const computed = linesNet - hdrDisc + misc + hdrTax;
+      const rounding = round2(invTotal - computed);
+      const reconciled = Math.abs(rounding) <= 1 && !invalidLine;
+      if (!reconciled) returnsReconciliationFailures++;
+      salesReturnsTotal += invTotal;
+      const origSale = num(srl.SaleInvCode);
 
       salesReturns.push({
         sourceSystem: "ABUZAR_LEGACY",
         sourceEntity: "SRLedger",
         legacyId: srCode,
         legacyReference: `RTN-ABZ-${srCode}`,
-        mappingStatus: "mapped",
-        warnings: [],
-        sourceData: srl,
+        mappingStatus: reconciled ? "mapped" : "conflict",
+        warnings: rounding && reconciled ? [`Source return total rounded by ${rounding.toFixed(2)}`] : reconciled ? [] : ["Header/line mismatch"],
+        sourceData: {},
         normalizedData: {
           legacyId: srCode,
           returnNo: `RTN-ABZ-${srCode}`,
-          date: srDate,
-          customerId: custCode === 19 ? undefined : custCode,
-          customerName: custName,
-          operatorName: cleanLegacyString(srl.PostedBy ?? srl.UserID) || "admin",
-          subtotal: srSubtotal,
-          discount,
-          total,
+          date: srl.Date || srl.OriginalDate,
+          originalInvoiceNo: origSale ? `INV-ABZ-${origSale}` : undefined,
+          originalInvoiceId: origSale && recoveredSaleCodes.has(origSale) ? origSale : undefined,
+          customerId: isWalkIn ? undefined : custCode,
+          customerName: isWalkIn ? "Walk-in Customer" : cleanLegacyString(accountsByCode.get(custCode)?.Name) || `Customer #${custCode}`,
+          operatorName: cleanLegacyString(srl.PostedBy) || undefined,
+          subtotal: round2(gross),
+          discount: round2(discTotal + hdrDisc),
+          tax: round2(taxTotal + hdrTax),
+          roundingAdjustment: rounding || undefined,
+          miscCharges: round2(misc) || undefined,
+          total: round2(invTotal),
           refundMethod: "cash",
-          reason: cleanLegacyString(srl.Remarks) || "Historical Sale Return (Abuzar)",
+          refundMethodVerified: Number(srl.CashAccCode) === 2,
+          reconciled,
+          reason: cleanLegacyString(srl.Remarks) || "Historical sale return (Abuzar)",
           lines,
-        },
+        } as any,
         migrationBatchId: batchId,
-        returnNo: `RTN-ABZ-${srCode}`,
-        date: srDate,
-        customerId: custCode === 19 ? undefined : custCode,
-        customerName: custName,
-        operatorName: cleanLegacyString(srl.UserID) || "admin",
-        subtotal: srSubtotal,
-        discount,
-        grandTotal: total,
-        total,
-        refundMethod: "cash",
-        lines,
-      } as any);
+      });
     }
 
-    const sourceMetrics: DynamicSourceMetrics = {
+    const sourceMetrics: DynamicSourceMetrics & Record<string, any> = {
       databaseName: parsed.databaseName,
       serverName: parsed.serverName,
-      backupCreatedAt: "2025-03-24T22:32:07.000Z",
       backupHash,
       productsCount: products.length,
       categoriesCount: categories.length,
@@ -1995,99 +2143,63 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
       expensesCount: 0,
       incomesCount: 0,
       ledgerEntriesCount: tbl("VirtualGl").length,
+      // v3 evidence
+      stockBaseSnapshot: baseSnapshotTs || null,
+      stockedWithoutCost,
+      allocatedBatchUnits: round4(allocatedBatchUnits),
+      unverifiedOpeningBatchUnits: round4(unverifiedOpeningBatchUnits),
+      salesPaymentVerified,
+      salesReconciliationFailures,
+      purchasesReconciliationFailures,
+      returnsReconciliationFailures,
+      salesHeadersWithoutLines: salesWithoutLines.length,
+      purchaseHeadersWithoutLines: purchasesWithoutLines.length,
+      returnHeadersWithoutLines: returnsWithoutLines.length,
+      purchaseReturnHeadersWithoutLines: tbl("PRLedger").length,
+      receivablesVerified: false,
+      payablesVerified: false,
     };
 
-    // 6. Lossless Archive Preservation (Actual Row Data + 155-table manifest)
-    const saleHeaderSet = new Set(tbl("SaleLedger").map((r) => Number(r.SaleInvCode)));
-    const orphanSaleDetails = tbl("Saledetail").filter((sd) => {
-      const code = Number(sd.SaleInvcode);
-      return !code || !saleHeaderSet.has(code);
-    });
-
-    const purHeaderSet = new Set(tbl("Purledger").map((r) => Number(r.PurInvCode)));
-    const orphanPurchaseDetails = tbl("Purdetail").filter((pd) => {
-      const code = Number(pd.PurInvCode);
-      return !code || !purHeaderSet.has(code);
-    });
-
-    const srDetailSet = new Set(tbl("SRdetail").map((r) => Number(r.SRInvCode)));
-    const headerOnlyReturns = [
-      ...tbl("SRLedger").filter((sr) => !srDetailSet.has(Number(sr.SRInvCode))),
-      ...tbl("PRLedger"),
-    ];
-
-    const cmhReferenceTables: Record<string, any[]> = {};
-    for (const tName of Object.keys(parsed.tables)) {
-      if (/cmh/i.test(tName) && parsed.tables[tName].rows.length > 0) {
-        cmhReferenceTables[tName] = parsed.tables[tName].rows;
-      }
-    }
-
-    const populatedTableNames = Object.keys(parsed.tables).filter(
-      (t) => parsed.tables[t].rows.length > 0
-    );
-
-    const tableManifest = populatedTableNames.map((tName) => {
+    // 10. Lossless archive: ACTUAL row contents of every populated source table (credentials removed)
+    const CREDENTIAL_COLUMN = /pass|pwd|hash|secret|token|salt|pin/i;
+    const archiveTables: Record<string, { columns: string[]; rows: any[][]; redactedColumns: string[] }> = {};
+    let archiveSourceRows = 0;
+    for (const tName of Object.keys(parsed.tables).sort()) {
       const t = parsed.tables[tName];
-      const sourceCount = t.rows.length;
-      const sampleRow = t.rows[0] || {};
-      const allCols = Object.keys(sampleRow);
-      const redactedCols = allCols.filter((k) =>
-        /pass|pwd|hash|secret|token|salt/i.test(k)
+      if (!t.rows.length) continue;
+      const allCols = Array.from(
+        t.rows.reduce((set: Set<string>, r: Record<string, any>) => {
+          for (const k of Object.keys(r)) set.add(k);
+          return set;
+        }, new Set<string>())
       );
-      const preservedCols = allCols.filter(
-        (k) => !/pass|pwd|hash|secret|token|salt/i.test(k)
-      );
-
-      let mappedCount = 0;
-      let status = "ARCHIVED";
-      if (tName === "Item" || tName === "ItemLog") {
-        mappedCount = products.length;
-        status = "OPERATIONAL_MAPPED";
-      } else if (tName === "StockReport") {
-        mappedCount = 911;
-        status = "OPERATIONAL_MAPPED";
-      } else if (tName === "Cust") {
-        mappedCount = customers.length;
-        status = "OPERATIONAL_MAPPED";
-      } else if (tName === "Sup") {
-        mappedCount = suppliers.length;
-        status = "OPERATIONAL_MAPPED";
-      } else if (tName === "SaleLedger" || tName === "Saledetail") {
-        mappedCount = salesInvoices.length;
-        status = "OPERATIONAL_MAPPED";
-      } else if (tName === "Purledger" || tName === "Purdetail") {
-        mappedCount = purchases.length;
-        status = "OPERATIONAL_MAPPED";
-      } else if (tName === "SRLedger" || tName === "SRdetail") {
-        mappedCount = salesReturns.length;
-        status = "OPERATIONAL_MAPPED";
-      } else if (tName.startsWith("CMH")) {
-        status = "REFERENCE_ARCHIVE";
-      }
-
-      return {
-        tableName: tName,
-        sourceRowCount: sourceCount,
-        operationallyMappedRowCount: mappedCount,
-        archivedRowCount: sourceCount >= mappedCount ? sourceCount - mappedCount : 0,
-        originalFieldsPreserved: preservedCols,
-        redactedSensitiveFields: redactedCols,
-        status,
+      const redactedColumns = allCols.filter((c) => CREDENTIAL_COLUMN.test(c));
+      const columns = allCols.filter((c) => !CREDENTIAL_COLUMN.test(c));
+      archiveTables[tName] = {
+        columns,
+        redactedColumns,
+        rows: t.rows.map((r: Record<string, any>) => columns.map((c) => (r[c] === undefined ? null : r[c]))),
       };
-    });
-
+      archiveSourceRows += t.rows.length;
+    }
+    const saleHeaderSet = new Set(tbl("SaleLedger").map((r) => Number(r.SaleInvCode)));
+    const purHeaderSet = new Set(tbl("Purledger").map((r) => Number(r.PurInvCode)));
     const losslessArchive = {
-      populatedTablesCount: populatedTableNames.length,
-      orphanSaleDetails,
-      orphanPurchaseDetails,
-      headerOnlyReturns,
-      cmhReferenceTables,
-      tableManifest,
-      sanitizedSecurityFieldsCount: tableManifest.reduce(
-        (acc, t) => acc + t.redactedSensitiveFields.length,
-        0
-      ),
+      format: "abuzar-table-archive/v1",
+      tables: archiveTables,
+      derived: { stockEvidence: stockEvidenceArchive },
+      summary: {
+        populatedTablesCount: Object.keys(archiveTables).length,
+        sourceRowCount: archiveSourceRows,
+        orphanSaleDetails: tbl("Saledetail").filter((sd) => !saleHeaderSet.has(Number(sd.SaleInvcode ?? sd.SaleInvCode))).length,
+        orphanPurchaseDetails: tbl("Purdetail").filter((pd) => !purHeaderSet.has(Number(pd.PurInvCode))).length,
+        headerOnlySales: salesWithoutLines.length,
+        headerOnlyPurchases: purchasesWithoutLines.length,
+        headerOnlyReturns: returnsWithoutLines.length + tbl("PRLedger").length,
+        cmhTables: Object.keys(archiveTables).filter((n) => /^cmh_/i.test(n)).length,
+        redactedCredentialColumns: Object.values(archiveTables).reduce((a, t) => a + t.redactedColumns.length, 0),
+        stockBaseSnapshot: baseSnapshotTs || null,
+      },
     };
 
     return {

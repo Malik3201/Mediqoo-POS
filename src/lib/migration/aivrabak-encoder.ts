@@ -33,6 +33,8 @@ export interface BackupSnapshotV2 {
   manifest: {
     collections: { name: string; records: number }[];
     totalRecords: number;
+    /** Optional collections (e.g. legacy-archive). Not part of totalRecords for backward compatibility. */
+    optionalCollections?: { name: string; records: number }[];
   };
 }
 
@@ -61,7 +63,8 @@ export interface EncryptedAivrabakEnvelope {
 export function createEncryptedAivrabak(
   collections: Partial<Record<BackupCollectionName, unknown[]>>,
   passphrase: string,
-  extraSettings: Record<string, any> = {}
+  extraSettings: Record<string, any> = {},
+  optionalCollections: Record<string, unknown[]> = {}
 ): {
   buffer: Buffer;
   snapshot: BackupSnapshotV2;
@@ -83,6 +86,12 @@ export function createEncryptedAivrabak(
     manifestList.push({ name, records: rows.length });
     totalRecords += rows.length;
   }
+  const optionalList: { name: string; records: number }[] = [];
+  for (const [name, rows] of Object.entries(optionalCollections)) {
+    if ((BACKUP_COLLECTIONS_V2 as readonly string[]).includes(name) || !Array.isArray(rows) || rows.length === 0) continue;
+    normalizedCollections[name] = rows;
+    optionalList.push({ name, records: rows.length });
+  }
 
   const snapshot: BackupSnapshotV2 = {
     format: "aivrasol-backup",
@@ -91,13 +100,7 @@ export function createEncryptedAivrabak(
     schemaVersion: 1,
     collections: normalizedCollections,
     settings: {
-      receiptTemplate: "standard",
-      receipt: {
-        header: extraSettings.pharmacyName || "AivraSol Pharmacy",
-        footer: "Thank you for your visit!",
-        showTax: true,
-      },
-      printing: { general: { autoPrint: false } },
+      // Migration packages never overwrite the target POS receipt/printing settings.
       migration: {
         isMigratedPackage: true,
         packageType: extraSettings.packageType || (extraSettings.targetLicenseKey ? "license-bound-legacy-migration" : "portable-legacy-migration"),
@@ -109,6 +112,7 @@ export function createEncryptedAivrabak(
     manifest: {
       collections: manifestList,
       totalRecords,
+      ...(optionalList.length ? { optionalCollections: optionalList } : {}),
     },
   };
 
@@ -235,6 +239,13 @@ export function verifyEncryptedAivrabak(
     throw new Error(
       `Manifest totalRecords mismatch: expected ${snapshot.manifest.totalRecords}, got ${totalCount}`
     );
+  }
+
+  for (const opt of snapshot.manifest.optionalCollections || []) {
+    const rows = snapshot.collections[opt.name];
+    if (!Array.isArray(rows) || rows.length !== opt.records) {
+      throw new Error(`Optional collection ${opt.name} count mismatch: manifest ${opt.records}, actual ${Array.isArray(rows) ? rows.length : "missing"}`);
+    }
   }
 
   return snapshot;
