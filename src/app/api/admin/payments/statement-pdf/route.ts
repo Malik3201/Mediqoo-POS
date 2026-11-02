@@ -210,11 +210,12 @@ export async function GET(req: NextRequest) {
     const drawPageDecorations = () => {
       // Top Emerald Brand Bar
       doc.rect(0, 0, pageWidth, 8).fill("#009A4D");
-      // Light Centered Watermark
+      // Full-Page Centered Watermark
       try {
+        const wmWidth = 550;
         doc.save();
-        doc.opacity(0.045);
-        doc.image(logoBuffer, (pageWidth - 320) / 2, 250, { width: 320 });
+        doc.opacity(0.115);
+        doc.image(logoBuffer, (pageWidth - wmWidth) / 2, 135, { width: wmWidth });
         doc.opacity(1);
         doc.restore();
       } catch {
@@ -334,7 +335,7 @@ export async function GET(req: NextRequest) {
     summaryCards.forEach((c, idx) => {
       const cx = margin + idx * (cardW + cardGap);
       doc.save();
-      doc.fillOpacity(0.75);
+      doc.fillOpacity(0.22);
       doc.roundedRect(cx, y, cardW, 54, 5).fill("#F8FAFC");
       doc.restore();
       doc.roundedRect(cx, y, cardW, 54, 5).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
@@ -360,7 +361,7 @@ export async function GET(req: NextRequest) {
 
     // Provider & Filter Scope Bar
     doc.save();
-    doc.fillOpacity(0.75);
+    doc.fillOpacity(0.25);
     doc.roundedRect(margin, y, contentWidth, 34, 5).fill("#F1F5F9");
     doc.restore();
     doc
@@ -397,10 +398,25 @@ export async function GET(req: NextRequest) {
     ];
 
     const drawTableHeader = (topY: number) => {
-      doc.rect(margin, topY, contentWidth, 20).fill("#0F172A");
+      doc.save();
+      doc.fillOpacity(0.3);
+      doc.rect(margin, topY, contentWidth, 20).fill("#F1F5F9");
+      doc.restore();
+      doc
+        .moveTo(margin, topY)
+        .lineTo(pageWidth - margin, topY)
+        .strokeColor("#CBD5E1")
+        .lineWidth(0.75)
+        .stroke();
+      doc
+        .moveTo(margin, topY + 20)
+        .lineTo(pageWidth - margin, topY + 20)
+        .strokeColor("#009A4D")
+        .lineWidth(1.5)
+        .stroke();
       for (const col of cols) {
         doc
-          .fillColor("#FFFFFF")
+          .fillColor("#0F172A")
           .font("Helvetica-Bold")
           .fontSize(7.5)
           .text(col.label, col.x, topY + 6, {
@@ -443,7 +459,7 @@ export async function GET(req: NextRequest) {
         const rowH = 22;
         if (i % 2 === 1) {
           doc.save();
-          doc.fillOpacity(0.55);
+          doc.fillOpacity(0.2);
           doc.rect(margin, y, contentWidth, rowH).fill("#F8FAFC");
           doc.restore();
         }
@@ -629,3 +645,4 @@ export async function GET(req: NextRequest) {
     );
   }
 }
+

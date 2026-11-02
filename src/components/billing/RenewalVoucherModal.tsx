@@ -197,26 +197,26 @@ export function RenewalVoucherModal({
     body { margin: 0; padding: 0; color: #0f172a; background: #fff; font-size: 12px; line-height: 1.45; }
     .voucher-sheet { position: relative; overflow: hidden; max-width: 780px; margin: 0 auto; border: 1px solid #e2e8f0; border-top: 6px solid #009A4D; border-radius: 8px; padding: 24px 28px; background: #fff; }
     .watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 0; }
-    .watermark img { width: 390px; height: auto; opacity: 0.055; object-fit: contain; }
+    .watermark img { width: 660px; max-width: 96%; height: auto; opacity: 0.12; object-fit: contain; }
     .content-layer { position: relative; z-index: 1; }
     .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 16px; }
     .doc-title { font-size: 15px; font-weight: 700; color: #0f172a; text-align: right; }
     .doc-sub { font-size: 11px; color: #64748b; text-align: right; margin-top: 2px; }
     .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; background: ${st.printBg}; color: ${st.printFg}; margin-top: 8px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
-    .box { background: rgba(248, 250, 252, 0.72); border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 14px; }
+    .box { background: rgba(248, 250, 252, 0.25); border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 14px; }
     .box-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #009A4D; margin-bottom: 6px; }
     .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #0f172a; margin: 16px 0 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
-    .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 14px; background: rgba(255, 255, 255, 0.68); }
+    .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 20px; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 14px; background: rgba(255, 255, 255, 0.2); }
     .kv-row { display: flex; justify-content: space-between; font-size: 11.5px; padding: 2px 0; }
-    .kv-key { color: #64748b; }
+    .kv-key { color: #475569; }
     .kv-val { font-weight: 600; color: #0f172a; text-align: right; }
     table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
-    th { background: #0f172a; color: #fff; text-align: left; padding: 8px 12px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+    th { background: rgba(241, 245, 249, 0.45); color: #0f172a; border-top: 1px solid #cbd5e1; border-bottom: 2px solid #009A4D; text-align: left; padding: 8px 12px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
     th.right, td.right { text-align: right; }
-    td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; }
-    tr.total-row td { background: rgba(248, 250, 252, 0.78); font-weight: 700; }
-    tr.paid-row td { background: rgba(236, 253, 245, 0.8); color: #009A4D; font-weight: 700; }
+    td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; background: transparent; }
+    tr.total-row td { background: rgba(248, 250, 252, 0.35); font-weight: 700; }
+    tr.paid-row td { background: rgba(236, 253, 245, 0.38); color: #009A4D; font-weight: 700; }
     tr.balance-row td { font-weight: 700; }
     .sig-row { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 18px; padding-top: 10px; }
     .sig-box { text-align: center; min-width: 220px; }
@@ -429,13 +429,13 @@ export function RenewalVoucherModal({
               {/* Top Emerald Brand Accent */}
               <div className="h-2 bg-[#009A4D] relative z-10" />
 
-              {/* Full AivraSol Light Watermark Behind Voucher Content */}
+              {/* Full-Page AivraSol Watermark Behind Voucher Content */}
               <div className="pointer-events-none select-none absolute inset-0 flex items-center justify-center z-0">
                 <img
                   src="/logo-aivrasol-voucher.png"
                   alt=""
                   aria-hidden="true"
-                  className="w-[340px] sm:w-[420px] h-auto object-contain opacity-[0.055]"
+                  className="w-[580px] sm:w-[720px] max-w-[96%] h-auto object-contain opacity-[0.12]"
                 />
               </div>
 
@@ -476,7 +476,7 @@ export function RenewalVoucherModal({
 
                 {/* 2. Issuer & Pharmacy / License Holder */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/50 p-4 text-xs space-y-1.5">
+                  <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/25 dark:bg-slate-950/30 p-4 text-xs space-y-1.5">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-[#009A4D] flex items-center gap-1.5">
                       <Building2 className="h-3.5 w-3.5" />
                       Issued By (Provider)
@@ -505,7 +505,7 @@ export function RenewalVoucherModal({
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/50 p-4 text-xs space-y-1.5">
+                  <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/25 dark:bg-slate-950/30 p-4 text-xs space-y-1.5">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-[#009A4D] flex items-center gap-1.5">
                       <Building2 className="h-3.5 w-3.5" />
                       Pharmacy / License Holder
@@ -548,7 +548,7 @@ export function RenewalVoucherModal({
                     <KeyRound className="h-3.5 w-3.5 text-[#009A4D]" />
                     Subscription &amp; License Details
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 rounded-lg border border-slate-200 dark:border-slate-800 p-4 text-xs bg-white/60 dark:bg-slate-900/60">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 rounded-lg border border-slate-200 dark:border-slate-800 p-4 text-xs bg-transparent">
                     <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800/60">
                       <span className="text-slate-500">Product:</span>
                       <span className="font-semibold text-slate-900 dark:text-slate-100">
@@ -623,11 +623,11 @@ export function RenewalVoucherModal({
                   <div className="rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="bg-slate-900 text-white">
-                          <th className="py-2.5 px-4 text-left font-semibold uppercase tracking-wider text-[10px]">
+                        <tr className="bg-slate-100/50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 border-b-2 border-[#009A4D]">
+                          <th className="py-2.5 px-4 text-left font-bold uppercase tracking-wider text-[10px]">
                             Description
                           </th>
-                          <th className="py-2.5 px-4 text-right font-semibold uppercase tracking-wider text-[10px]">
+                          <th className="py-2.5 px-4 text-right font-bold uppercase tracking-wider text-[10px]">
                             Amount
                           </th>
                         </tr>
@@ -695,7 +695,7 @@ export function RenewalVoucherModal({
                             </td>
                           </tr>
                         )}
-                        <tr className="bg-slate-50/80 dark:bg-slate-800/50 font-bold">
+                        <tr className="bg-slate-50/35 dark:bg-slate-800/30 font-bold">
                           <td className="py-2.5 px-4 text-slate-900 dark:text-slate-100">
                             Total Payable
                           </td>
@@ -706,7 +706,7 @@ export function RenewalVoucherModal({
                             )}
                           </td>
                         </tr>
-                        <tr className="bg-emerald-50/70 dark:bg-emerald-950/30 font-bold text-[#009A4D]">
+                        <tr className="bg-emerald-50/35 dark:bg-emerald-950/20 font-bold text-[#009A4D]">
                           <td className="py-2.5 px-4">Amount Paid</td>
                           <td className="py-2.5 px-4 text-right">
                             {fmtMoney(
@@ -740,7 +740,7 @@ export function RenewalVoucherModal({
                 </div>
 
                 {/* 5. Payment Details */}
-                <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/50 p-4 text-xs grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/25 dark:bg-slate-950/30 p-4 text-xs grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Payment Method:</span>
                     <span className="font-semibold text-slate-900 dark:text-slate-100">

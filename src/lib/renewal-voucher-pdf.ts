@@ -136,11 +136,12 @@ export async function generateRenewalVoucherPdfBuffer(
 
   const logoBuffer = getAivraSolLogoBuffer();
 
-  // 0. Centered Full AivraSol Light Watermark Behind Voucher Content
+  // 0. Full-Page Centered AivraSol Watermark Behind Voucher Content
   try {
+    const wmWidth = 560;
     doc.save();
-    doc.opacity(0.055);
-    doc.image(logoBuffer, (pageWidth - 330) / 2, 240, { width: 330 });
+    doc.opacity(0.125);
+    doc.image(logoBuffer, (pageWidth - wmWidth) / 2, 130, { width: wmWidth });
     doc.opacity(1);
     doc.restore();
   } catch {
@@ -216,10 +217,10 @@ export async function generateRenewalVoucherPdfBuffer(
 
   y += 12;
 
-  // Two-column Issuer vs License Holder box (semi-transparent so watermark shows softly)
+  // Two-column Issuer vs License Holder box (ultra-light fill so full-page watermark stays clear)
   const colWidth = (contentWidth - 16) / 2;
   doc.save();
-  doc.fillOpacity(0.68);
+  doc.fillOpacity(0.18);
   doc.roundedRect(margin, y, colWidth, 84, 6).fill("#F8FAFC");
   doc.roundedRect(margin + colWidth + 16, y, colWidth, 84, 6).fill("#F8FAFC");
   doc.restore();
@@ -406,10 +407,25 @@ export async function generateRenewalVoucherPdfBuffer(
     remaining_balance: voucher.balance || 0,
   };
 
-  // Table Header
-  doc.rect(margin, y, contentWidth, 21).fill("#0F172A");
+  // Table Header (light translucent bar with emerald accent line so full-page watermark flows through)
+  doc.save();
+  doc.fillOpacity(0.28);
+  doc.rect(margin, y, contentWidth, 21).fill("#F1F5F9");
+  doc.restore();
   doc
-    .fillColor("#FFFFFF")
+    .moveTo(margin, y)
+    .lineTo(pageWidth - margin, y)
+    .strokeColor("#CBD5E1")
+    .lineWidth(0.75)
+    .stroke();
+  doc
+    .moveTo(margin, y + 21)
+    .lineTo(pageWidth - margin, y + 21)
+    .strokeColor("#009A4D")
+    .lineWidth(1.5)
+    .stroke();
+  doc
+    .fillColor("#0F172A")
     .font("Helvetica-Bold")
     .fontSize(8.5)
     .text("DESCRIPTION", margin + 12, y + 6.5)
@@ -428,7 +444,7 @@ export async function generateRenewalVoucherPdfBuffer(
   ) => {
     if (highlightBg) {
       doc.save();
-      doc.fillOpacity(0.7);
+      doc.fillOpacity(0.24);
       doc.rect(margin, y, contentWidth, 21).fill(highlightBg);
       doc.restore();
     }
@@ -518,7 +534,7 @@ export async function generateRenewalVoucherPdfBuffer(
 
   const pay = voucher.payment_snapshot || {};
   doc.save();
-  doc.fillOpacity(0.68);
+  doc.fillOpacity(0.18);
   doc.roundedRect(margin, y, contentWidth, 68, 6).fill("#F8FAFC");
   doc.restore();
   doc.roundedRect(margin, y, contentWidth, 68, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
