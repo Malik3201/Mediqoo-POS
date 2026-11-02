@@ -23,6 +23,11 @@ export interface ICloudBackup extends Document {
   source_created_at?: Date;
   failure_reason?: string;
   deleted_at?: Date;
+  pinned?: boolean;
+  pinned_at?: Date;
+  pinned_by?: string;
+  pinned_reason?: string;
+  restore_active_until?: Date;
 }
 
 const CloudBackupSchema = new Schema<ICloudBackup>(
@@ -56,6 +61,11 @@ const CloudBackupSchema = new Schema<ICloudBackup>(
     source_created_at: { type: Date },
     failure_reason: { type: String },
     deleted_at: { type: Date },
+    pinned: { type: Boolean, default: false },
+    pinned_at: { type: Date },
+    pinned_by: { type: String },
+    pinned_reason: { type: String },
+    restore_active_until: { type: Date },
   },
   {
     timestamps: false,

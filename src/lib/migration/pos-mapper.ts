@@ -14,8 +14,8 @@
  */
 import type { CanonicalBundle } from "./core/adapter";
 
-export const MAPPING_VERSION = "3.0.0";
-export const CONVERTER_VERSION = "3.0.0";
+export const MAPPING_VERSION = "3.1.0";
+export const CONVERTER_VERSION = "3.1.0";
 export const LEGACY_ARCHIVE_COLLECTION = "legacy-archive";
 const ARCHIVE_CHUNK_ROWS = 4000;
 
@@ -176,6 +176,12 @@ export function buildPosCollections(canonical: CanonicalBundle & Record<string, 
       legacyStockAsOf: d.stockAsOf || undefined,
       legacySourceStock: isNum(d.sourceStock) && d.sourceStock !== currentStock ? d.sourceStock : undefined,
       legacyRecoveredFrom: d.recoveredFrom || undefined,
+      requiresNameReview: d.recoveredFrom === "TRANSACTIONS" || undefined,
+      legacyCategoryCode: optNum(d.legacyCategoryCode),
+      legacyCategoryName: d.legacyCategoryName || undefined,
+      legacyGenericCode: optNum(d.legacyGenericCode),
+      legacyGenericName: d.legacyGenericName || undefined,
+      legacyGenericStatus: d.genericStatus || undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -388,7 +394,8 @@ export function buildPosCollections(canonical: CanonicalBundle & Record<string, 
       discount: Number(d.discount),
       taxAmount: optNum(d.tax),
       notes: notes || undefined,
-      paidAmount: d.paidAmountKnown === false ? undefined : optNum(d.paidAmount),
+      paidAmount: d.legacyPaymentStatus === "paid" ? Number(d.grandTotal ?? d.total) : d.legacyPaymentStatus === "unknown" ? undefined : d.paidAmountKnown === false ? undefined : optNum(d.paidAmount),
+      legacyPaymentStatus: d.legacyPaymentStatus || undefined,
       receivedByNameSnapshot: d.operatorName ? `Legacy user ${d.operatorName}` : undefined,
       migrationImported: true,
       ...meta,
@@ -503,6 +510,14 @@ export function buildPosCollections(canonical: CanonicalBundle & Record<string, 
     supplier_payable_pkr: r2(suppliers.reduce((s, c: any) => s + (c.openingBalance || 0), 0)),
   };
   const review = {
+    productsWithGeneric: products.filter((p: any) => p.generic).length,
+    productsWithCategory: products.filter((p: any) => p.category).length,
+    productsWithManufacturer: products.filter((p: any) => p.manufacturer).length,
+    productsNameReview: products.filter((p: any) => p.requiresNameReview).length,
+    stockedWithVerifiedBatch: products.filter((p: any) => p.currentStock > 0 && (p.batches || []).every((b: any) => b.batchNo !== "LEGACY-OPENING")).length,
+    stockedWithAllExpiries: products.filter((p: any) => p.currentStock > 0 && (p.batches || []).every((b: any) => b.expiry)).length,
+    stockedExpiryReview: products.filter((p: any) => p.currentStock > 0 && (p.batches || []).some((b: any) => !b.expiry)).length,
+    purchasesPaymentUnknown: purchases.filter((p: any) => p.legacyPaymentStatus === "unknown").length,
     productsPriceUnavailable: products.filter((p: any) => p.legacyPriceStatus).length,
     stockedProductsCostUnavailable: products.filter((p: any) => p.currentStock > 0 && p.legacyCostStatus).length,
     productsStockReview: products.filter((p: any) => p.requiresStockReview).length,

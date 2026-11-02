@@ -5,6 +5,11 @@ export type AnalyticsEventType =
   | "sale.completed"
   | "sale.returned"
   | "purchase.received"
+  | "purchase.returned"
+  | "khata.payment"
+  | "supplier.payment"
+  | "drawer.session"
+  | "daily.closing"
   | "expense.created"
   | "expense.updated"
   | "expense.deleted";
@@ -17,9 +22,13 @@ export type AnalyticsEventType =
 export interface SaleItem {
   product_id: string;
   product_name: string;
+  code?: string;
   qty: number;
   unit_type?: string;       // e.g., "tablet", "strip", "box"
   unit_multiplier?: number; // base units per pack (optional context)
+  unit_price?: number;      // selling price per unit
+  discount?: number;        // line discount amount
+  tax?: number;             // line tax amount
   revenue: number;          // line total after discount (sale-time)
   cogs: number;             // line COGS snapshot at sale time
   gross_profit: number;     // revenue - cogs
@@ -67,6 +76,11 @@ const AnalyticsEventSchema = new Schema<IAnalyticsEvent>(
         "sale.completed",
         "sale.returned",
         "purchase.received",
+        "purchase.returned",
+        "khata.payment",
+        "supplier.payment",
+        "drawer.session",
+        "daily.closing",
         "expense.created",
         "expense.updated",
         "expense.deleted",

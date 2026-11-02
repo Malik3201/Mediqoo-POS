@@ -1,671 +1,1011 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-import {
-  RefreshCw,
-  Banknote,
   TrendingUp,
-  TrendingDown,
-  Package,
-  ShoppingCart,
   Receipt,
-  CreditCard,
+  Wallet,
+  Users,
+  ShoppingBag,
+  RotateCcw,
+  Package,
   AlertTriangle,
+  CheckCircle2,
   Clock,
-  ArrowRight,
-  ChevronLeft,
   ChevronRight,
-  Building2,
-  Phone,
-  Mail,
-  MapPin,
-  Globe,
-  User,
-  LineChart
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+  ArrowUpRight,
+  ShieldAlert,
+  Sparkles,
+  Wifi,
+  WifiOff,
+  Terminal,
+  CreditCard,
 } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Summary {
-  gross_sales: number;
-  sales_returns: number;
-  net_sales: number;
-  sale_cogs: number;
-  returned_cogs: number;
-  net_cogs: number;
-  gross_profit: number;
-  purchases: number;
-  cash_sales: number;
-  credit_sales: number;
-  expenses: number;
-  net_profit: number;
-}
-
-interface InventoryTotals {
-  stock_value: number;
-  low_stock_count: number;
-  out_of_stock_count: number;
-  expiring_soon_count: number;
-}
-
-interface TrendPoint {
-  date: string;
-  gross_sales: number;
-  net_sales: number;
-  gross_profit: number;
-  net_profit: number;
-  expenses: number;
-}
-
-interface Product {
-  product_id: string;
-  product_name: string;
-  qty: number;
-  revenue: number;
-  cogs: number;
-  gross_profit: number;
-}
-
-interface Installation {
-  id: string;
-  label: string;
-  status: string;
-}
-
-interface PortalUser {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  client_id: string;
-  client?: {
-    name: string;
-    contact_name?: string;
-    contact_email?: string;
-    contact_phone?: string;
-    address?: string;
-    timezone?: string;
-  } | null;
-}
+import InvoiceDetailDrawer from "@/components/portal/InvoiceDetailDrawer";
 
 type Period = "today" | "7d" | "30d";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const PERIOD_LABELS: Record<Period, string> = {
+  today: "Today",
+  "7d": "Last 7 Days",
+  "30d": "Last 30 Days",
+};
 
-function fmt(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString("en-PK", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes in active tab only
+
+function formatPKR(n: number): string {
+  return `Rs ${Math.round(n || 0).toLocaleString("en-PK")}`;
 }
 
-function pkr(n: number): string {
-  return `Rs. ${fmt(n)}`;
+function formatDateTime(iso: string | null | undefined, tz = "Asia/Karachi"): string {
+  if (!iso) return "Never";
+  try {
+    return new Date(iso).toLocaleString("en-PK", {
+      timeZone: tz,
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  } catch {
+    return iso;
+  }
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function KpiCard({
-  title,
-  value,
-  icon: Icon,
-  trend,
-  color = "emerald",
-}: {
-  title: string;
-  value: string;
-  icon: any;
-  trend?: { label: string; positive: boolean };
-  color?: "emerald" | "amber" | "red" | "blue" | "violet" | "slate";
-}) {
-  const colorStyles = {
-    emerald: "bg-emerald-50 text-emerald-600 border-emerald-100",
-    amber: "bg-amber-50 text-amber-600 border-amber-100",
-    red: "bg-red-50 text-red-600 border-red-100",
-    blue: "bg-blue-50 text-blue-600 border-blue-100",
-    violet: "bg-violet-50 text-violet-600 border-violet-100",
-    slate: "bg-slate-50 text-slate-600 border-slate-200",
-  };
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-slate-500">{title}</h3>
-        <div className={`p-2 rounded-lg border ${colorStyles[color]}`}>
-          <Icon className="w-4 h-4" />
-        </div>
-      </div>
-      <div>
-        <div className="text-2xl font-bold text-slate-900 tracking-tight">{value}</div>
-        {trend && (
-          <div className={`flex items-center gap-1.5 mt-2 text-xs font-medium ${trend.positive ? "text-emerald-600" : "text-red-600"}`}>
-            {trend.positive ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-            {trend.label}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SectionHeader({ title, description }: { title: string; description?: string }) {
-  return (
-    <div className="mb-4">
-      <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-      {description && <p className="text-sm text-slate-500 mt-0.5">{description}</p>}
-    </div>
-  );
-}
-
-function SkeletonCard() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm animate-pulse">
-      <div className="flex justify-between mb-4">
-        <div className="w-24 h-4 bg-slate-200 rounded" />
-        <div className="w-8 h-8 bg-slate-100 rounded-lg" />
-      </div>
-      <div className="w-32 h-8 bg-slate-200 rounded mt-2" />
-    </div>
-  );
-}
-
-// ─── Main Dashboard ───────────────────────────────────────────────────────────
-
-export default function PortalDashboardPage() {
+export default function PortalOverviewPage() {
+  const router = useRouter();
   const [period, setPeriod] = useState<Period>("today");
-  const [selectedLicense, setSelectedLicense] = useState<string>("");
-  const [installations, setInstallations] = useState<Installation[]>([]);
-  const [user, setUser] = useState<PortalUser | null>(null);
-
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [inventory, setInventory] = useState<InventoryTotals | null>(null);
-  const [trends, setTrends] = useState<TrendPoint[]>([]);
-  const [topQty, setTopQty] = useState<Product[]>([]);
-  const [topProfit, setTopProfit] = useState<Product[]>([]);
-  const [recentSales, setRecentSales] = useState<any[]>([]);
+  const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [timezone, setTimezone] = useState<string>("Asia/Karachi");
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
-  const [subscriptions, setSubscriptions] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [showAllKpisMobile, setShowAllKpisMobile] = useState(false);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
-  // Pagination states
-  const [recentSalesPage, setRecentSalesPage] = useState(1);
-  const [topProductsPage, setTopProductsPage] = useState(1);
-  const PAGE_SIZE = 10;
+  const loadOverview = useCallback(
+    async (selectedPeriod: Period, silent = false) => {
+      if (!silent) setLoading(true);
+      else setRefreshing(true);
+      setError("");
+
+      try {
+        const res = await fetch(`/api/portal/overview?period=${selectedPeriod}`);
+        if (res.status === 401) {
+          router.replace("/portal/login");
+          return;
+        }
+        if (!res.ok) {
+          throw new Error("Failed to load pharmacy overview");
+        }
+        const json = await res.json();
+        setData(json);
+      } catch (err: any) {
+        setError(err.message || "Unable to load overview data");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [router]
+  );
 
   useEffect(() => {
-    fetch("/api/portal/auth/me")
-      .then((r) => r.json())
-      .then((d) => { if (d?.user) setUser(d.user); })
-      .catch(() => {});
+    void loadOverview(period);
+  }, [period, loadOverview]);
 
-    fetch("/api/portal/installations")
-      .then((r) => r.json())
-      .then((d) => setInstallations(d.installations ?? []))
-      .catch(() => {});
-  }, []);
-
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setRecentSalesPage(1);
-    setTopProductsPage(1);
-    
-    try {
-      const lic = selectedLicense ? `&license_id=${selectedLicense}` : "";
-      const trendDays = period === "today" ? "7" : period === "7d" ? "7" : "30";
-
-      const [summaryRes, inventoryRes, trendsRes, topRes] = await Promise.all([
-        fetch(`/api/portal/dashboard/summary?period=${period}${lic}`).then((r) => r.json()),
-        fetch(`/api/portal/dashboard/inventory${lic ? `?license_id=${selectedLicense}` : ""}`).then((r) => r.json()),
-        fetch(`/api/portal/dashboard/trends?days=${trendDays}${lic}`).then((r) => r.json()),
-        fetch(`/api/portal/dashboard/top?period=${period}${lic}`).then((r) => r.json()),
-      ]);
-
-      if (summaryRes.ok) {
-        setSummary(summaryRes.summary);
-        setTimezone(summaryRes.timezone ?? "Asia/Karachi");
-        setLastSyncAt(summaryRes.last_sync_at ?? null);
-        setSubscriptions(summaryRes.subscriptions ?? []);
-      }
-      if (inventoryRes.ok) setInventory(inventoryRes.totals);
-      if (trendsRes.ok) setTrends(trendsRes.trend ?? []);
-      if (topRes.ok) {
-        setTopQty(topRes.top_by_qty ?? []);
-        setTopProfit(topRes.top_by_profit ?? []);
-        setRecentSales(topRes.recent_sales ?? []);
-      }
-    } catch (e) {
-      console.error("Dashboard fetch error:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [period, selectedLicense]);
-
+  // 5-minute active-tab polling (suspended in hidden tabs)
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        void loadOverview(period, true);
+      }
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [period, loadOverview]);
 
-  // Derived state for pagination
-  const paginatedSales = recentSales.slice((recentSalesPage - 1) * PAGE_SIZE, recentSalesPage * PAGE_SIZE);
-  const paginatedTopQty = topQty.slice((topProductsPage - 1) * PAGE_SIZE, topProductsPage * PAGE_SIZE);
+  const kpis = data?.kpis_by_period?.[period] || data?.kpis || {};
+  const livePos = data?.live_positions || {};
+  const opStatus = data?.operational_status || {};
+  const actionRequired: any[] = data?.action_required || [];
+  const recentSales: any[] = data?.recent_sales || [];
+  const topProducts: any[] = data?.top_products || [];
+  const invAlerts = data?.inventory_alerts || { expiring_items: [], low_stock_items: [] };
+
+  const statusTone =
+    opStatus.pos_status === "online"
+      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+      : opStatus.pos_status === "recent"
+      ? "bg-blue-50 border-blue-200 text-blue-800"
+      : opStatus.pos_status === "stale"
+      ? "bg-amber-50 border-amber-200 text-amber-800"
+      : "bg-slate-100 border-slate-300 text-slate-700";
 
   return (
-    <div className="space-y-8 pb-12">
-      
-      {/* ── HEADER & FILTERS ── */}
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+    <div className="space-y-5">
+      {/* Top Header & Period Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Business Overview</h1>
-          <div className="flex items-center gap-2 mt-1.5 text-sm text-slate-500">
-            {lastSyncAt ? (
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-emerald-500" />
-                Last synced {formatDistanceToNow(new Date(lastSyncAt), { addSuffix: true })}
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-slate-400">
-                <Clock className="w-4 h-4" /> Waiting for sync...
-              </span>
-            )}
-            <span className="text-slate-300">•</span>
-            <span>{timezone}</span>
-          </div>
+          <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
+            Pharmacy Overview
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Real-time operational supervision · Tap any metric to inspect underlying records
+          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Native SaaS Date Toggles */}
-          <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="inline-flex bg-white p-1 rounded-xl border border-slate-200 shadow-xs">
             {(["today", "7d", "30d"] as Period[]).map((p) => (
               <button
                 key={p}
                 onClick={() => setPeriod(p)}
-                className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                   period === p
-                    ? "bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200"
+                    ? "bg-[#009A4D] text-white shadow-xs"
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                {p === "today" ? "Today" : p === "7d" ? "7 Days" : "30 Days"}
+                {PERIOD_LABELS[p]}
               </button>
             ))}
           </div>
-
-          {installations.length > 0 && (
-            <select
-              value={selectedLicense}
-              onChange={(e) => setSelectedLicense(e.target.value)}
-              className="bg-white border border-slate-200 text-slate-700 text-sm font-medium rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
-            >
-              <option value="">All Locations</option>
-              {installations.map((inst) => (
-                <option key={inst.id} value={inst.id}>{inst.label}</option>
-              ))}
-            </select>
-          )}
-
           <button
-            onClick={fetchAll}
-            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:text-emerald-700 hover:border-emerald-200 hover:bg-emerald-50 text-sm font-medium rounded-lg px-4 py-2 shadow-sm transition-colors"
+            onClick={() => void loadOverview(period, true)}
+            disabled={refreshing || loading}
+            className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50"
+            title="Refresh overview"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-emerald-600" : ""}`} />
-            <span className="hidden sm:inline">Refresh Data</span>
+            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#009A4D]" : ""}`} />
           </button>
         </div>
       </div>
 
-      {/* ── BUSINESS PROFILE CARD ── */}
-      {user?.client && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="flex items-center gap-5">
-            <div className="w-16 h-16 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center text-slate-300">
-              <Building2 className="w-8 h-8" />
+      {/* Operational Status Bar (Part C) */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* POS Sync & Freshness */}
+          <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/60">
+            <div
+              className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${statusTone}`}
+            >
+              {opStatus.pos_status === "online" || opStatus.pos_status === "recent" ? (
+                <Wifi className="w-4 h-4" />
+              ) : (
+                <WifiOff className="w-4 h-4" />
+              )}
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">{user.client.name}</h2>
-              <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-slate-500">
-                {user.client.contact_name && (
-                  <span className="flex items-center gap-1.5"><User className="w-4 h-4" /> {user.client.contact_name}</span>
-                )}
-                {user.client.contact_phone && (
-                  <span className="flex items-center gap-1.5"><Phone className="w-4 h-4" /> {user.client.contact_phone}</span>
-                )}
-                {user.client.contact_email && (
-                  <span className="flex items-center gap-1.5"><Mail className="w-4 h-4" /> {user.client.contact_email}</span>
-                )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    opStatus.pos_status === "online"
+                      ? "bg-emerald-500 animate-pulse"
+                      : opStatus.pos_status === "recent"
+                      ? "bg-blue-500"
+                      : opStatus.pos_status === "stale"
+                      ? "bg-amber-500"
+                      : "bg-slate-400"
+                  }`}
+                />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  POS Connection
+                </span>
               </div>
+              <p className="text-xs font-bold text-slate-900 truncate mt-0.5">
+                {opStatus.pos_status_label || "Checking sync status…"}
+              </p>
+              <p className="text-[11px] text-slate-500 truncate">
+                Last sync: {formatDateTime(opStatus.last_sync_at, data?.timezone)}
+              </p>
             </div>
           </div>
-          <div className="flex items-center gap-6 md:border-l border-slate-100 md:pl-6 text-sm">
-             <div className="flex flex-col">
-                <span className="text-slate-500 mb-1 flex items-center gap-1.5"><Globe className="w-4 h-4" /> Timezone</span>
-                <span className="font-medium text-slate-900">{user.client.timezone ?? "Asia/Karachi"}</span>
-             </div>
-             <div className="flex flex-col">
-                <span className="text-slate-500 mb-1 flex items-center gap-1.5"><MapPin className="w-4 h-4" /> Address</span>
-                <span className="font-medium text-slate-900 max-w-[200px] truncate" title={user.client.address}>{user.client.address || "Not specified"}</span>
-             </div>
-          </div>
-        </div>
-      )}
 
-      {/* ── SUBSCRIPTIONS CARD ── */}
-      {subscriptions.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <CreditCard className="w-5 h-5 text-indigo-600" />
-            <h2 className="text-lg font-bold text-slate-900">Subscriptions</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {subscriptions.map((sub: any) => (
-              <div key={sub.license_id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 flex flex-col justify-between gap-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-slate-900">{sub.project_name}</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                    sub.effective_status === "Active" ? "bg-emerald-100 text-emerald-700" :
-                    sub.effective_status === "Grace Period" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
-                  }`}>
-                    {sub.effective_status.toUpperCase()}
+          {/* Current Cash Drawer Status */}
+          <Link
+            href="/portal/cash"
+            className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50/80 hover:bg-emerald-50/50 border border-slate-200/60 hover:border-emerald-200 transition-colors group"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 text-[#009A4D] flex items-center justify-center shrink-0">
+                <Wallet className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Cash Drawer
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded text-[10px] font-bold uppercase ${
+                      opStatus.current_drawer?.status === "open"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-slate-200 text-slate-700"
+                    }`}
+                  >
+                    {opStatus.current_drawer?.status || "Closed"}
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-slate-500 block text-xs">Fee ({sub.cycle})</span>
-                    <span className="font-medium text-slate-900">{sub.currency} {sub.amount}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 block text-xs">Expires</span>
-                    <span className="font-medium text-slate-900">{sub.expires_at ? new Date(sub.expires_at).toLocaleDateString() : "—"}</span>
-                  </div>
-                </div>
-                {sub.billing_status && (
-                  <div className={`mt-2 pt-2 border-t border-slate-200 text-xs font-medium flex justify-between items-center ${
-                    sub.billing_status === "Paid" ? "text-emerald-600" :
-                    (sub.billing_status === "Overdue" || sub.billing_status === "Unpaid") ? "text-red-600" : "text-amber-600"
-                  }`}>
-                    <span>Payment: {sub.billing_status.toUpperCase()}</span>
-                    {sub.billing_status !== "Paid" && sub.due_at && (
-                      <span>Due: {new Date(sub.due_at).toLocaleDateString()}</span>
-                    )}
-                  </div>
-                )}
+                <p className="text-xs font-bold text-slate-900 truncate mt-0.5 tabular-nums">
+                  Expected: {formatPKR(livePos.expected_drawer_cash || 0)}
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {opStatus.current_drawer?.opened_by
+                    ? `Operator: ${opStatus.current_drawer.opened_by}`
+                    : "Tap to supervise cash"}
+                </p>
               </div>
-            ))}
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-[#009A4D] shrink-0" />
+          </Link>
+
+          {/* Last Daily Closing */}
+          <Link
+            href="/portal/cash?tab=closings"
+            className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50/80 hover:bg-emerald-50/50 border border-slate-200/60 hover:border-emerald-200 transition-colors group"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                  Last Daily Closing
+                </span>
+                <p className="text-xs font-bold text-slate-900 truncate mt-0.5">
+                  {opStatus.last_daily_closing?.business_date
+                    ? `Closed: ${opStatus.last_daily_closing.business_date}`
+                    : "No formal closing locked yet"}
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {opStatus.last_daily_closing?.closed_by
+                    ? `By ${opStatus.last_daily_closing.closed_by}`
+                    : "View daily cash history"}
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-[#009A4D] shrink-0" />
+          </Link>
+
+          {/* Active Terminals & Subscription */}
+          <Link
+            href="/portal/billing"
+            className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50/80 hover:bg-emerald-50/50 border border-slate-200/60 hover:border-emerald-200 transition-colors group"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center shrink-0">
+                <Terminal className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                  POS Terminals
+                </span>
+                <p className="text-xs font-bold text-slate-900 truncate mt-0.5">
+                  {opStatus.active_terminals || 1} Active Counter
+                  {(opStatus.active_terminals || 1) === 1 ? "" : "s"}
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  Plan: {data?.pharmacy?.plan_name || "Standard POS"}
+                </p>
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-[#009A4D] shrink-0" />
+          </Link>
+        </div>
+      </div>
+
+      {error && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {/* Owner Daily Brief (Prompt 2 Section 4) */}
+      {data?.daily_brief && (
+        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-slate-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3.5 border-b border-white/10">
+            <div className="flex items-center gap-2.5">
+              <span className="px-2 py-0.5 rounded-md bg-[#009A4D] text-[10px] font-extrabold uppercase tracking-wider text-white">
+                Owner Daily Brief
+              </span>
+              <span className="text-xs sm:text-sm font-bold text-white">
+                Today: {formatPKR(data.daily_brief.net_sales_today || 0)} across{" "}
+                {data.daily_brief.invoices_today || 0} invoice(s)
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Link
+                href="/portal/alerts"
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-emerald-300 transition-colors"
+              >
+                Alert Center →
+              </Link>
+              <Link
+                href="/portal/inventory"
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                Inventory Intelligence →
+              </Link>
+              <Link
+                href="/portal/reports"
+                className="text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors"
+              >
+                Reports Center →
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-3.5 text-xs">
+            <Link
+              href="/portal/cash"
+              className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 p-2.5 transition-colors"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+                Verified Cash
+              </span>
+              <span className="font-bold text-white text-xs mt-0.5 block truncate">
+                {data.daily_brief.verified_cash_status}
+              </span>
+            </Link>
+            <Link
+              href="/portal/sales?supervision=high_discount"
+              className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 p-2.5 transition-colors"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+                Discounts Today
+              </span>
+              <span className="font-bold text-amber-300 text-xs mt-0.5 block tabular-nums">
+                {formatPKR(data.daily_brief.major_discounts_today || 0)}
+              </span>
+            </Link>
+            <Link
+              href="/portal/khata"
+              className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 p-2.5 transition-colors"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+                Khata Collected (24h)
+              </span>
+              <span className="font-bold text-emerald-300 text-xs mt-0.5 block tabular-nums">
+                {formatPKR(data.daily_brief.credit_collections_today || 0)}
+              </span>
+            </Link>
+            <Link
+              href="/portal/inventory?filter=low_stock"
+              className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 p-2.5 transition-colors"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+                Low / Out of Stock
+              </span>
+              <span className="font-bold text-white text-xs mt-0.5 block">
+                {data.daily_brief.low_stock_issues || 0} item(s)
+              </span>
+            </Link>
+            <Link
+              href="/portal/inventory?filter=expiring_soon"
+              className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 p-2.5 transition-colors"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+                Expiry Watch (60d)
+              </span>
+              <span className="font-bold text-amber-300 text-xs mt-0.5 block">
+                {data.daily_brief.expiry_concerns || 0} batch(es)
+              </span>
+            </Link>
+            <Link
+              href="/portal/purchases"
+              className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 p-2.5 transition-colors"
+            >
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 block">
+                Supplier Cost Increases
+              </span>
+              <span className="font-bold text-rose-300 text-xs mt-0.5 block">
+                {data.daily_brief.supplier_price_increases_count || 0} item(s)
+              </span>
+            </Link>
+          </div>
+
+          {Array.isArray(data.daily_brief.top_three_actions) &&
+            data.daily_brief.top_three_actions.length > 0 && (
+              <div className="mt-3.5 pt-3 border-t border-white/10">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 mb-2">
+                  Top 3 Priority Actions Right Now
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  {data.daily_brief.top_three_actions.map((act: any, i: number) => (
+                    <Link
+                      key={act.id}
+                      href={act.href}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs transition-colors"
+                    >
+                      <div className="min-w-0">
+                        <span className="text-[10px] font-extrabold text-emerald-300 mr-1.5">
+                          #{i + 1}
+                        </span>
+                        <span className="font-semibold text-white truncate">
+                          {act.title}
+                        </span>
+                        <p className="text-[11px] text-slate-300 truncate mt-0.5">
+                          {act.description}
+                        </p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-emerald-300 shrink-0" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+        </div>
+      )}
+
+      {/* Clickable KPI Cards (Progressive Disclosure on Mobile) */}
+      {loading && !data ? (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          {[...Array(5)].map((_, idx) => (
+            <div
+              key={idx}
+              className="h-28 rounded-2xl bg-white border border-slate-200 p-4 animate-pulse"
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* Primary 4 KPIs (Always visible on mobile & desktop) */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* 1. Net Sales */}
+            <Link
+              href={`/portal/sales?period=${period}`}
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-4 shadow-xs hover:shadow-md transition-all group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-500">
+                  {period === "today" ? "Today's Net Sales" : `${PERIOD_LABELS[period]} Sales`}
+                </span>
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#009A4D] flex items-center justify-center group-hover:bg-[#009A4D] group-hover:text-white transition-colors">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums">
+                  {formatPKR(kpis.net_sales ?? 0)}
+                </p>
+                <div className="flex items-center justify-between mt-1 text-[11px] text-slate-500">
+                  <span>Gross: {formatPKR(kpis.gross_sales ?? 0)}</span>
+                  <span className="text-[#009A4D] font-semibold inline-flex items-center gap-0.5">
+                    Inspect <ArrowUpRight className="w-3 h-3" />
+                  </span>
+                </div>
+              </div>
+            </Link>
+
+            {/* 2. Total Invoices & Avg Bill */}
+            <Link
+              href={`/portal/sales?period=${period}`}
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-4 shadow-xs hover:shadow-md transition-all group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-500">Total Invoices</span>
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                  <Receipt className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums">
+                  {(kpis.invoice_count ?? 0).toLocaleString("en-PK")}
+                </p>
+                <div className="flex items-center justify-between mt-1 text-[11px] text-slate-500">
+                  <span>Avg Bill: {formatPKR(kpis.average_bill ?? 0)}</span>
+                  <span className="text-blue-600 font-semibold inline-flex items-center gap-0.5">
+                    Bills <ArrowUpRight className="w-3 h-3" />
+                  </span>
+                </div>
+              </div>
+            </Link>
+
+            {/* 3. Expected Cash in Drawer */}
+            <Link
+              href="/portal/cash"
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-4 shadow-xs hover:shadow-md transition-all group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-500">Expected Drawer Cash</span>
+                <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center group-hover:bg-teal-700 group-hover:text-white transition-colors">
+                  <Wallet className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums">
+                  {formatPKR(livePos.expected_drawer_cash ?? 0)}
+                </p>
+                <div className="flex items-center justify-between mt-1 text-[11px] text-slate-500">
+                  <span>Cash Sales: {formatPKR(kpis.cash_sales ?? 0)}</span>
+                  <span className="text-teal-700 font-semibold inline-flex items-center gap-0.5">
+                    Drawer <ArrowUpRight className="w-3 h-3" />
+                  </span>
+                </div>
+              </div>
+            </Link>
+
+            {/* 4. Customer Outstanding (Khata) */}
+            <Link
+              href="/portal/khata?status=due"
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-4 shadow-xs hover:shadow-md transition-all group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-500">Customer Khata Due</span>
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
+                  <Users className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums">
+                  {formatPKR(livePos.customer_outstanding_total ?? 0)}
+                </p>
+                <div className="flex items-center justify-between mt-1 text-[11px] text-slate-500">
+                  <span>{livePos.customer_outstanding_count ?? 0} active accounts</span>
+                  <span className="text-amber-700 font-semibold inline-flex items-center gap-0.5">
+                    Ledger <ArrowUpRight className="w-3 h-3" />
+                  </span>
+                </div>
+              </div>
+            </Link>
+          </div>
+
+          {/* Mobile Progressive Disclosure Toggle */}
+          <div className="md:hidden">
+            <button
+              onClick={() => setShowAllKpisMobile((v) => !v)}
+              className="w-full py-2 px-3 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700 flex items-center justify-center gap-1.5 shadow-2xs"
+            >
+              {showAllKpisMobile ? (
+                <>
+                  <span>Hide Secondary Financial Metrics</span>
+                  <ChevronUp className="w-3.5 h-3.5" />
+                </>
+              ) : (
+                <>
+                  <span>Show Profit, Credit Sales, Suppliers, Returns & Inventory (6 more)</span>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Secondary 6 KPIs (Visible on md+ or when expanded on mobile) */}
+          <div
+            className={`${
+              showAllKpisMobile ? "grid" : "hidden md:grid"
+            } grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3`}
+          >
+            {/* 5. Gross Profit */}
+            <Link
+              href={`/portal/sales?period=${period}`}
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-3.5 shadow-xs transition-all group"
+            >
+              <span className="text-[11px] font-semibold text-slate-500 block">Gross Profit</span>
+              {kpis.has_reliable_costs ? (
+                <>
+                  <p className="text-base font-extrabold text-emerald-700 mt-1.5 tabular-nums">
+                    {formatPKR(kpis.gross_profit ?? 0)}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {kpis.gross_margin_pct !== null ? `${kpis.gross_margin_pct}% margin` : "COGS verified"}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-bold text-slate-600 mt-1.5">Cost Review Needed</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Some items lack purchase cost</p>
+                </>
+              )}
+            </Link>
+
+            {/* 6. Credit Sales (Period) */}
+            <Link
+              href={`/portal/sales?period=${period}&payment=credit`}
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-3.5 shadow-xs transition-all group"
+            >
+              <span className="text-[11px] font-semibold text-slate-500 block">
+                Credit Sales ({PERIOD_LABELS[period]})
+              </span>
+              <p className="text-base font-extrabold text-slate-900 mt-1.5 tabular-nums">
+                {formatPKR(kpis.credit_sales ?? 0)}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">View credit invoices →</p>
+            </Link>
+
+            {/* 7. Supplier Verified Payable */}
+            <Link
+              href="/portal/purchases?tab=suppliers"
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-3.5 shadow-xs transition-all group"
+            >
+              <span className="text-[11px] font-semibold text-slate-500 block">
+                Supplier Payable
+              </span>
+              <p className="text-base font-extrabold text-slate-900 mt-1.5 tabular-nums">
+                {formatPKR(livePos.supplier_verified_payable_total ?? 0)}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                {livePos.unverified_historical_suppliers_count > 0
+                  ? `${livePos.unverified_historical_suppliers_count} legacy excluded`
+                  : `${livePos.supplier_payable_count ?? 0} verified suppliers`}
+              </p>
+            </Link>
+
+            {/* 8. Returns & Refunds */}
+            <Link
+              href={`/portal/returns?period=${period}`}
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-3.5 shadow-xs transition-all group"
+            >
+              <span className="text-[11px] font-semibold text-slate-500 block">
+                Sales Returns
+              </span>
+              <p className="text-base font-extrabold text-red-600 mt-1.5 tabular-nums">
+                {formatPKR(kpis.sales_returns ?? 0)}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {kpis.return_count ?? 0} return record{(kpis.return_count ?? 0) === 1 ? "" : "s"} →
+              </p>
+            </Link>
+
+            {/* 9. Purchases (GRNs) */}
+            <Link
+              href={`/portal/purchases?period=${period}`}
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-3.5 shadow-xs transition-all group"
+            >
+              <span className="text-[11px] font-semibold text-slate-500 block">
+                Stock Purchased
+              </span>
+              <p className="text-base font-extrabold text-slate-900 mt-1.5 tabular-nums">
+                {formatPKR(kpis.purchases ?? 0)}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">
+                {kpis.purchase_count ?? 0} GRN{(kpis.purchase_count ?? 0) === 1 ? "" : "s"} received →
+              </p>
+            </Link>
+
+            {/* 10. Inventory Value */}
+            <a
+              href="#inventory-alerts"
+              className="bg-white rounded-2xl border border-slate-200/90 hover:border-[#009A4D] p-3.5 shadow-xs transition-all group"
+            >
+              <span className="text-[11px] font-semibold text-slate-500 block">
+                Inventory Value
+              </span>
+              <p className="text-base font-extrabold text-slate-900 mt-1.5 tabular-nums">
+                {formatPKR(livePos.inventory?.stock_value ?? 0)}
+              </p>
+              <p className="text-[11px] text-amber-700 font-medium mt-0.5 truncate">
+                {(livePos.inventory?.low_stock_count ?? 0) +
+                  (livePos.inventory?.out_of_stock_count ?? 0)}{" "}
+                low/out · {livePos.inventory?.expiring_soon_count ?? 0} exp
+              </p>
+            </a>
           </div>
         </div>
       )}
 
-      {/* ── FINANCIAL KPIs ── */}
-      <section id="sales">
-        <SectionHeader title="Financial Summary" description={`Performance for ${period === 'today' ? 'today' : `the last ${period === '7d' ? '7' : '30'} days`}`} />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {loading ? (
-            Array(4).fill(0).map((_, i) => <SkeletonCard key={i} />)
-          ) : summary ? (
-            <>
-              <KpiCard title="Gross Sales" value={pkr(summary.gross_sales)} icon={Banknote} color="blue" />
-              <KpiCard title="Net Sales" value={pkr(summary.net_sales)} icon={TrendingUp} color="emerald" />
-              <KpiCard title="Gross Profit" value={pkr(summary.gross_profit)} icon={TrendingUp} color="violet" />
-              <KpiCard title="Net Profit" value={pkr(summary.net_profit)} icon={summary.net_profit >= 0 ? TrendingUp : TrendingDown} color={summary.net_profit >= 0 ? "emerald" : "red"} />
-            </>
+      {/* Action-Required Section (Part C) */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-[#009A4D]" />
+            <h2 className="text-sm font-bold text-slate-900">Action Required & Supervision</h2>
+            {actionRequired.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                {actionRequired.length}
+              </span>
+            )}
+          </div>
+          <span className="text-[11px] text-slate-400 hidden sm:inline">
+            Click any alert to open source records
+          </span>
+        </div>
+
+        {actionRequired.length === 0 ? (
+          <div className="p-6 text-center flex flex-col items-center gap-1.5">
+            <CheckCircle2 className="w-7 h-7 text-emerald-500" />
+            <p className="text-xs font-bold text-slate-800">
+              All Supervised Controls Look Healthy
+            </p>
+            <p className="text-xs text-slate-500 max-w-md">
+              No cash drawer discrepancies, unusual discounts, or critical credit/stock anomalies
+              detected for {PERIOD_LABELS[period]}.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {actionRequired.map((item) => {
+              const badgeStyle =
+                item.severity === "critical"
+                  ? "bg-red-50 text-red-700 border-red-200"
+                  : item.severity === "warning"
+                  ? "bg-amber-50 text-amber-800 border-amber-200"
+                  : "bg-slate-100 text-slate-700 border-slate-200";
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  className="px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 hover:bg-slate-50/90 transition-colors group"
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div
+                      className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                        item.severity === "critical"
+                          ? "bg-red-500"
+                          : item.severity === "warning"
+                          ? "bg-amber-500"
+                          : "bg-emerald-500"
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {item.category}
+                        </span>
+                        <p className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-[#009A4D] transition-colors">
+                          {item.title}
+                        </p>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
+                        {item.description}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${badgeStyle}`}
+                    >
+                      {item.badge}
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-[#009A4D]" />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Two-Column Grid: Recent Invoices (Clickable) & Top Selling Products */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Recent Invoices */}
+        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden flex flex-col">
+          <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">Recent Counter Invoices</h2>
+              <p className="text-[11px] text-slate-500">
+                Tap any invoice to inspect line items, cashier, or print PDF
+              </p>
+            </div>
+            <Link
+              href="/portal/sales"
+              className="text-xs font-bold text-[#009A4D] hover:underline inline-flex items-center gap-1"
+            >
+              <span>View All</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {recentSales.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-500">
+              No synced sales invoices found yet.
+            </div>
           ) : (
-            <div className="col-span-4 bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center text-slate-500">
-              No financial data available for this period.
+            <div className="divide-y divide-slate-100">
+              {recentSales.map((inv) => (
+                <button
+                  key={inv.event_id || inv.id}
+                  onClick={() => setSelectedInvoiceId(inv.id || inv.invoice_number)}
+                  className="w-full text-left px-4 sm:px-5 py-3 flex items-center justify-between gap-3 hover:bg-emerald-50/40 transition-colors group"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900 group-hover:text-[#009A4D] font-mono">
+                        #{inv.invoice_number}
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          inv.payment_method === "credit"
+                            ? "bg-amber-50 text-amber-800 border border-amber-200"
+                            : inv.payment_method === "card"
+                            ? "bg-blue-50 text-blue-700 border border-blue-200"
+                            : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        }`}
+                      >
+                        {inv.payment_method}
+                      </span>
+                      {inv.discount > 0 && (
+                        <span className="text-[10px] text-amber-700 font-medium">
+                          Disc: {formatPKR(inv.discount)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5 truncate">
+                      {inv.customer_name} · {inv.cashier} ·{" "}
+                      {formatDateTime(inv.occurred_at, data?.timezone)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <div className="text-right">
+                      <p className="text-xs sm:text-sm font-bold text-slate-900 tabular-nums">
+                        {formatPKR(inv.net_sales)}
+                      </p>
+                      {inv.items_count > 0 && (
+                        <p className="text-[10px] text-slate-400">
+                          {inv.items_count} item{inv.items_count === 1 ? "" : "s"}
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-[#009A4D]" />
+                  </div>
+                </button>
+              ))}
             </div>
           )}
         </div>
-        
-        {/* Secondary KPIs */}
-        {!loading && summary && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
-             <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between">
-               <span className="text-sm text-slate-500 flex items-center gap-2"><CreditCard className="w-4 h-4 text-slate-400"/> Expenses</span>
-               <span className="font-semibold text-slate-900">{pkr(summary.expenses)}</span>
-             </div>
-             <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between">
-               <span className="text-sm text-slate-500 flex items-center gap-2"><ShoppingCart className="w-4 h-4 text-slate-400"/> Purchases</span>
-               <span className="font-semibold text-slate-900">{pkr(summary.purchases)}</span>
-             </div>
-             <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between">
-               <span className="text-sm text-slate-500 flex items-center gap-2"><ArrowRight className="w-4 h-4 text-red-400"/> Returns</span>
-               <span className="font-semibold text-red-600">{pkr(summary.sales_returns)}</span>
-             </div>
-             <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-center justify-between">
-               <span className="text-sm text-slate-500 flex items-center gap-2"><Package className="w-4 h-4 text-amber-500"/> COGS</span>
-               <span className="font-semibold text-amber-600">{pkr(summary.net_cogs)}</span>
-             </div>
-          </div>
-        )}
-      </section>
 
-      {/* ── CHARTS & INVENTORY ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* TRENDS CHART */}
-        <section className="lg:col-span-2">
-          <SectionHeader title="Sales & Profit Trend" />
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-[340px]">
-            {loading ? (
-              <div className="w-full h-full animate-pulse bg-slate-50 rounded-xl" />
-            ) : trends.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trends} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#64748b" }} tickLine={false} axisLine={false} dy={10} />
-                  <YAxis tickFormatter={(v) => fmt(v)} tick={{ fontSize: 12, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
-                    labelStyle={{ color: "#64748b", fontWeight: 500, marginBottom: 4 }}
-                    formatter={(v: any) => [`Rs. ${Number(v).toLocaleString()}`, ""]}
-                  />
-                  <Area type="monotone" dataKey="net_sales" name="Net Sales" stroke="#10b981" fill="url(#colorSales)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: "#fff" }} activeDot={{ r: 6, strokeWidth: 0, fill: "#10b981" }} />
-                  <Area type="monotone" dataKey="gross_profit" name="Gross Profit" stroke="#8b5cf6" fill="url(#colorProfit)" strokeWidth={3} dot={false} activeDot={{ r: 6, strokeWidth: 0, fill: "#8b5cf6" }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                <LineChart className="w-8 h-8 text-slate-300 mb-2" />
-                <p>No trend data available.</p>
+        {/* Top Products & Inventory Alerts */}
+        <div className="lg:col-span-5 space-y-5">
+          {/* Top Selling Medicines */}
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-bold text-slate-900">
+                  Top Products ({PERIOD_LABELS[period]})
+                </h2>
+                <p className="text-[11px] text-slate-500">Ranked by net revenue</p>
               </div>
-            )}
-          </div>
-        </section>
-
-        {/* INVENTORY HEALTH */}
-        <section id="inventory">
-          <SectionHeader title="Inventory Health" />
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm h-[340px] flex flex-col">
-            {loading ? (
-              <div className="flex-1 space-y-4">
-                {Array(4).fill(0).map((_, i) => <div key={i} className="h-14 bg-slate-50 rounded-xl animate-pulse" />)}
-              </div>
-            ) : inventory ? (
-              <div className="flex-1 flex flex-col justify-between">
-                <div className="bg-emerald-50 rounded-xl p-5 border border-emerald-100 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-emerald-800">Total Stock Value</p>
-                    <p className="text-2xl font-bold text-emerald-700 mt-1">{pkr(inventory.stock_value)}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600">
-                    <Package className="w-6 h-6" />
-                  </div>
-                </div>
-
-                <div className="space-y-3 mt-4">
-                  <div className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-slate-50">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-amber-500" />
-                      <span className="text-sm font-medium text-slate-700">Low Stock</span>
-                    </div>
-                    <span className="font-bold text-slate-900">{inventory.low_stock_count}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg border border-red-100 bg-red-50">
-                    <div className="flex items-center gap-3">
-                      <AlertTriangle className="w-4 h-4 text-red-500" />
-                      <span className="text-sm font-medium text-red-800">Out of Stock</span>
-                    </div>
-                    <span className="font-bold text-red-700">{inventory.out_of_stock_count}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-slate-50">
-                    <div className="flex items-center gap-3">
-                      <div className="w-2 h-2 rounded-full bg-blue-500" />
-                      <span className="text-sm font-medium text-slate-700">Expiring Soon</span>
-                    </div>
-                    <span className="font-bold text-slate-900">{inventory.expiring_soon_count}</span>
-                  </div>
-                </div>
+              <Link
+                href={`/portal/sales?period=${period}`}
+                className="text-xs font-bold text-[#009A4D] hover:underline"
+              >
+                Explore Sales
+              </Link>
+            </div>
+            {topProducts.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-500">
+                No product sales recorded in {PERIOD_LABELS[period]}.
               </div>
             ) : (
-              <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center px-4">
-                <Package className="w-8 h-8 text-slate-300 mb-2" />
-                <p>No inventory snapshot available.</p>
-                <p className="text-xs mt-1 text-slate-400">Snapshot will appear after POS syncs.</p>
-              </div>
-            )}
-          </div>
-        </section>
-
-      </div>
-
-      {/* ── TABLES ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-        
-        {/* TOP PRODUCTS */}
-        <section>
-          <SectionHeader title="Top Selling Products" description="By quantity sold in this period." />
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-[400px]">
-            <div className="flex-1 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
-                    <th className="text-left px-5 py-3 font-medium">Product Name</th>
-                    <th className="text-right px-5 py-3 font-medium">Qty</th>
-                    <th className="text-right px-5 py-3 font-medium">Revenue</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    Array(5).fill(0).map((_, i) => (
-                      <tr key={i} className="border-b border-slate-100">
-                        <td className="px-5 py-4"><div className="w-32 h-4 bg-slate-100 rounded animate-pulse" /></td>
-                        <td className="px-5 py-4"><div className="w-8 h-4 bg-slate-100 rounded animate-pulse ml-auto" /></td>
-                        <td className="px-5 py-4"><div className="w-16 h-4 bg-slate-100 rounded animate-pulse ml-auto" /></td>
-                      </tr>
-                    ))
-                  ) : paginatedTopQty.length > 0 ? (
-                    paginatedTopQty.map((p, i) => (
-                      <tr key={p.product_id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="px-5 py-3 font-medium text-slate-900">
-                          <span className="text-slate-400 font-normal mr-2">{(topProductsPage - 1) * PAGE_SIZE + i + 1}.</span>
+              <div className="divide-y divide-slate-100">
+                {topProducts.map((p, idx) => (
+                  <Link
+                    key={p.product_id || idx}
+                    href={`/portal/sales?period=${period}&q=${encodeURIComponent(p.product_name)}`}
+                    className="px-4 sm:px-5 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-5 h-5 rounded-full bg-emerald-50 text-[#009A4D] text-[11px] font-bold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-900 truncate">
                           {p.product_name}
-                        </td>
-                        <td className="px-5 py-3 text-right font-medium text-slate-700">{p.qty}</td>
-                        <td className="px-5 py-3 text-right text-emerald-600 font-semibold">{pkr(p.revenue)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={3} className="px-5 py-8 text-center text-slate-500">
-                        No product sales data available.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {topQty.length > PAGE_SIZE && (
-              <div className="border-t border-slate-200 p-3 flex items-center justify-between bg-slate-50 text-sm">
-                <span className="text-slate-500 px-2">Showing {(topProductsPage - 1) * PAGE_SIZE + 1} - {Math.min(topProductsPage * PAGE_SIZE, topQty.length)} of {topQty.length}</span>
-                <div className="flex gap-1">
-                  <button onClick={() => setTopProductsPage(p => Math.max(1, p - 1))} disabled={topProductsPage === 1} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-50 hover:bg-slate-100"><ChevronLeft className="w-4 h-4"/></button>
-                  <button onClick={() => setTopProductsPage(p => p * PAGE_SIZE < topQty.length ? p + 1 : p)} disabled={topProductsPage * PAGE_SIZE >= topQty.length} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-50 hover:bg-slate-100"><ChevronRight className="w-4 h-4"/></button>
-                </div>
+                        </p>
+                        <p className="text-[11px] text-slate-500">Qty sold: {p.qty}</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-xs font-bold text-slate-900 tabular-nums">
+                        {formatPKR(p.revenue)}
+                      </p>
+                      {p.gross_profit > 0 && (
+                        <p className="text-[10px] text-emerald-600 tabular-nums">
+                          GP: {formatPKR(p.gross_profit)}
+                        </p>
+                      )}
+                    </div>
+                  </Link>
+                ))}
               </div>
             )}
           </div>
-        </section>
 
-        {/* RECENT SALES */}
-        <section>
-          <SectionHeader title="Recent Sales" description="Latest synchronized POS transactions." />
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden flex flex-col min-h-[400px]">
-            <div className="flex-1 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500">
-                    <th className="text-left px-5 py-3 font-medium">Invoice</th>
-                    <th className="text-left px-5 py-3 font-medium">Time</th>
-                    <th className="text-left px-5 py-3 font-medium hidden sm:table-cell">Customer</th>
-                    <th className="text-right px-5 py-3 font-medium">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    Array(5).fill(0).map((_, i) => (
-                      <tr key={i} className="border-b border-slate-100">
-                        <td className="px-5 py-4"><div className="w-16 h-4 bg-slate-100 rounded animate-pulse" /></td>
-                        <td className="px-5 py-4"><div className="w-20 h-4 bg-slate-100 rounded animate-pulse" /></td>
-                        <td className="px-5 py-4 hidden sm:table-cell"><div className="w-24 h-4 bg-slate-100 rounded animate-pulse" /></td>
-                        <td className="px-5 py-4"><div className="w-16 h-4 bg-slate-100 rounded animate-pulse ml-auto" /></td>
-                      </tr>
-                    ))
-                  ) : paginatedSales.length > 0 ? (
-                    paginatedSales.map((s, i) => (
-                      <tr key={i} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                        <td className="px-5 py-3 font-mono text-xs text-slate-600 bg-slate-50/50">{s.invoice_number ?? "—"}</td>
-                        <td className="px-5 py-3 text-slate-600">
-                          {new Date(s.occurred_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}
-                        </td>
-                        <td className="px-5 py-3 text-slate-900 font-medium hidden sm:table-cell">{s.customer_name ?? "Walk-in"}</td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="font-semibold text-emerald-600">{pkr(s.net_sales ?? 0)}</div>
-                          <div className={`text-[10px] uppercase font-bold mt-0.5 ${s.payment_method === "cash" ? "text-emerald-500" : "text-blue-500"}`}>
-                            {s.payment_method ?? "—"}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={4} className="px-5 py-8 text-center text-slate-500">
-                        No recent sales found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+          {/* Inventory Expiry & Low Stock Watchlist */}
+          <div
+            id="inventory-alerts"
+            className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden"
+          >
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-600" />
+                <h2 className="text-sm font-bold text-slate-900">Stock & Expiry Watchlist</h2>
+              </div>
+              <Link
+                href="/portal/purchases"
+                className="text-xs font-bold text-[#009A4D] hover:underline"
+              >
+                Purchases →
+              </Link>
             </div>
-            {recentSales.length > PAGE_SIZE && (
-              <div className="border-t border-slate-200 p-3 flex items-center justify-between bg-slate-50 text-sm">
-                <span className="text-slate-500 px-2">Showing {(recentSalesPage - 1) * PAGE_SIZE + 1} - {Math.min(recentSalesPage * PAGE_SIZE, recentSales.length)} of {recentSales.length}</span>
-                <div className="flex gap-1">
-                  <button onClick={() => setRecentSalesPage(p => Math.max(1, p - 1))} disabled={recentSalesPage === 1} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-50 hover:bg-slate-100"><ChevronLeft className="w-4 h-4"/></button>
-                  <button onClick={() => setRecentSalesPage(p => p * PAGE_SIZE < recentSales.length ? p + 1 : p)} disabled={recentSalesPage * PAGE_SIZE >= recentSales.length} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 disabled:opacity-50 hover:bg-slate-100"><ChevronRight className="w-4 h-4"/></button>
+
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
+                  <p className="text-[10px] font-semibold uppercase text-slate-500">Low Stock</p>
+                  <p className="text-base font-extrabold text-amber-700 mt-0.5 tabular-nums">
+                    {livePos.inventory?.low_stock_count ?? 0}
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
+                  <p className="text-[10px] font-semibold uppercase text-slate-500">Out of Stock</p>
+                  <p className="text-base font-extrabold text-red-600 mt-0.5 tabular-nums">
+                    {livePos.inventory?.out_of_stock_count ?? 0}
+                  </p>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/70">
+                  <p className="text-[10px] font-semibold uppercase text-slate-500">
+                    Expiring ≤60d
+                  </p>
+                  <p className="text-base font-extrabold text-orange-600 mt-0.5 tabular-nums">
+                    {livePos.inventory?.expiring_soon_count ?? 0}
+                  </p>
                 </div>
               </div>
-            )}
-          </div>
-        </section>
 
+              {invAlerts.expiring_items?.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Near-Expiry Batches
+                  </p>
+                  {invAlerts.expiring_items.slice(0, 4).map((b: any, i: number) => (
+                    <div
+                      key={`${b.product_id}-${b.batch_no}-${i}`}
+                      className="flex items-center justify-between text-xs py-1.5 px-2.5 rounded-lg bg-amber-50/50 border border-amber-200/60"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{b.name}</p>
+                        <p className="text-[10px] text-slate-500">
+                          Batch {b.batch_no || "N/A"} · Exp: {b.expiry} · Qty: {b.qty}
+                        </p>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                          b.days_left <= 0
+                            ? "bg-red-100 text-red-700"
+                            : "bg-amber-100 text-amber-800"
+                        }`}
+                      >
+                        {b.days_left <= 0 ? "Expired" : `${b.days_left}d left`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {invAlerts.low_stock_items?.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Critical Reorder Items
+                  </p>
+                  {invAlerts.low_stock_items.slice(0, 4).map((item: any, i: number) => (
+                    <div
+                      key={`${item.product_id}-${i}`}
+                      className="flex items-center justify-between text-xs py-1.5 px-2.5 rounded-lg bg-slate-50 border border-slate-200/70"
+                    >
+                      <span className="font-semibold text-slate-800 truncate">{item.name}</span>
+                      <span className="text-[11px] font-bold text-red-600 shrink-0 tabular-nums">
+                        Stock: {item.current_stock} (Min {item.reorder_level})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* Clickable Invoice Detail Drawer */}
+      <InvoiceDetailDrawer
+        invoiceId={selectedInvoiceId}
+        onClose={() => setSelectedInvoiceId(null)}
+      />
     </div>
   );
 }

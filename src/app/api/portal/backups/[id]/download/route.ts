@@ -49,6 +49,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // 15 Minutes TTL
     const downloadUrl = await getSignedUrl(s3, command, { expiresIn: 900 });
 
+    // Protect this backup from retention deletion while cloud restore / download is active (1 hour lock)
+    await CloudBackup.updateOne(
+      { id: backup.id },
+      { $set: { restore_active_until: new Date(Date.now() + 60 * 60_000) } }
+    ).catch(() => {});
+
     return NextResponse.json({
       ok: true,
       download_url: downloadUrl

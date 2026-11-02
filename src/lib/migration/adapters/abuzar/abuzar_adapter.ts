@@ -763,6 +763,49 @@ export function parseAbuzarMtfBackup(filePath: string): ParsedAbuzarDatabase | n
   }
 }
 
+/**
+ * Recovers (key → name) pairs from LIVE leaf rows of a unique non-clustered index on a
+ * varchar Name column (SQL Server 2000 layout: status | clustered key | varCount | varEnd | name).
+ * Used when a lookup table's heap pages were lost to truncation but its name index survived
+ * (e.g. ItemCategory.ICATNameUC). Ghost (deleted) index records are ignored.
+ */
+export function recoverNamesFromIndexLeaf(filePath: string, objId: number, indId: number, keyBytes: 2 | 4): Map<number, string> {
+  const out = new Map<number, string>();
+  if (!objId || !fs.existsSync(filePath)) return out;
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const stat = fs.statSync(filePath);
+    const mdfStart = findMdfPageStreamOffset(fd, stat.size);
+    if (mdfStart === null) return out;
+    const maxPages = Math.min(18432, Math.floor((stat.size - mdfStart) / 8192));
+    const raw = Buffer.alloc(8192);
+    for (let i = 0; i < maxPages; i++) {
+      if (fs.readSync(fd, raw, 0, 8192, mdfStart + i * 8192) < 8192) break;
+      if (raw[0] !== 1 || raw[1] !== 2 || raw.readUInt16LE(36) !== 1) continue;
+      if (raw.readInt32LE(24) !== objId || raw.readUInt16LE(6) !== indId || raw[38] !== 0) continue;
+      const page = untornPage(raw);
+      const slotCnt = page.readUInt16LE(22);
+      for (let s = 0; s < slotCnt; s++) {
+        const off = page.readUInt16LE(8192 - 2 * (s + 1));
+        if (off < 96 || off > 8000) continue;
+        const status = page[off];
+        if (((status >> 1) & 7) !== 3 || (status & 0x20) === 0) continue; // live index record with var columns
+        const key = keyBytes === 2 ? page.readInt16LE(off + 1) : page.readInt32LE(off + 1);
+        const p = off + 1 + keyBytes;
+        if (page.readUInt16LE(p) !== 1) continue;
+        const end = page.readUInt16LE(p + 2) & 0x7fff;
+        const start = p + 4 - off;
+        if (end <= start || off + end > 8192) continue;
+        const name = page.subarray(off + start, off + end).toString("latin1").trim();
+        if (name && /^[\x20-\x7e]+$/.test(name)) out.set(key, name);
+      }
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+  return out;
+}
+
 // ── Helper Functions ──────────────────────────────────────────────────────
 
 function inferBaseUnitFromName(name: string): string {
@@ -1069,16 +1112,30 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
       if (code && name) genericMap.set(code, name);
     }
 
+    // ItemClass holds owner/partner names (not a product category); kept only as legacy metadata.
     const classMap = new Map<number, string>();
-    const categories: { id: string | number; name: string }[] = [];
     for (const r of tbl("ItemClass")) {
       const code = Number(r.ICCode);
       const name = cleanLegacyString(r.Name);
-      if (code && name) {
-        classMap.set(code, name);
-        categories.push({ id: code, name });
+      if (code && name) classMap.set(code, name);
+    }
+
+    // Real product category = Item.ICatCode → ItemCategory. Heap pages of ItemCategory were lost to
+    // the backup truncation, but its unique name index (ICATNameUC, indid 2) survived: recover from it.
+    const categoryMap = new Map<number, string>();
+    for (const r of tbl("ItemCategory")) {
+      const code = Number(r.ICatCode);
+      const name = cleanLegacyString(r.Name);
+      if (code && name) categoryMap.set(code, name);
+    }
+    const itemCategoryObjId = Number(parsed.tables["ItemCategory"]?.objId);
+    if (itemCategoryObjId) {
+      for (const [code, name] of recoverNamesFromIndexLeaf(filePath, itemCategoryObjId, 2, 2)) {
+        if (!categoryMap.has(code)) categoryMap.set(code, name);
       }
     }
+    const titleCase = (s: string) => s.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+    const categories: { id: string | number; name: string }[] = Array.from(categoryMap.entries()).map(([id, name]) => ({ id, name: titleCase(name) }));
 
     // Operators / Users
     const operators: CanonicalRecord<CanonicalEmployee>[] = [];
@@ -1323,6 +1380,10 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
     const placeholderGenericCodes = new Set<number>(
       Array.from(genericUsage.entries()).filter(([, n]) => n > itemByCode.size * 0.25).map(([g]) => g)
     );
+    // Generic rows that are explicit non-molecule groupings ("DEFAULT ITEM", "HOMEO", ...)
+    for (const [code, name] of genericMap) {
+      if (/^(DEFAULT\b|HOMEO$|HOMOEO|GENERAL\b|N\/?A$|NONE$|OTHERS?$|MISC)/i.test(name.trim())) placeholderGenericCodes.add(code);
+    }
     const purCategoryName = new Map<number, string>();
     for (const pc of tbl("PurCategory")) purCategoryName.set(Number(pc.PurCatCode), cleanLegacyString(pc.Name));
 
@@ -1507,10 +1568,12 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
           ? [{ name: "Pack", multiplier: packUnits, price: priceKnown ? round2(packSalePrice!) : undefined, barcode }]
           : [];
       // GenericCode used as a default by a large share of items (e.g. code 1 on 43% incl. bandages) is a placeholder, not data.
-      const genericName = placeholderGenericCodes.has(Number(raw.GenericCode)) ? undefined : genericMap.get(Number(raw.GenericCode));
+      const legacyGenericCode = num(raw.GenericCode);
+      const legacyGenericName = genericMap.get(Number(raw.GenericCode));
+      const genericName = placeholderGenericCodes.has(Number(raw.GenericCode)) ? undefined : legacyGenericName;
       const manufacturerName = manfMap.get(Number(raw.ManfCode));
-      // ItemClass holds owner/partner names (all items = ICCode 1) and ItemCategory is empty → no source category.
-      const categoryName: string | undefined = undefined;
+      const legacyCategoryName = categoryMap.get(Number(raw.ICatCode));
+      const categoryName: string | undefined = legacyCategoryName ? titleCase(legacyCategoryName) : undefined;
       const legacyItemClass = classMap.get(Number(raw.ICCode));
       const location = cleanLegacyString(raw.Location) || undefined;
       const isControlled =
@@ -1557,6 +1620,10 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
         recoveredFrom: synthesized ? "TRANSACTIONS" : fromItemLog ? "ItemLog" : "Item",
         legacyItemClass,
         legacyCategoryCode: num(raw.ICatCode),
+        legacyCategoryName,
+        legacyGenericCode,
+        legacyGenericName,
+        genericStatus: genericName ? "verified" : legacyGenericName ? "placeholder_in_source" : legacyGenericCode ? "code_not_recoverable" : "not_in_source",
       };
 
       products.push({
@@ -1983,6 +2050,8 @@ export class AbuzarMigrationAdapter implements MigrationSourceAdapter {
           paidAmountKnown: paid !== undefined,
           legacyOutstandingAmount: num(pl.OutstandingAmt),
           paymentCategory,
+          // Payment proven only for cash-category purchases; credit settlements (vouchers) are not in the backup.
+          legacyPaymentStatus: isCashPurchase ? "paid" : "unknown",
           balance: num(pl.OutstandingAmt) ?? 0,
           reconciled,
           lines,

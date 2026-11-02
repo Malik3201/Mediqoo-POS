@@ -1,278 +1,352 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import React, { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   LayoutDashboard,
+  Receipt,
+  ShoppingBag,
+  Users,
+  Wallet,
+  RotateCcw,
+  CloudUpload,
+  CreditCard,
+  LogOut,
   Menu,
   X,
-  LogOut,
-  User,
-  ChevronDown,
-  CreditCard,
-  Database,
-  Smartphone
+  ChevronLeft,
+  ChevronRight,
+  Building2,
+  MoreHorizontal,
+  PackageSearch,
+  BellRing,
+  BarChart3,
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-interface PortalUser {
-  id: string;
-  name: string;
+interface PortalMe {
+  user_id: string;
+  client_id: string;
+  client_name: string;
   email: string;
   role: string;
-  client_id: string;
-  client?: {
-    name: string;
-    contact_name?: string;
-    contact_email?: string;
-    contact_phone?: string;
-    address?: string;
-    timezone?: string;
-    has_cloud_backup?: boolean;
-  } | null;
 }
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/portal/dashboard", icon: LayoutDashboard },
-  { label: "Billing", href: "/portal/billing", icon: CreditCard },
-  { label: "Backup & Recovery", href: "/portal/backups", icon: Database },
+const PRIMARY_NAV = [
+  { href: "/portal/dashboard", label: "Overview", shortLabel: "Overview", icon: LayoutDashboard },
+  { href: "/portal/sales", label: "Sales & Invoices", shortLabel: "Sales", icon: Receipt },
+  { href: "/portal/purchases", label: "Purchases & Suppliers", shortLabel: "Purchases", icon: ShoppingBag },
+  { href: "/portal/khata", label: "Customers & Khata", shortLabel: "Khata", icon: Users },
+  { href: "/portal/inventory", label: "Inventory Intelligence", shortLabel: "Inventory", icon: PackageSearch },
+  { href: "/portal/alerts", label: "Owner Alerts", shortLabel: "Alerts", icon: BellRing },
+  { href: "/portal/reports", label: "Reports Center", shortLabel: "Reports", icon: BarChart3 },
+  { href: "/portal/cash", label: "Cash & Closing", shortLabel: "Cash", icon: Wallet },
+  { href: "/portal/returns", label: "Returns", shortLabel: "Returns", icon: RotateCcw },
+];
+
+const SECONDARY_NAV = [
+  { href: "/portal/backups", label: "Cloud Backups", shortLabel: "Backups", icon: CloudUpload },
+  { href: "/portal/billing", label: "Subscription & Plan", shortLabel: "Billing", icon: CreditCard },
 ];
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const pathname = usePathname();
-  
-  const [user, setUser] = useState<PortalUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const router = useRouter();
+  const [me, setMe] = useState<PortalMe | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+
+  const isPublicPage =
+    pathname === "/portal/login" ||
+    pathname === "/portal/forgot-password" ||
+    pathname === "/portal/reset-password";
 
   useEffect(() => {
-    if (pathname === "/portal/login" || pathname.startsWith("/portal/accept-invite")) {
-      setLoading(false);
+    setMobileMoreOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (isPublicPage) {
+      setChecking(false);
       return;
     }
 
     fetch("/api/portal/auth/me")
-      .then((r) => {
-        if (!r.ok) {
+      .then((res) => {
+        if (!res.ok) {
           router.replace("/portal/login");
           return null;
         }
-        return r.json();
+        return res.json();
       })
       .then((data) => {
-        if (data?.user) setUser(data.user);
+        if (data) setMe(data);
       })
       .catch(() => router.replace("/portal/login"))
-      .finally(() => setLoading(false));
-  }, [router, pathname]);
+      .finally(() => setChecking(false));
+  }, [pathname, isPublicPage, router]);
 
-  const logout = async () => {
+  async function handleLogout() {
     await fetch("/api/portal/auth/logout", { method: "POST" });
     router.replace("/portal/login");
-  };
+  }
 
-  if (loading) {
+  if (isPublicPage) {
+    return <>{children}</>;
+  }
+
+  if (checking) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full" />
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-9 h-9 border-2 border-[#009A4D] border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs font-medium text-slate-500">Loading AivraSol Owner Portal…</span>
+        </div>
       </div>
     );
   }
 
-  // Render original for public pages
-  if (pathname === "/portal/login" || pathname.startsWith("/portal/accept-invite")) {
-    return <div className="min-h-screen bg-slate-50">{children}</div>;
-  }
+  const isRouteActive = (href: string) =>
+    pathname === href || (href !== "/portal/dashboard" && pathname?.startsWith(href));
 
-  const getInitials = (name: string) => {
-    return name.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2);
-  };
+  // Mobile bottom tabs: first 4 primary + "More" sheet trigger
+  const mobileBottomTabs = PRIMARY_NAV.slice(0, 4);
+  const isMoreActive =
+    isRouteActive("/portal/inventory") ||
+    isRouteActive("/portal/alerts") ||
+    isRouteActive("/portal/reports") ||
+    isRouteActive("/portal/cash") ||
+    isRouteActive("/portal/returns") ||
+    isRouteActive("/portal/backups") ||
+    isRouteActive("/portal/billing");
 
   return (
-    <div className="min-h-screen flex bg-slate-50 text-slate-900 font-sans">
-      {/* ─── DESKTOP SIDEBAR ─── */}
-      <aside className="hidden lg:flex flex-col w-64 fixed inset-y-0 bg-white border-r border-slate-200 z-30">
-        <div className="h-20 flex items-center px-6 border-b border-slate-100 gap-3">
-          <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol" className="h-11 w-auto object-contain" />
-          <div className="flex flex-col justify-center border-l-2 border-slate-200 pl-3">
-            <span className="font-bold text-slate-800 text-sm leading-none tracking-tight">Pharmacy</span>
-            <span className="font-bold text-emerald-600 text-sm leading-none tracking-tight mt-0.5">POS</span>
-          </div>
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col">
+      {/* Compact Top Bar */}
+      <header className="sticky top-0 z-30 h-14 bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-4 lg:px-6 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <Link href="/portal/dashboard" className="flex items-center gap-2.5 shrink-0">
+            <img
+              src="/logo-owner-portal.png"
+              alt="AivraSol"
+              className="h-8 w-auto object-contain"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).src = "/logo-pharmacy-pos.png";
+              }}
+            />
+          </Link>
+          <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+          {me && (
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-[#009A4D] shrink-0">
+                <Building2 className="w-3.5 h-3.5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                  {me.client_name}
+                </p>
+                <p className="text-[10px] text-slate-500 truncate hidden sm:block">{me.email}</p>
+              </div>
+            </div>
+          )}
         </div>
 
-        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || (item.href !== "/portal/dashboard" && pathname.startsWith(item.href));
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive 
-                    ? "bg-emerald-50 text-emerald-700" 
-                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                }`}
-              >
-                <Icon className={`w-5 h-5 ${isActive ? "text-emerald-600" : "text-slate-400"}`} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="p-4 border-t border-slate-100 space-y-2">
-          <a
-            href="/api/public/download-owner-app"
-            download="aivrasolpos_owner_portal.apk"
-            className="flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/portal/billing"
+            className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              isRouteActive("/portal/billing")
+                ? "bg-emerald-50 text-[#009A4D] border-emerald-200"
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+            }`}
           >
-            <span className="flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-emerald-600" />
-              Owner Portal App
-            </span>
-            <span className="text-[10px] font-bold bg-emerald-200/60 text-emerald-800 px-1.5 py-0.5 rounded">APK</span>
-          </a>
+            <CreditCard className="w-3.5 h-3.5" />
+            <span>Subscription</span>
+          </Link>
           <button
-            onClick={logout}
-            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+            onClick={handleLogout}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+            title="Sign out"
           >
-            <LogOut className="w-5 h-5 text-slate-400 group-hover:text-red-500" />
-            Sign Out
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Sign Out</span>
           </button>
         </div>
-      </aside>
+      </header>
 
-      {/* ─── MOBILE SIDEBAR OVERLAY ─── */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
-          <aside className="fixed inset-y-0 left-0 w-72 bg-white shadow-xl flex flex-col z-50">
-            <div className="h-20 flex items-center justify-between px-6 border-b border-slate-100">
-              <div className="flex items-center gap-3">
-                <img src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png" alt="AivraSol" className="h-11 w-auto object-contain" />
-                <div className="flex flex-col justify-center border-l-2 border-slate-200 pl-3">
-                  <span className="font-bold text-slate-800 text-sm leading-none tracking-tight">Pharmacy</span>
-                  <span className="font-bold text-emerald-600 text-sm leading-none tracking-tight mt-0.5">POS</span>
-                </div>
-              </div>
-              <button onClick={() => setMobileMenuOpen(false)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-              {NAV_ITEMS.map((item) => {
+      {/* Main Content + Desktop Collapsible Sidebar */}
+      <div className="flex-1 flex min-h-0">
+        {/* Desktop Sidebar */}
+        <aside
+          className={`hidden lg:flex flex-col bg-white border-r border-slate-200/90 shrink-0 transition-all duration-200 sticky top-14 h-[calc(100vh-3.5rem)] ${
+            sidebarCollapsed ? "w-[68px]" : "w-60"
+          }`}
+        >
+          <div className="flex-1 py-4 px-2.5 space-y-6 overflow-y-auto">
+            <div className="space-y-1">
+              {!sidebarCollapsed && (
+                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Operations
+                </p>
+              )}
+              {PRIMARY_NAV.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href || (item.href !== "/portal/dashboard" && pathname.startsWith(item.href));
+                const active = isRouteActive(item.href);
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors ${
-                      isActive 
-                        ? "bg-emerald-50 text-emerald-700" 
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                    }`}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                      active
+                        ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/20"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
+                    } ${sidebarCollapsed ? "justify-center" : ""}`}
                   >
-                    <Icon className={`w-5 h-5 ${isActive ? "text-emerald-600" : "text-slate-400"}`} />
-                    {item.label}
+                    <Icon className={`w-4 h-4 shrink-0 ${active ? "text-white" : "text-slate-500"}`} />
+                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
                   </Link>
                 );
               })}
-            </nav>
-            <div className="p-4 border-t border-slate-100 space-y-2">
-              <a
-                href="/api/public/download-owner-app"
-                download="aivrasolpos_owner_portal.apk"
-                className="flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors"
-              >
-                <span className="flex items-center gap-2">
-                  <Smartphone className="w-4 h-4 text-emerald-600" />
-                  Download Owner App
-                </span>
-                <span className="text-[10px] font-bold bg-emerald-200/60 text-emerald-800 px-1.5 py-0.5 rounded">APK</span>
-              </a>
-              <button
-                onClick={logout}
-                className="flex items-center gap-3 w-full px-3 py-3 rounded-lg text-sm font-medium text-slate-600 hover:bg-red-50 hover:text-red-600"
-              >
-                <LogOut className="w-5 h-5 text-slate-400" />
-                Sign Out
-              </button>
             </div>
-          </aside>
-        </div>
-      )}
 
-      {/* ─── MAIN WRAPPER ─── */}
-      <div className="flex-1 flex flex-col lg:pl-64 min-w-0">
-        
-        {/* ─── TOP HEADER ─── */}
-        <header className="h-16 bg-white border-b border-slate-200 sticky top-0 z-20 flex items-center justify-between px-4 sm:px-8">
-          <div className="flex items-center gap-4">
-            <button 
-              className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg -ml-2"
-              onClick={() => setMobileMenuOpen(true)}
+            <div className="space-y-1 pt-2 border-t border-slate-100">
+              {!sidebarCollapsed && (
+                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  System & Billing
+                </p>
+              )}
+              {SECONDARY_NAV.map((item) => {
+                const Icon = item.icon;
+                const active = isRouteActive(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                      active
+                        ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/20"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
+                    } ${sidebarCollapsed ? "justify-center" : ""}`}
+                  >
+                    <Icon className={`w-4 h-4 shrink-0 ${active ? "text-white" : "text-slate-500"}`} />
+                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-2.5 border-t border-slate-100">
+            <button
+              onClick={() => setSidebarCollapsed((c) => !c)}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
-              <Menu className="w-5 h-5" />
+              {sidebarCollapsed ? (
+                <ChevronRight className="w-4 h-4" />
+              ) : (
+                <>
+                  <ChevronLeft className="w-4 h-4" />
+                  <span>Collapse Menu</span>
+                </>
+              )}
             </button>
-            <div className="hidden sm:block">
-              <h2 className="text-lg font-semibold text-slate-900">{user?.client?.name ?? "Loading..."}</h2>
-            </div>
           </div>
-          
-          <div className="flex items-center gap-4">
-            {user && (
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex items-center gap-2 hover:bg-slate-50 p-1.5 pr-2 rounded-full transition-colors outline-none focus:ring-2 focus:ring-emerald-500/20">
-                  <Avatar className="h-8 w-8 bg-emerald-100 text-emerald-700 font-semibold text-xs border border-emerald-200">
-                    <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-                  </Avatar>
-                  <div className="hidden md:block text-left">
-                    <p className="text-sm font-medium text-slate-700 leading-none">{user.name}</p>
-                    <p className="text-[11px] text-slate-500 mt-1 capitalize">{user.role}</p>
-                  </div>
-                  <ChevronDown className="w-4 h-4 text-slate-400 ml-1 hidden md:block" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 mt-1 rounded-xl shadow-lg border-slate-100 p-1">
-                  <DropdownMenuLabel className="font-normal px-3 py-2">
-                    <div className="flex flex-col space-y-1.5">
-                      <p className="text-sm font-semibold text-slate-900">{user.name}</p>
-                      <p className="text-xs text-slate-500">{user.email}</p>
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator className="bg-slate-100 mx-1" />
-                  <DropdownMenuItem className="cursor-pointer rounded-md text-sm text-slate-600 focus:bg-slate-50 focus:text-slate-900" disabled>
-                    <User className="mr-2 h-4 w-4 text-slate-400" />
-                    <span>Profile Settings</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={logout} className="cursor-pointer rounded-md text-sm text-red-600 focus:bg-red-50 focus:text-red-700 mt-1">
-                    <LogOut className="mr-2 h-4 w-4 text-red-400" />
-                    <span>Sign Out</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-        </header>
+        </aside>
 
-        {/* ─── MAIN CONTENT ─── */}
-        <main className="flex-1 p-4 sm:p-8 max-w-[1600px] w-full mx-auto">
-          {children}
+        {/* Main Workspace */}
+        <main className="flex-1 min-w-0 pb-24 lg:pb-10">
+          <div className="max-w-7xl mx-auto px-3.5 sm:px-6 py-4 sm:py-6">{children}</div>
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 flex items-center justify-around shadow-[0_-4px_16px_rgba(15,23,42,0.06)]">
+        {mobileBottomTabs.map((item) => {
+          const Icon = item.icon;
+          const active = isRouteActive(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 rounded-xl min-w-[60px] transition-colors ${
+                active ? "text-[#009A4D] font-bold" : "text-slate-500 hover:text-slate-900 font-medium"
+              }`}
+            >
+              <div
+                className={`p-1 rounded-lg transition-colors ${
+                  active ? "bg-emerald-50 text-[#009A4D]" : ""
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+              </div>
+              <span className="text-[10px] leading-none">{item.shortLabel}</span>
+            </Link>
+          );
+        })}
+
+        <button
+          onClick={() => setMobileMoreOpen((v) => !v)}
+          className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 rounded-xl min-w-[60px] transition-colors ${
+            isMoreActive || mobileMoreOpen
+              ? "text-[#009A4D] font-bold"
+              : "text-slate-500 hover:text-slate-900 font-medium"
+          }`}
+        >
+          <div
+            className={`p-1 rounded-lg transition-colors ${
+              isMoreActive || mobileMoreOpen ? "bg-emerald-50 text-[#009A4D]" : ""
+            }`}
+          >
+            {mobileMoreOpen ? <X className="w-4 h-4" /> : <MoreHorizontal className="w-4 h-4" />}
+          </div>
+          <span className="text-[10px] leading-none">More</span>
+        </button>
+      </nav>
+
+      {/* Mobile "More" Slide-Up Sheet */}
+      {mobileMoreOpen && (
+        <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end bg-slate-900/40 backdrop-blur-[1px]">
+          <div className="flex-1" onClick={() => setMobileMoreOpen(false)} />
+          <div className="bg-white rounded-t-2xl border-t border-slate-200 p-4 pb-20 shadow-2xl space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                More Modules
+              </span>
+              <button
+                onClick={() => setMobileMoreOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {[...PRIMARY_NAV.slice(4), ...SECONDARY_NAV].map((item) => {
+                const Icon = item.icon;
+                const active = isRouteActive(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileMoreOpen(false)}
+                    className={`flex items-center gap-2.5 p-3 rounded-xl border text-xs font-semibold transition-colors ${
+                      active
+                        ? "bg-emerald-50 border-emerald-200 text-[#009A4D]"
+                        : "bg-slate-50/80 border-slate-200/80 text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

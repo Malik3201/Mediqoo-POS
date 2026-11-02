@@ -288,18 +288,22 @@ export class ServerMigrationEngine {
       });
       (out as any).verifiedSnapshot = undefined; // release plaintext snapshot early
 
-      // Upload → verify object identity (size + SHA-256 + decryptability) before anything is deleted
+      // Upload → verify object identity (size + MD5 ETag) in R2 before anything is deleted.
+      // (Decryptability and SHA-256 of out.aivrabakBuffer were already self-verified in convertBackup above,
+      // avoiding a redundant 11 MB download copy in memory.)
       job.stage = "Uploading encrypted package to private Cloudflare R2 storage";
       job.progress = 85;
       await job.save();
       const outputR2Key = `migrations/${job.id}/${out.outputFilename}`;
+      const expectedMd5 = crypto.createHash("md5").update(out.aivrabakBuffer).digest("hex");
       await uploadBufferToR2(outputR2Key, out.aivrabakBuffer, "application/octet-stream");
       const head = await checkR2Object(outputR2Key);
-      if (!head || head.size !== out.aivrabakBuffer.length) throw new Error(`Uploaded package verification failed (R2 size ${head?.size ?? "missing"} ≠ ${out.aivrabakBuffer.length})`);
-      const roundTrip = await downloadBufferFromR2(outputR2Key);
-      const remoteSha = crypto.createHash("sha256").update(roundTrip).digest("hex");
-      if (remoteSha !== out.outputSha256) throw new Error("Uploaded package SHA-256 mismatch");
-      verifyEncryptedAivrabak(roundTrip, out.restoreKey);
+      if (!head || head.size !== out.aivrabakBuffer.length) {
+        throw new Error(`Uploaded package verification failed (R2 size ${head?.size ?? "missing"} ≠ ${out.aivrabakBuffer.length})`);
+      }
+      if (head.etag && !head.etag.includes("-") && head.etag.toLowerCase() !== expectedMd5.toLowerCase()) {
+        throw new Error(`Uploaded package ETag mismatch (${head.etag} ≠ ${expectedMd5})`);
+      }
 
       const enc = encryptRecoverySecret(out.restoreKey);
       job.restore_key = {

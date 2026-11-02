@@ -118,6 +118,7 @@ export interface IMigrationJob extends Document {
     deleted_at?: Date;
     failure_reason?: string;
     reason?: string;
+    protected?: boolean;
   };
 
   // Reconciled Financials
@@ -148,6 +149,11 @@ export interface IMigrationJob extends Document {
     verified_at?: Date;
     expires_at?: Date;
     deleted_at?: Date;
+    download_count?: number;
+    last_downloaded_at?: Date;
+    active_download_until?: Date;
+    restore_confirmed_at?: Date;
+    protected?: boolean;
   };
 
   // Unique Restore Key (Stored securely encrypted with server master secret)
@@ -259,6 +265,7 @@ const MigrationJobSchema = new Schema<IMigrationJob>(
       deleted_at: { type: Date },
       failure_reason: { type: String },
       reason: { type: String },
+      protected: { type: Boolean, default: false },
     },
 
     reconciliation: {
@@ -306,6 +313,11 @@ const MigrationJobSchema = new Schema<IMigrationJob>(
       verified_at: { type: Date },
       expires_at: { type: Date, index: true },
       deleted_at: { type: Date },
+      download_count: { type: Number, default: 0 },
+      last_downloaded_at: { type: Date },
+      active_download_until: { type: Date },
+      restore_confirmed_at: { type: Date },
+      protected: { type: Boolean, default: false },
     },
 
     restore_key: {

@@ -21,6 +21,11 @@ const VALID_TYPES = new Set([
   "sale.completed",
   "sale.returned",
   "purchase.received",
+  "purchase.returned",
+  "khata.payment",
+  "supplier.payment",
+  "drawer.session",
+  "daily.closing",
   "expense.created",
   "expense.updated",
   "expense.deleted",
@@ -32,35 +37,6 @@ const MAX_EVENTS_PER_BATCH = 50;
  * POST /api/public/analytics/events
  *
  * POS analytics event ingestion endpoint.
- *
- * Authentication (per correction #7):
- *   - license_key + machine_id must resolve an active license AND a registered LicenseSeat
- *   - seat_id, terminal_number, client_id, project_id supplied by POS are IGNORED for auth
- *   - They are resolved server-side from the trusted license + seat record
- *
- * Feature flag:
- *   - license.features.cloud_dashboard must be true
- *
- * Idempotency (per correction #9):
- *   - event_id is globally unique (DB unique index)
- *   - Concurrent duplicate requests handled via try/catch on duplicate-key error (code 11000)
- *   - Returns { event_id, duplicate: true } for already-processed events
- *
- * Expense CRUD side effects:
- *   - After storing the event, expense events update the CloudExpense projection
- *
- * Body:
- * {
- *   license_key: string,
- *   machine_id: string,
- *   events: [{
- *     event_id: string,         // POS UUID, globally unique
- *     type: string,
- *     source_record_id: string,
- *     occurred_at: string,      // ISO 8601
- *     payload: object
- *   }]
- * }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -125,10 +101,14 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Step 3: Verify registered seat (per correction #7) ───────────────
-    const seat = await LicenseSeat.findOne({
-      license_id: license.id,
-      machine_id: String(machine_id),
-    }).lean<{ id: string; terminal_number?: number }>();
+    const seat = await LicenseSeat.findOneAndUpdate(
+      {
+        license_id: license.id,
+        machine_id: String(machine_id),
+      },
+      { $set: { last_seen_at: new Date() } },
+      { new: true }
+    ).lean<{ id: string; terminal_number?: number }>();
 
     if (!seat) {
       return NextResponse.json(
@@ -231,17 +211,6 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * Updates the CloudExpense materialized projection for expense events.
- *
- * Rules (per correction #3):
- *   expense.created → create or update projection (idempotent by source_record_id)
- *   expense.updated → replace with latest state (only if source_updated_at is newer)
- *   expense.deleted → set is_deleted=true, amount=0
- *
- * The projection always reflects the CURRENT valid state of the expense.
- * Final state: create 1000 → update 1500 → delete → contributes 0.
- */
 async function upsertExpenseProjection(
   clientId: string,
   licenseId: string,
@@ -253,7 +222,6 @@ async function upsertExpenseProjection(
   const filter = { client_id: clientId, license_id: licenseId, source_record_id: sourceRecordId };
 
   if (type === "expense.deleted") {
-    // Mark deleted — always idempotent
     await CloudExpense.findOneAndUpdate(
       filter,
       {
@@ -273,8 +241,6 @@ async function upsertExpenseProjection(
     const category = payload?.category ?? undefined;
     const occurredAtDate = payload?.occurred_at ? new Date(payload.occurred_at) : occurredAt;
 
-    // Only update if the incoming event is NEWER than the current projection
-    // This prevents out-of-order event replay from corrupting state
     await CloudExpense.findOneAndUpdate(
       {
         ...filter,

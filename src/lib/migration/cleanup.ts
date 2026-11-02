@@ -158,11 +158,15 @@ export async function runMigrationCleanupSweep(actor = "system:migration-cleanup
     summary.staleFailed++;
   }
 
-  // b) Abandoned uploads (never analyzed/converted)
-  const abandoned = await MigrationJob.find({ status: "uploaded", created_at: { $lt: new Date(now.getTime() - ABANDONED_UPLOAD_HOURS() * 3600_000) } });
+  // b) Abandoned uploads (never analyzed/converted within window)
+  const abandoned = await MigrationJob.find({
+    status: { $in: ["uploaded", "ready_to_convert"] },
+    created_at: { $lt: new Date(now.getTime() - ABANDONED_UPLOAD_HOURS() * 3600_000) },
+  });
   for (const job of abandoned) {
+    if (job.source_cleanup?.protected) continue;
     job.status = "cancelled";
-    job.stage = "Expired — upload abandoned before analysis";
+    job.stage = "Expired — upload abandoned before conversion";
     scheduleSourceDeletion(job, 0, "Abandoned upload expiry");
     await job.save();
     summary.abandonedExpired++;
@@ -184,16 +188,27 @@ export async function runMigrationCleanupSweep(actor = "system:migration-cleanup
   const due = await MigrationJob.find({
     "source_cleanup.status": { $in: ["pending", "retained", "failed"] },
     "source_cleanup.delete_after": { $lte: now },
+    "source_cleanup.protected": { $ne: true },
     $or: [{ "source_cleanup.attempts": { $lt: MAX_CLEANUP_ATTEMPTS } }, { "source_cleanup.attempts": { $exists: false } }],
     status: { $nin: ["analyzing", "converting", "validating"] },
   });
   for (const job of due) {
-    // Completed jobs: only delete source when the encrypted output is still verifiably present.
-    if (job.status === "completed") {
+    const srcHead = isOwnedSourceKey(job, job.source_object_key)
+      ? await checkR2Object(job.source_object_key).catch(() => null)
+      : null;
+
+    // Completed jobs: if source still exists in R2, only delete when encrypted output is verifiably present.
+    if (job.status === "completed" && srcHead) {
       const outKey = job.output_backup?.object_key;
       const head = outKey && !job.output_backup?.deleted_at ? await checkR2Object(outKey).catch(() => null) : null;
-      if (!job.output_backup?.verified_at || (!head && !job.output_backup?.deleted_at)) {
-        job.source_cleanup = { ...(job.source_cleanup as any), status: "failed", failure_reason: "Encrypted output not verified/present; source retained.", last_attempt_at: new Date(), attempts: (job.source_cleanup?.attempts || 0) + 1 } as any;
+      if (!head && !job.output_backup?.deleted_at) {
+        job.source_cleanup = {
+          ...(job.source_cleanup as any),
+          status: "failed",
+          failure_reason: "Encrypted output not verified/present; source retained.",
+          last_attempt_at: new Date(),
+          attempts: (job.source_cleanup?.attempts || 0) + 1,
+        } as any;
         await job.save();
         summary.sourceFailures++;
         continue;
@@ -206,9 +221,19 @@ export async function runMigrationCleanupSweep(actor = "system:migration-cleanup
     else if (job.source_cleanup?.status === "failed") summary.sourceFailures++;
   }
 
-  // e) Expired generated packages
-  const expired = await MigrationJob.find({ "output_backup.expires_at": { $lte: now }, "output_backup.deleted_at": { $exists: false } });
+  // e) Expired generated packages (excluding pinned or actively downloading packages)
+  const expired = await MigrationJob.find({
+    "output_backup.expires_at": { $lte: now },
+    "output_backup.deleted_at": { $exists: false },
+    "output_backup.protected": { $ne: true },
+  });
   for (const job of expired) {
+    if (
+      job.output_backup?.active_download_until &&
+      new Date(job.output_backup.active_download_until).getTime() > now.getTime()
+    ) {
+      continue;
+    }
     if (await deleteJobOutput(job, actor, "Retention period expired")) summary.outputsExpired++;
     await job.save();
   }

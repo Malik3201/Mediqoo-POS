@@ -43,6 +43,19 @@ export async function GET(
       1800 // 30 minutes validity
     );
 
+    // Track active download window (30 min) and download counter so expiry cleanup never interrupts an active download
+    job.output_backup.download_count = (job.output_backup.download_count || 0) + 1;
+    job.output_backup.last_downloaded_at = new Date();
+    job.output_backup.active_download_until = new Date(Date.now() + 30 * 60_000);
+    job.markModified("output_backup");
+    job.audit_events.push({
+      timestamp: new Date(),
+      actor: auth.actor.email,
+      action: "PACKAGE_DOWNLOADED",
+      details: `Generated presigned download link (#${job.output_backup.download_count})`,
+    });
+    await job.save().catch(() => {});
+
     return NextResponse.json({
       success: true,
       downloadUrl,

@@ -17,6 +17,9 @@ export interface IRelease extends Document {
   sha256?: string;
   published_at?: Date;
   created_by?: string;
+  protected?: boolean;
+  cleanup_approved?: boolean;
+  storage_deleted_at?: Date;
   created_at: Date;
   updated_at: Date;
 }
@@ -38,6 +41,9 @@ const ReleaseSchema = new Schema<IRelease>(
     sha256: { type: String },
     published_at: { type: Date },
     created_by: { type: String },
+    protected: { type: Boolean, default: false },
+    cleanup_approved: { type: Boolean, default: false },
+    storage_deleted_at: { type: Date },
   },
   {
     timestamps: { createdAt: "created_at", updatedAt: "updated_at" },

@@ -7,6 +7,7 @@ export type PortalUserStatus = "invited" | "active" | "disabled";
 export interface IPortalUser extends Document {
   id: string;
   client_id: string;          // FK → Client.id — ALWAYS resolved server-side
+  client_name?: string;       // Optional hydrated client name
   name: string;
   email: string;
   password_hash?: string;     // null until invite is accepted and password is set

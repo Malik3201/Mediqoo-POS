@@ -39,6 +39,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { isBefore, isAfter, addDays, startOfMonth, endOfMonth, differenceInDays, startOfDay, format } from "date-fns";
+import { RenewalVoucherModal } from "@/components/billing/RenewalVoucherModal";
 
 export default function BillingPage() {
   const { data: licenses = [], isLoading: loadingLicenses, refetch: refetchLicenses } = useDataQuery("licenses", { populate: "clients,projects" });
@@ -48,6 +49,8 @@ export default function BillingPage() {
   const [paymentTarget, setPaymentTarget] = useState<any | null>(null);
   const [renewalPreview, setRenewalPreview] = useState<any | null>(null);
   const [renewalSuccess, setRenewalSuccess] = useState<any | null>(null);
+  const [activeVoucherId, setActiveVoucherId] = useState<string | null>(null);
+  const [activeVoucherDoc, setActiveVoucherDoc] = useState<any | null>(null);
   
   const [historyTarget, setHistoryTarget] = useState<any | null>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
@@ -455,20 +458,20 @@ export default function BillingPage() {
       ]);
 
       const updatedLicense = (latestData as any)?.find?.((l: any) => l.id === paymentTarget.license.id);
+      const voucher = data.voucher || null;
+      const payment = data.payment || null;
 
-      if (data.payment) {
-        setRenewalSuccess({
-          ...paymentForm,
-          previous_expiry: paymentTarget.license.expires_at,
-          new_expiry: updatedLicense?.expires_at || renewalPreview?.new_expiry,
-          grace_until: updatedLicense?.grace_until || renewalPreview?.new_grace_until,
-          invoice_number: data.payment.receipt_number,
-          invoice_id: data.payment.id,
-          email_status: data.payment.email_status
-        });
-      } else {
-        setPaymentTarget(null);
-      }
+      setRenewalSuccess({
+        ...paymentForm,
+        previous_expiry: paymentTarget.license.expires_at,
+        new_expiry: voucher?.new_expiry || updatedLicense?.expires_at || renewalPreview?.new_expiry,
+        grace_until: updatedLicense?.grace_until || renewalPreview?.new_grace_until,
+        invoice_number: voucher?.voucher_number || voucher?.invoice_number || payment?.receipt_number || "Generated",
+        invoice_id: voucher?.id || payment?.id,
+        voucher,
+        status: voucher?.status || (isExtendOnly ? "unpaid" : "paid"),
+        email_status: payment?.email_status || voucher?.email_status || "skipped"
+      });
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -821,34 +824,75 @@ export default function BillingPage() {
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
             {renewalSuccess ? (
               <div className="space-y-4 text-sm">
-                <div className="rounded border p-4 bg-green-50/50 dark:bg-green-900/10 border-green-200 dark:border-green-800">
-                  <h4 className="font-semibold text-green-700 dark:text-green-400 mb-2 flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4" /> Payment Recorded &amp; License Updated
-                  </h4>
-                  <div className="grid grid-cols-2 gap-2 mt-4">
-                    <div className="text-muted-foreground">Receipt / Invoice:</div>
-                    <div className="font-medium text-primary">{renewalSuccess.invoice_number}</div>
+                <div className="rounded-lg border p-5 bg-emerald-50/50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4" />
+                      {renewalSuccess.action === "extend_only"
+                        ? "License Expiry Extended — Official Voucher Generated"
+                        : "Payment Recorded & License Renewal Voucher Generated"}
+                    </h4>
+                    <Badge variant="outline" className="uppercase text-[10px]">
+                      {renewalSuccess.status === "paid"
+                        ? "Paid"
+                        : renewalSuccess.status === "partially_paid"
+                        ? "Partially Paid"
+                        : renewalSuccess.status === "payment_pending"
+                        ? "Payment Pending"
+                        : "Unpaid (Extension Only)"}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5 mt-3 text-xs">
+                    <div className="text-muted-foreground">Voucher Number:</div>
+                    <div className="font-mono font-bold text-primary">{renewalSuccess.invoice_number}</div>
                     
                     <div className="text-muted-foreground">Email Receipt:</div>
-                    <div className="font-medium capitalize">{renewalSuccess.email_status === 'sent' ? 'Sent to Client' : 'Pending/Saved'}</div>
+                    <div className="font-medium capitalize">
+                      {renewalSuccess.email_status === "sent"
+                        ? "Sent to Client"
+                        : renewalSuccess.email_status === "skipped"
+                        ? "No Payment Recorded (Voucher Ready)"
+                        : "Pending / Queued"}
+                    </div>
                     
                     <div className="text-muted-foreground">Previous Expiry:</div>
                     <div className="font-medium">{renewalSuccess.previous_expiry ? format(new Date(renewalSuccess.previous_expiry), "dd/MM/yyyy") : "Never"}</div>
                     
                     <div className="text-muted-foreground">New Expiry:</div>
-                    <div className="font-medium text-primary">{renewalSuccess.new_expiry ? format(new Date(renewalSuccess.new_expiry), "dd/MM/yyyy") : "Lifetime / Never"}</div>
+                    <div className="font-semibold text-emerald-700 dark:text-emerald-400">{renewalSuccess.new_expiry ? format(new Date(renewalSuccess.new_expiry), "dd/MM/yyyy") : "Lifetime / Never"}</div>
                     
                     <div className="text-muted-foreground">Amount Paid:</div>
-                    <div className="font-medium">{paymentTarget?.license.billing?.currency} {renewalSuccess.amount_paid}</div>
-                    
-                    {renewalSuccess.invoice_id && (
-                      <div className="col-span-2 pt-2 text-center">
-                        <a href={`/api/admin/payments/${renewalSuccess.invoice_id}/pdf`} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-blue-600 hover:underline">
-                          ⬇ Download Receipt / Invoice PDF
-                        </a>
-                      </div>
-                    )}
+                    <div className="font-semibold">{paymentTarget?.license.billing?.currency || "PKR"} {Number(renewalSuccess.amount_paid || 0).toLocaleString()}</div>
                   </div>
+
+                  {renewalSuccess.invoice_id && (
+                    <div className="flex flex-wrap items-center gap-2 pt-4 mt-4 border-t border-emerald-200/70 dark:border-emerald-800/60">
+                      <Button
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                        onClick={() => {
+                          setActiveVoucherDoc(renewalSuccess.voucher || null);
+                          setActiveVoucherId(renewalSuccess.invoice_id);
+                        }}
+                      >
+                        <FileText className="h-3.5 w-3.5 mr-1.5" />
+                        View Official Voucher
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs"
+                        onClick={() =>
+                          window.open(
+                            `/api/admin/vouchers/${encodeURIComponent(renewalSuccess.invoice_id)}?format=pdf`,
+                            "_blank"
+                          )
+                        }
+                      >
+                        ⬇ Download PDF
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1236,16 +1280,46 @@ export default function BillingPage() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right">
-                              <Button variant="ghost" size="sm" onClick={() => window.open(`/api/admin/payments/${h.id}/pdf`, "_blank")}>
-                                PDF
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => {
-                                fetch(`/api/admin/payments/${h.id}/resend`, { method: "POST" })
-                                  .then(() => toast.success("Receipt queued for resend"))
-                                  .catch(() => toast.error("Failed to resend receipt"));
-                              }}>
-                                Resend
-                              </Button>
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    setActiveVoucherDoc(null);
+                                    setActiveVoucherId(h.voucher_id || h.id);
+                                  }}
+                                >
+                                  View Voucher
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() =>
+                                    window.open(
+                                      `/api/admin/vouchers/${encodeURIComponent(h.voucher_id || h.id)}?format=pdf`,
+                                      "_blank"
+                                    )
+                                  }
+                                >
+                                  PDF
+                                </Button>
+                                {h.amount_paid > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    onClick={() => {
+                                      fetch(`/api/admin/payments/${h.id}/resend`, { method: "POST" })
+                                        .then(() => toast.success("Receipt queued for resend"))
+                                        .catch(() => toast.error("Failed to resend receipt"));
+                                    }}
+                                  >
+                                    Resend
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -1328,6 +1402,16 @@ export default function BillingPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RenewalVoucherModal
+        open={Boolean(activeVoucherId || activeVoucherDoc)}
+        onClose={() => {
+          setActiveVoucherId(null);
+          setActiveVoucherDoc(null);
+        }}
+        voucherId={activeVoucherId}
+        initialVoucher={activeVoucherDoc}
+      />
     </div>
   );
 }

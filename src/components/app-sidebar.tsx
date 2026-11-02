@@ -20,6 +20,7 @@ import {
   CreditCard,
   Sparkles,
   Database,
+  HardDrive,
 } from "lucide-react";
 
 import {
@@ -41,13 +42,13 @@ const primary = [
   { title: "Projects", url: "/projects", icon: FolderKanban },
   { title: "Licenses", url: "/licenses", icon: KeyRound },
   { title: "Data Migration", url: "/migration", icon: Database },
+  { title: "Storage Management", url: "/storage", icon: HardDrive },
   { title: "Billing & Renewals", url: "/billing", icon: CreditCard },
   { title: "Packages", url: "/packages", icon: Package },
   { title: "Releases", url: "/releases", icon: Rocket },
   { title: "Business Templates", url: "/templates", icon: Boxes },
   { title: "AI Management", url: "/ai-management", icon: Sparkles },
 ];
-
 
 const admin = [
   { title: "Users", url: "/users", icon: Users },

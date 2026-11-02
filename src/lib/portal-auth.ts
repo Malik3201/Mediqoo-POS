@@ -104,46 +104,86 @@ export async function verifyPortalTokenFromRequest(
  * Returns the current PortalUser document on success.
  * Throws a typed error on failure — callers convert to JSON 401/403.
  */
-export async function requirePortalSession(req: NextRequest): Promise<IPortalUser> {
-  const token = req.cookies.get(COOKIE_NAME)?.value;
-  if (!token) {
-    throw new PortalAuthError("missing_token", 401, "Authentication required");
+export async function requirePortalSession(req: NextRequest): Promise<IPortalUser>;
+export async function requirePortalSession(): Promise<{
+  session: IPortalUser;
+  errorResponse: NextResponse | null;
+}>;
+export async function requirePortalSession(
+  req?: NextRequest
+): Promise<
+  | IPortalUser
+  | {
+      session: IPortalUser;
+      errorResponse: NextResponse | null;
+    }
+> {
+  const validateToken = async (token?: string): Promise<IPortalUser> => {
+    if (!token) {
+      throw new PortalAuthError("missing_token", 401, "Authentication required");
+    }
+
+    let payload: PortalTokenPayload;
+    try {
+      const { payload: p } = await jwtVerify(token, getSecret());
+      payload = p as PortalTokenPayload;
+    } catch {
+      throw new PortalAuthError("invalid_token", 401, "Invalid or expired session");
+    }
+
+    await connectToDatabase();
+
+    // Load current user state from DB — do NOT trust JWT fields for authorization
+    const user = await PortalUser.findOne({ id: payload.portalUserId })
+      .select("+password_hash") // needed to check password_hash exists
+      .lean<IPortalUser & { password_hash?: string }>();
+
+    if (!user) {
+      throw new PortalAuthError("user_not_found", 401, "Account not found");
+    }
+
+    if (user.status !== "active") {
+      throw new PortalAuthError(
+        "account_disabled",
+        403,
+        "Your account has been disabled. Please contact your administrator."
+      );
+    }
+
+    // Sanity check: client_id in DB must match JWT (detects token tampering)
+    if (user.client_id !== payload.clientId) {
+      throw new PortalAuthError("client_mismatch", 403, "Session identity mismatch");
+    }
+
+    // Return the full current user — callers use user.client_id and user.role
+    return user as IPortalUser;
+  };
+
+  if (req) {
+    const token = req.cookies.get(COOKIE_NAME)?.value;
+    return validateToken(token);
   }
 
-  let payload: PortalTokenPayload;
   try {
-    const { payload: p } = await jwtVerify(token, getSecret());
-    payload = p as PortalTokenPayload;
-  } catch {
-    throw new PortalAuthError("invalid_token", 401, "Invalid or expired session");
+    const cookieStore = await cookies();
+    const token = cookieStore.get(COOKIE_NAME)?.value;
+    const session = await validateToken(token);
+    return { session, errorResponse: null };
+  } catch (err: any) {
+    if (err instanceof PortalAuthError) {
+      return {
+        session: null as unknown as IPortalUser,
+        errorResponse: portalAuthErrorResponse(err),
+      };
+    }
+    return {
+      session: null as unknown as IPortalUser,
+      errorResponse: NextResponse.json(
+        { error: "internal_error", message: "Authentication failed" },
+        { status: 500 }
+      ),
+    };
   }
-
-  await connectToDatabase();
-
-  // Load current user state from DB — do NOT trust JWT fields for authorization
-  const user = await PortalUser.findOne({ id: payload.portalUserId })
-    .select("+password_hash") // needed to check password_hash exists
-    .lean<IPortalUser & { password_hash?: string }>();
-
-  if (!user) {
-    throw new PortalAuthError("user_not_found", 401, "Account not found");
-  }
-
-  if (user.status !== "active") {
-    throw new PortalAuthError(
-      "account_disabled",
-      403,
-      "Your account has been disabled. Please contact your administrator."
-    );
-  }
-
-  // Sanity check: client_id in DB must match JWT (detects token tampering)
-  if (user.client_id !== payload.clientId) {
-    throw new PortalAuthError("client_mismatch", 403, "Session identity mismatch");
-  }
-
-  // Return the full current user — callers use user.client_id and user.role
-  return user as IPortalUser;
 }
 
 /**
