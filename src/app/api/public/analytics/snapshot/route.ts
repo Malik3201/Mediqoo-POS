@@ -4,7 +4,15 @@ import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import InventorySnapshot from "@/models/InventorySnapshot";
 import OwnerPortalState from "@/models/OwnerPortalState";
+import OwnerActionState from "@/models/OwnerActionState";
+import OwnerCustomerMeta from "@/models/OwnerCustomerMeta";
 import AnalyticsEvent from "@/models/AnalyticsEvent";
+import CloudExpense from "@/models/CloudExpense";
+import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
+import HistoricalTopProduct from "@/models/HistoricalTopProduct";
+import HistoricalRecentSale from "@/models/HistoricalRecentSale";
+import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
+import AuditLog from "@/models/AuditLog";
 import { isCloudDashboardEnabled } from "@/lib/status";
 
 const CORS = {
@@ -40,11 +48,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "invalid_json" }, { status: 400, headers: CORS });
     }
 
-    const { license_key, machine_id, snapshot, portal_state } = body ?? {};
+    const { license_key, machine_id, snapshot, portal_state, reset_portal_data } = body ?? {};
 
-    if (!license_key || !machine_id || !snapshot) {
+    if (!license_key || !machine_id || (!snapshot && !reset_portal_data)) {
       return NextResponse.json(
-        { error: "missing_fields", message: "license_key, machine_id, and snapshot are required." },
+        { error: "missing_fields", message: "license_key, machine_id, and snapshot (or reset_portal_data) are required." },
         { status: 400, headers: CORS }
       );
     }
@@ -64,7 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "license_not_active" }, { status: 403, headers: CORS });
     }
 
-    if (!isCloudDashboardEnabled(license)) {
+    if (!reset_portal_data && !isCloudDashboardEnabled(license)) {
       return NextResponse.json({ error: "feature_disabled" }, { status: 403, headers: CORS });
     }
 
@@ -81,6 +89,105 @@ export async function POST(req: NextRequest) {
 
     if (!seat) {
       return NextResponse.json({ error: "machine_not_registered" }, { status: 401, headers: CORS });
+    }
+
+    // ── Handle POS Factory Data Reset (Wipes operational portal data, preserves CloudBackups & Subscription/License) ──
+    if (reset_portal_data && typeof reset_portal_data === "object") {
+      const rawResetAt = reset_portal_data.reset_at ? new Date(reset_portal_data.reset_at) : now;
+      const resetAt = isNaN(rawResetAt.getTime()) ? now : rawResetAt;
+      // Allow a 2-second grace buffer for clock skew; any post-reset transactions occurring after resetCutoff remain intact
+      const resetCutoff = new Date(resetAt.getTime() + 2000);
+      const resetId = String(reset_portal_data.reset_id || `rst_${now.getTime()}`);
+
+      await Promise.all([
+        AnalyticsEvent.deleteMany({
+          client_id: license.client_id,
+          occurred_at: { $lte: resetCutoff },
+        }),
+        CloudExpense.deleteMany({
+          client_id: license.client_id,
+          occurred_at: { $lte: resetCutoff },
+        }),
+        HistoricalDailyAnalytics.deleteMany({ client_id: license.client_id }),
+        HistoricalTopProduct.deleteMany({ client_id: license.client_id }),
+        HistoricalRecentSale.deleteMany({ client_id: license.client_id }),
+        AnalyticsBootstrap.deleteMany({ client_id: license.client_id }),
+        OwnerActionState.deleteMany({ client_id: license.client_id }),
+        OwnerCustomerMeta.deleteMany({ client_id: license.client_id }),
+        InventorySnapshot.findOneAndUpdate(
+          { client_id: license.client_id, license_id: license.id },
+          {
+            $set: {
+              reported_by_terminal: seat.terminal_number,
+              reported_by_seat_id: seat.id,
+              captured_at: now,
+              stock_value: 0,
+              low_stock_count: 0,
+              out_of_stock_count: 0,
+              expiring_soon_count: 0,
+            },
+          },
+          { upsert: true }
+        ),
+        OwnerPortalState.findOneAndUpdate(
+          { client_id: license.client_id, license_id: license.id },
+          {
+            $set: {
+              reported_by_terminal: seat.terminal_number,
+              reported_by_seat_id: seat.id,
+              captured_at: now,
+              last_data_reset_at: resetAt,
+              last_data_reset_id: resetId,
+              customers: [],
+              khata_payments: [],
+              suppliers: [],
+              supplier_payments: [],
+              purchase_returns: [],
+              current_drawer: null,
+              drawer_sessions: [],
+              daily_closings: [],
+              inventory_alerts: {
+                expiring_items: [],
+                low_stock_items: [],
+                unverified_expiry_items: [],
+              },
+              products_intelligence: [],
+              supplier_price_changes: [],
+              category_breakdown_30d: [],
+              manufacturer_breakdown_30d: [],
+              cashier_performance_30d: [],
+            },
+          },
+          { upsert: true }
+        ),
+      ]);
+
+      await AuditLog.create({
+        action: "pos_factory_reset_synced",
+        entity_type: "client",
+        entity_id: license.client_id,
+        actor_id: seat.id,
+        metadata: {
+          license_id: license.id,
+          terminal_number: seat.terminal_number,
+          reset_id: resetId,
+          reset_at: resetAt.toISOString(),
+          preserved: ["CloudBackup", "License", "Subscription", "LicenseRenewalInvoice"],
+        },
+      }).catch(() => {});
+
+      // If this was a standalone reset packet (or snapshot is empty), return immediately
+      if (!portal_state && (!snapshot || Number(snapshot.stock_value ?? 0) === 0)) {
+        return NextResponse.json(
+          {
+            ok: true,
+            reset_completed: true,
+            reset_id: resetId,
+            reset_at: resetAt.toISOString(),
+          },
+          { headers: CORS }
+        );
+      }
     }
 
     // Validate snapshot fields
@@ -219,7 +326,13 @@ export async function POST(req: NextRequest) {
       ).catch((err) => console.warn("Retention compaction warning:", err));
     }
 
-    return NextResponse.json({ ok: true }, { headers: CORS });
+    return NextResponse.json(
+      {
+        ok: true,
+        ...(reset_portal_data ? { reset_completed: true, reset_id: reset_portal_data.reset_id } : {}),
+      },
+      { headers: CORS }
+    );
   } catch (e: any) {
     console.error("Snapshot error:", e);
     return NextResponse.json(

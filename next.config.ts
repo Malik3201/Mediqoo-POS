@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["pdfkit"],
+  outputFileTracingIncludes: {
+    "/api/**/*": [
+      "./node_modules/pdfkit/**/*",
+      "./public/logo-aivrasol-voucher.png",
+    ],
+  },
   typescript: {
     // !! WARN !!
     // Dangerously allow production builds to successfully complete even if

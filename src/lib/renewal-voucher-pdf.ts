@@ -1,6 +1,13 @@
 import PDFDocument from "pdfkit";
+import "pdfkit/standard-fonts/Helvetica";
+import "pdfkit/standard-fonts/HelveticaBold";
+import "pdfkit/standard-fonts/HelveticaOblique";
+import "pdfkit/standard-fonts/HelveticaBoldOblique";
+import "pdfkit/standard-fonts/Courier";
+import "pdfkit/standard-fonts/CourierBold";
 import fs from "fs";
 import path from "path";
+import { VOUCHER_LOGO_BASE64 } from "./voucher-logo-data";
 
 function fmtDate(d: any): string {
   if (!d) return "—";
@@ -82,32 +89,20 @@ export async function generateRenewalVoucherPdfBuffer(
   // Top Emerald Brand Bar
   doc.rect(0, 0, pageWidth, 8).fill("#009A4D");
 
-  // Header Logo / Brand
-  const logoPath = path.join(process.cwd(), "public", "logo-pharmacy-pos.png");
-  let headerLeftY = 28;
-  if (fs.existsSync(logoPath)) {
+  // Left Header: Large AivraSol Logo on clean white background (no subtitle text)
+  const logoPath = path.join(process.cwd(), "public", "logo-aivrasol-voucher.png");
+  try {
+    const logoSource = fs.existsSync(logoPath)
+      ? fs.readFileSync(logoPath)
+      : Buffer.from(VOUCHER_LOGO_BASE64, "base64");
+    doc.image(logoSource, margin - 12, 12, { width: 102 });
+  } catch {
     try {
-      doc.image(logoPath, margin, 24, { height: 38 });
-      headerLeftY = 68;
+      doc.image(Buffer.from(VOUCHER_LOGO_BASE64, "base64"), margin - 12, 12, { width: 102 });
     } catch {
-      // Fallback to text brand
+      // Ignore if image fails
     }
   }
-  doc
-    .fillColor("#009A4D")
-    .font("Helvetica-Bold")
-    .fontSize(18)
-    .text("AIVRASOL", margin, headerLeftY);
-  doc
-    .fillColor("#475569")
-    .font("Helvetica")
-    .fontSize(8.5)
-    .text(
-      voucher.seller_snapshot?.product_line ||
-        "AivraSol Pharmacy POS & Cloud Management Suite",
-      margin,
-      headerLeftY + 20
-    );
 
   // Right Header: Voucher Title & Meta
   doc

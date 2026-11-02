@@ -3,6 +3,8 @@ import { getToken } from "next-auth/jwt";
 import connectToDatabase from "@/lib/db";
 import LicenseRenewalInvoice from "@/models/LicenseRenewalInvoice";
 import PDFDocument from "pdfkit";
+import "pdfkit/standard-fonts/Helvetica";
+import "pdfkit/standard-fonts/HelveticaBold";
 import nodemailer from "nodemailer";
 
 export const runtime = "nodejs";

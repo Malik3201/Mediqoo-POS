@@ -13,7 +13,6 @@ import {
   CloudUpload,
   CreditCard,
   LogOut,
-  Menu,
   X,
   ChevronLeft,
   ChevronRight,
@@ -33,20 +32,86 @@ interface PortalMe {
 }
 
 const PRIMARY_NAV = [
-  { href: "/portal/dashboard", label: "Overview", shortLabel: "Overview", icon: LayoutDashboard },
-  { href: "/portal/sales", label: "Sales & Invoices", shortLabel: "Sales", icon: Receipt },
-  { href: "/portal/purchases", label: "Purchases & Suppliers", shortLabel: "Purchases", icon: ShoppingBag },
-  { href: "/portal/khata", label: "Customers & Khata", shortLabel: "Khata", icon: Users },
-  { href: "/portal/inventory", label: "Inventory Intelligence", shortLabel: "Inventory", icon: PackageSearch },
-  { href: "/portal/alerts", label: "Owner Alerts", shortLabel: "Alerts", icon: BellRing },
-  { href: "/portal/reports", label: "Reports Center", shortLabel: "Reports", icon: BarChart3 },
-  { href: "/portal/cash", label: "Cash & Closing", shortLabel: "Cash", icon: Wallet },
-  { href: "/portal/returns", label: "Returns", shortLabel: "Returns", icon: RotateCcw },
+  {
+    href: "/portal/dashboard",
+    label: "Overview",
+    shortLabel: "Overview",
+    subtitle: "Live summary & daily brief",
+    icon: LayoutDashboard,
+  },
+  {
+    href: "/portal/sales",
+    label: "Sales & Invoices",
+    shortLabel: "Sales",
+    subtitle: "Counter bills & receipts",
+    icon: Receipt,
+  },
+  {
+    href: "/portal/purchases",
+    label: "Purchases & Suppliers",
+    shortLabel: "Purchases",
+    subtitle: "GRNs & supplier payables",
+    icon: ShoppingBag,
+  },
+  {
+    href: "/portal/khata",
+    label: "Customers & Khata",
+    shortLabel: "Khata",
+    subtitle: "Credit accounts & recovery",
+    icon: Users,
+  },
+  {
+    href: "/portal/inventory",
+    label: "Inventory Intelligence",
+    shortLabel: "Inventory",
+    subtitle: "Stock, reorder & expiry",
+    icon: PackageSearch,
+  },
+  {
+    href: "/portal/cash",
+    label: "Cash & Closing",
+    shortLabel: "Cash",
+    subtitle: "Drawer & daily Z-closings",
+    icon: Wallet,
+  },
+  {
+    href: "/portal/reports",
+    label: "Reports Center",
+    shortLabel: "Reports",
+    subtitle: "Profit, sales & tax reports",
+    icon: BarChart3,
+  },
+  {
+    href: "/portal/alerts",
+    label: "Owner Alerts",
+    shortLabel: "Alerts",
+    subtitle: "Anomalies & supervision",
+    icon: BellRing,
+  },
+  {
+    href: "/portal/returns",
+    label: "Returns",
+    shortLabel: "Returns",
+    subtitle: "Sales & supplier returns",
+    icon: RotateCcw,
+  },
 ];
 
 const SECONDARY_NAV = [
-  { href: "/portal/backups", label: "Cloud Backups", shortLabel: "Backups", icon: CloudUpload },
-  { href: "/portal/billing", label: "Subscription & Plan", shortLabel: "Billing", icon: CreditCard },
+  {
+    href: "/portal/backups",
+    label: "Cloud Backups",
+    shortLabel: "Backups",
+    subtitle: "Encrypted restore points",
+    icon: CloudUpload,
+  },
+  {
+    href: "/portal/billing",
+    label: "Subscription & Plan",
+    shortLabel: "Billing",
+    subtitle: "License & renewal vouchers",
+    icon: CreditCard,
+  },
 ];
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -98,10 +163,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   if (checking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-9 h-9 border-2 border-[#009A4D] border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-medium text-slate-500">Loading AivraSol Owner Portal…</span>
+      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC]">
+        <div className="flex flex-col items-center gap-3.5">
+          <div className="w-10 h-10 border-3 border-[#009A4D] border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm font-semibold text-slate-600">
+            Loading AivraSol Owner Portal…
+          </span>
         </div>
       </div>
     );
@@ -110,7 +177,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const isRouteActive = (href: string) =>
     pathname === href || (href !== "/portal/dashboard" && pathname?.startsWith(href));
 
-  // Mobile bottom tabs: first 4 primary + "More" sheet trigger
+  // Mobile bottom bar: 4 primary tabs + enlarged "More" sheet trigger
   const mobileBottomTabs = PRIMARY_NAV.slice(0, 4);
   const isMoreActive =
     isRouteActive("/portal/inventory") ||
@@ -122,31 +189,33 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     isRouteActive("/portal/billing");
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col">
-      {/* Compact Top Bar */}
-      <header className="sticky top-0 z-30 h-14 bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-4 lg:px-6 flex items-center justify-between gap-3">
+    <div className="min-h-screen bg-[#F4F7FA] text-slate-900 flex flex-col">
+      {/* Clean, Spacious Top Header */}
+      <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-4 lg:px-6 flex items-center justify-between gap-3 shadow-[0_1px_3px_rgba(15,23,42,0.03)]">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/portal/dashboard" className="flex items-center gap-2.5 shrink-0">
             <img
               src="/logo-owner-portal.png"
               alt="AivraSol"
-              className="h-8 w-auto object-contain"
+              className="h-8 sm:h-9 w-auto object-contain"
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).src = "/logo-pharmacy-pos.png";
               }}
             />
           </Link>
-          <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+          <div className="h-6 w-px bg-slate-200 hidden sm:block" />
           {me && (
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-[#009A4D] shrink-0">
-                <Building2 className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-[#009A4D] shrink-0">
+                <Building2 className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                <p className="text-xs sm:text-sm font-extrabold text-slate-900 truncate leading-tight">
                   {me.client_name}
                 </p>
-                <p className="text-[10px] text-slate-500 truncate hidden sm:block">{me.email}</p>
+                <p className="text-[11px] text-slate-500 truncate hidden sm:block">
+                  {me.email}
+                </p>
               </div>
             </div>
           )}
@@ -154,22 +223,36 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
         <div className="flex items-center gap-2 shrink-0">
           <Link
+            href="/portal/alerts"
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+              isRouteActive("/portal/alerts")
+                ? "bg-emerald-50 text-[#009A4D] border-emerald-200"
+                : "bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-slate-100"
+            }`}
+            title="Owner Alerts"
+          >
+            <BellRing className="w-4 h-4" />
+            <span className="hidden md:inline">Alerts</span>
+          </Link>
+
+          <Link
             href="/portal/billing"
-            className={`hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/billing")
                 ? "bg-emerald-50 text-[#009A4D] border-emerald-200"
-                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+                : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
             }`}
           >
-            <CreditCard className="w-3.5 h-3.5" />
+            <CreditCard className="w-4 h-4" />
             <span>Subscription</span>
           </Link>
+
           <button
             onClick={handleLogout}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors"
             title="Sign out"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-4 h-4" />
             <span className="hidden sm:inline">Sign Out</span>
           </button>
         </div>
@@ -179,15 +262,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <div className="flex-1 flex min-h-0">
         {/* Desktop Sidebar */}
         <aside
-          className={`hidden lg:flex flex-col bg-white border-r border-slate-200/90 shrink-0 transition-all duration-200 sticky top-14 h-[calc(100vh-3.5rem)] ${
-            sidebarCollapsed ? "w-[68px]" : "w-60"
+          className={`hidden lg:flex flex-col bg-white border-r border-slate-200/90 shrink-0 transition-all duration-200 sticky top-16 h-[calc(100vh-4rem)] ${
+            sidebarCollapsed ? "w-[76px]" : "w-64"
           }`}
         >
-          <div className="flex-1 py-4 px-2.5 space-y-6 overflow-y-auto">
-            <div className="space-y-1">
+          <div className="flex-1 py-5 px-3 space-y-6 overflow-y-auto">
+            <div className="space-y-1.5">
               {!sidebarCollapsed && (
-                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Operations
+                <p className="px-3 pb-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                  Pharmacy Supervision
                 </p>
               )}
               {PRIMARY_NAV.map((item) => {
@@ -198,23 +281,27 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     key={item.href}
                     href={item.href}
                     title={sidebarCollapsed ? item.label : undefined}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    className={`flex items-center gap-3 px-3.5 py-3 rounded-2xl text-[13px] font-semibold transition-all ${
                       active
-                        ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/20"
-                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
-                    } ${sidebarCollapsed ? "justify-center" : ""}`}
+                        ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/25"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/90"
+                    } ${sidebarCollapsed ? "justify-center px-2" : ""}`}
                   >
-                    <Icon className={`w-4 h-4 shrink-0 ${active ? "text-white" : "text-slate-500"}`} />
+                    <Icon
+                      className={`w-[18px] h-[18px] shrink-0 ${
+                        active ? "text-white" : "text-slate-500"
+                      }`}
+                    />
                     {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
                   </Link>
                 );
               })}
             </div>
 
-            <div className="space-y-1 pt-2 border-t border-slate-100">
+            <div className="space-y-1.5 pt-3 border-t border-slate-100">
               {!sidebarCollapsed && (
-                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  System & Billing
+                <p className="px-3 pb-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-400">
+                  Backups & Plan
                 </p>
               )}
               {SECONDARY_NAV.map((item) => {
@@ -225,13 +312,17 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     key={item.href}
                     href={item.href}
                     title={sidebarCollapsed ? item.label : undefined}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                    className={`flex items-center gap-3 px-3.5 py-3 rounded-2xl text-[13px] font-semibold transition-all ${
                       active
-                        ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/20"
-                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
-                    } ${sidebarCollapsed ? "justify-center" : ""}`}
+                        ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/25"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/90"
+                    } ${sidebarCollapsed ? "justify-center px-2" : ""}`}
                   >
-                    <Icon className={`w-4 h-4 shrink-0 ${active ? "text-white" : "text-slate-500"}`} />
+                    <Icon
+                      className={`w-[18px] h-[18px] shrink-0 ${
+                        active ? "text-white" : "text-slate-500"
+                      }`}
+                    />
                     {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
                   </Link>
                 );
@@ -239,10 +330,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             </div>
           </div>
 
-          <div className="p-2.5 border-t border-slate-100">
+          <div className="p-3 border-t border-slate-100">
             <button
               onClick={() => setSidebarCollapsed((c) => !c)}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {sidebarCollapsed ? (
@@ -250,21 +341,26 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               ) : (
                 <>
                   <ChevronLeft className="w-4 h-4" />
-                  <span>Collapse Menu</span>
+                  <span>Collapse Sidebar</span>
                 </>
               )}
             </button>
           </div>
         </aside>
 
-        {/* Main Workspace */}
-        <main className="flex-1 min-w-0 pb-24 lg:pb-10">
-          <div className="max-w-7xl mx-auto px-3.5 sm:px-6 py-4 sm:py-6">{children}</div>
+        {/* Main Workspace — generous bottom clearance for the larger mobile bottom bar */}
+        <main className="flex-1 min-w-0 pb-32 lg:pb-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 sm:py-7">
+            {children}
+          </div>
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar */}
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 px-1 py-1.5 flex items-center justify-around shadow-[0_-4px_16px_rgba(15,23,42,0.06)]">
+      {/* Enlarged, Easy-Touch Mobile Bottom Navigation Bar */}
+      <nav
+        aria-label="Mobile Primary Navigation"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/98 backdrop-blur-lg border-t border-slate-200/90 px-2 pt-2 pb-[calc(0.65rem+env(safe-area-inset-bottom,0px))] min-h-[78px] flex items-center justify-around shadow-[0_-8px_28px_rgba(15,23,42,0.08)]"
+      >
         {mobileBottomTabs.map((item) => {
           const Icon = item.icon;
           const active = isRouteActive(item.href);
@@ -272,58 +368,83 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 rounded-xl min-w-[60px] transition-colors ${
-                active ? "text-[#009A4D] font-bold" : "text-slate-500 hover:text-slate-900 font-medium"
-              }`}
+              className="flex-1 max-w-[84px] min-h-[58px] py-1 px-1 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95"
             >
               <div
-                className={`p-1 rounded-lg transition-colors ${
-                  active ? "bg-emerald-50 text-[#009A4D]" : ""
+                className={`w-12 h-8 rounded-2xl flex items-center justify-center transition-all ${
+                  active
+                    ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/30"
+                    : "text-slate-500 hover:bg-slate-100"
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-[21px] h-[21px]" strokeWidth={active ? 2.4 : 2} />
               </div>
-              <span className="text-[10px] leading-none">{item.shortLabel}</span>
+              <span
+                className={`text-[11.5px] tracking-tight leading-none ${
+                  active
+                    ? "text-[#009A4D] font-extrabold"
+                    : "text-slate-600 font-semibold"
+                }`}
+              >
+                {item.shortLabel}
+              </span>
             </Link>
           );
         })}
 
         <button
+          type="button"
           onClick={() => setMobileMoreOpen((v) => !v)}
-          className={`flex flex-col items-center justify-center gap-1 py-1 px-2.5 rounded-xl min-w-[60px] transition-colors ${
-            isMoreActive || mobileMoreOpen
-              ? "text-[#009A4D] font-bold"
-              : "text-slate-500 hover:text-slate-900 font-medium"
-          }`}
+          className="flex-1 max-w-[84px] min-h-[58px] py-1 px-1 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95"
         >
           <div
-            className={`p-1 rounded-lg transition-colors ${
-              isMoreActive || mobileMoreOpen ? "bg-emerald-50 text-[#009A4D]" : ""
+            className={`w-12 h-8 rounded-2xl flex items-center justify-center transition-all ${
+              isMoreActive || mobileMoreOpen
+                ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/30"
+                : "text-slate-500 hover:bg-slate-100"
             }`}
           >
-            {mobileMoreOpen ? <X className="w-4 h-4" /> : <MoreHorizontal className="w-4 h-4" />}
+            {mobileMoreOpen ? (
+              <X className="w-[21px] h-[21px]" strokeWidth={2.4} />
+            ) : (
+              <MoreHorizontal className="w-[21px] h-[21px]" strokeWidth={2.2} />
+            )}
           </div>
-          <span className="text-[10px] leading-none">More</span>
+          <span
+            className={`text-[11.5px] tracking-tight leading-none ${
+              isMoreActive || mobileMoreOpen
+                ? "text-[#009A4D] font-extrabold"
+                : "text-slate-600 font-semibold"
+            }`}
+          >
+            More
+          </span>
         </button>
       </nav>
 
       {/* Mobile "More" Slide-Up Sheet */}
       {mobileMoreOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end bg-slate-900/40 backdrop-blur-[1px]">
+        <div className="lg:hidden fixed inset-0 z-30 flex flex-col justify-end bg-slate-900/45 backdrop-blur-[2px]">
           <div className="flex-1" onClick={() => setMobileMoreOpen(false)} />
-          <div className="bg-white rounded-t-2xl border-t border-slate-200 p-4 pb-20 shadow-2xl space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                More Modules
-              </span>
+          <div className="bg-white rounded-t-3xl border-t border-slate-200 px-4 pt-3 pb-28 shadow-2xl space-y-3.5 max-h-[82vh] overflow-y-auto">
+            <div className="w-10 h-1.5 rounded-full bg-slate-200 mx-auto mb-1" />
+            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+              <div>
+                <span className="text-sm font-extrabold text-slate-900 block">
+                  All Owner Portal Modules
+                </span>
+                <span className="text-xs text-slate-500">
+                  Tap any section to open
+                </span>
+              </div>
               <button
                 onClick={() => setMobileMoreOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-700"
+                className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {[...PRIMARY_NAV.slice(4), ...SECONDARY_NAV].map((item) => {
                 const Icon = item.icon;
                 const active = isRouteActive(item.href);
@@ -332,14 +453,28 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileMoreOpen(false)}
-                    className={`flex items-center gap-2.5 p-3 rounded-xl border text-xs font-semibold transition-colors ${
+                    className={`flex items-center gap-3.5 p-3.5 rounded-2xl border transition-all ${
                       active
-                        ? "bg-emerald-50 border-emerald-200 text-[#009A4D]"
-                        : "bg-slate-50/80 border-slate-200/80 text-slate-700 hover:bg-slate-100"
+                        ? "bg-emerald-50/90 border-emerald-300 text-[#009A4D] shadow-2xs"
+                        : "bg-slate-50/70 border-slate-200/80 text-slate-800 hover:bg-slate-100"
                     }`}
                   >
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
+                    <div
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        active
+                          ? "bg-[#009A4D] text-white"
+                          : "bg-white border border-slate-200/80 text-slate-600"
+                      }`}
+                    >
+                      <Icon className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold truncate">{item.label}</p>
+                      <p className="text-xs text-slate-500 truncate mt-0.5">
+                        {item.subtitle}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
                   </Link>
                 );
               })}

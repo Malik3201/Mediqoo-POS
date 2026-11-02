@@ -290,6 +290,8 @@ export interface IOwnerPortalState extends Document {
   pos_version?: string;
   movement_coverage_days?: number;
   last_retention_compaction_at?: Date;
+  last_data_reset_at?: Date;
+  last_data_reset_id?: string;
   pharmacy_name?: string;
   pharmacy_phone?: string;
   pharmacy_address?: string;
@@ -322,6 +324,8 @@ const OwnerPortalStateSchema = new Schema<IOwnerPortalState>(
     pos_version: { type: String },
     movement_coverage_days: { type: Number, default: 90 },
     last_retention_compaction_at: { type: Date },
+    last_data_reset_at: { type: Date },
+    last_data_reset_id: { type: String },
     pharmacy_name: { type: String },
     pharmacy_phone: { type: String },
     pharmacy_address: { type: String },

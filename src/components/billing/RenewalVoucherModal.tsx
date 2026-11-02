@@ -214,11 +214,9 @@ export function RenewalVoucherModal({
 </head>
 <body>
   <div class="voucher-sheet">
-    <div class="header">
-      <div>
-        <img src="/logo-pharmacy-pos.png" alt="AivraSol" style="height: 36px; object-fit: contain;" onerror="this.style.display='none'" />
-        <div class="brand-title">AIVRASOL</div>
-        <div class="brand-sub">${voucher.seller_snapshot?.product_line || "AivraSol Pharmacy POS & Cloud Management Suite"}</div>
+    <div class="header" style="align-items: center;">
+      <div style="display: flex; align-items: center; background: #ffffff;">
+        <img src="/logo-aivrasol-voucher.png" alt="AivraSol" style="height: 96px; width: auto; object-fit: contain; margin: -12px 0 -12px -14px; background: #ffffff;" />
       </div>
       <div style="text-align: right;">
         <div class="doc-title">AivraSol Subscription &amp; License Renewal Voucher</div>
@@ -392,25 +390,13 @@ export function RenewalVoucherModal({
 
               <div className="p-6 space-y-6">
                 {/* 1. Brand Header */}
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-5 border-b border-slate-200 dark:border-slate-800">
-                  <div className="flex items-start gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center bg-white rounded-xl">
                     <img
-                      src="/logo-pharmacy-pos.png"
+                      src="/logo-aivrasol-voucher.png"
                       alt="AivraSol Logo"
-                      className="h-11 w-auto object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                      }}
+                      className="h-24 sm:h-28 w-auto object-contain -my-3 -ml-3"
                     />
-                    <div>
-                      <div className="text-xl font-extrabold tracking-tight text-[#009A4D]">
-                        AIVRASOL
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {voucher.seller_snapshot?.product_line ||
-                          "AivraSol Pharmacy POS & Cloud Management Suite"}
-                      </div>
-                    </div>
                   </div>
 
                   <div className="sm:text-right space-y-1">

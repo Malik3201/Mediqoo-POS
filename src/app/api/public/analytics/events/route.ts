@@ -4,6 +4,7 @@ import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import AnalyticsEvent from "@/models/AnalyticsEvent";
 import CloudExpense from "@/models/CloudExpense";
+import OwnerPortalState from "@/models/OwnerPortalState";
 import { isCloudDashboardEnabled } from "@/lib/status";
 import { meterFinalizedInvoiceUsage } from "@/lib/metering";
 
@@ -118,6 +119,15 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Step 4: Process each event ────────────────────────────────────────
+    const portalResetState = await OwnerPortalState.findOne({
+      client_id: license.client_id,
+    })
+      .select("last_data_reset_at")
+      .lean<{ last_data_reset_at?: Date }>();
+    const lastResetMs = portalResetState?.last_data_reset_at
+      ? new Date(portalResetState.last_data_reset_at).getTime()
+      : 0;
+
     const results: Array<{ event_id: string; duplicate: boolean; error?: string }> = [];
 
     for (const ev of events) {
@@ -136,6 +146,12 @@ export async function POST(req: NextRequest) {
       const occurredAtDate = new Date(occurred_at);
       if (isNaN(occurredAtDate.getTime())) {
         results.push({ event_id, duplicate: false, error: "invalid_occurred_at" });
+        continue;
+      }
+
+      // Ignore any stale pre-reset events that occurred before the latest POS factory data reset
+      if (lastResetMs > 0 && occurredAtDate.getTime() <= lastResetMs + 2000) {
+        results.push({ event_id, duplicate: true });
         continue;
       }
 
