@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import { CreditCard, DollarSign, AlertCircle, CheckCircle2, FileText, Clock, Plus } from "lucide-react";
+import { CreditCard, DollarSign, AlertCircle, CheckCircle2, FileText, Clock, Plus, Download, Calendar, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery } from "@/hooks/use-data";
 import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
@@ -320,6 +320,132 @@ export default function BillingPage() {
     });
   }, [activeBillingData, statusFilter, searchFilter]);
 
+  // ── Recorded Payments & Banking Proof Ledger State & Filtering ──
+  const [paymentDatePreset, setPaymentDatePreset] = useState<string>("all");
+  const [paymentFromDate, setPaymentFromDate] = useState<string>("");
+  const [paymentToDate, setPaymentToDate] = useState<string>("");
+  const [paymentClientFilter, setPaymentClientFilter] = useState<string>("all");
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("all");
+  const [paymentSearchQuery, setPaymentSearchQuery] = useState<string>("");
+
+  const licenseById = useMemo(() => {
+    const map = new Map<string, any>();
+    licenses.forEach((l: any) => map.set(l.id, l));
+    return map;
+  }, [licenses]);
+
+  const uniqueClientsList = useMemo(() => {
+    const map = new Map<string, string>();
+    licenses.forEach((l: any) => {
+      if (l.client_id && l.clients?.name) {
+        map.set(l.client_id, l.clients.name);
+      }
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [licenses]);
+
+  const filteredRecordedPayments = useMemo(() => {
+    const now = new Date();
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+
+    if (paymentDatePreset === "today") {
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (paymentDatePreset === "7d") {
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date();
+    } else if (paymentDatePreset === "this_month") {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else if (paymentDatePreset === "last_month") {
+      startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    } else if (paymentDatePreset === "this_year") {
+      startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+    } else if (paymentDatePreset === "custom") {
+      if (paymentFromDate) startDate = new Date(`${paymentFromDate}T00:00:00.000`);
+      if (paymentToDate) endDate = new Date(`${paymentToDate}T23:59:59.999`);
+    }
+
+    const q = paymentSearchQuery.trim().toLowerCase();
+
+    return (payments as any[])
+      .filter((p) => Number(p.amount_paid || 0) > 0)
+      .map((p) => {
+        const lic = licenseById.get(p.license_id);
+        const paidAt = p.paid_at ? new Date(p.paid_at) : new Date(p.created_at || Date.now());
+        return {
+          ...p,
+          paidAtDate: paidAt,
+          clientName: lic?.clients?.name || "Pharmacy Client",
+          contactName: lic?.clients?.contact_name || "",
+          projectName: lic?.projects?.name || "AivraSol Pharmacy POS",
+          billingModel: lic?.billing?.model === "per_invoice" ? "Per Invoice" : "Fixed",
+          resolvedClientId: p.client_id || lic?.client_id || "",
+          currency: p.currency || lic?.billing?.currency || "PKR",
+        };
+      })
+      .filter((row) => {
+        if (startDate && row.paidAtDate < startDate) return false;
+        if (endDate && row.paidAtDate > endDate) return false;
+        if (paymentClientFilter !== "all" && row.resolvedClientId !== paymentClientFilter) return false;
+        if (
+          paymentMethodFilter !== "all" &&
+          String(row.payment_method || "").toLowerCase() !== paymentMethodFilter.toLowerCase()
+        ) {
+          return false;
+        }
+        if (q) {
+          const hay = `${row.clientName} ${row.contactName} ${row.projectName} ${row.receipt_number || ""} ${row.payment_reference || ""} ${row.payment_method || ""}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.paidAtDate.getTime() - a.paidAtDate.getTime());
+  }, [
+    payments,
+    licenseById,
+    paymentDatePreset,
+    paymentFromDate,
+    paymentToDate,
+    paymentClientFilter,
+    paymentMethodFilter,
+    paymentSearchQuery,
+  ]);
+
+  const recordedPaymentsTotals = useMemo(() => {
+    let total = 0;
+    let bankDigital = 0;
+    let cash = 0;
+    for (const r of filteredRecordedPayments) {
+      const amt = Number(r.amount_paid || 0);
+      total += amt;
+      if (String(r.payment_method || "").toLowerCase().includes("cash")) {
+        cash += amt;
+      } else {
+        bankDigital += amt;
+      }
+    }
+    return { total, bankDigital, cash, count: filteredRecordedPayments.length };
+  }, [filteredRecordedPayments]);
+
+  const handleDownloadBankingStatementPdf = () => {
+    const params = new URLSearchParams();
+    params.set("preset", paymentDatePreset);
+    if (paymentDatePreset === "custom") {
+      if (paymentFromDate) params.set("from", paymentFromDate);
+      if (paymentToDate) params.set("to", paymentToDate);
+    }
+    if (paymentClientFilter !== "all") params.set("clientId", paymentClientFilter);
+    if (paymentMethodFilter !== "all") params.set("method", paymentMethodFilter);
+    if (paymentSearchQuery.trim()) params.set("q", paymentSearchQuery.trim());
+
+    window.open(`/api/admin/payments/statement-pdf?${params.toString()}`, "_blank");
+  };
+
   const loading = loadingLicenses || loadingPeriods || loadingPayments;
 
   const fetchPreview = useCallback(async (licenseId: string, months?: number, customDate?: string, lifetime?: boolean) => {
@@ -546,14 +672,36 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-          <CreditCard className="h-6 w-6 text-primary" />
-          Billing & Renewals
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Manage recurring license payments, expected revenue, and overdue subscriptions.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <CreditCard className="h-6 w-6 text-primary" />
+            Billing &amp; Renewals
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Manage recurring license payments, expected revenue, vouchers, and official banking proof statements.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              document.getElementById("recorded-payments-ledger")?.scrollIntoView({ behavior: "smooth" });
+            }}
+          >
+            <Receipt className="h-4 w-4 mr-1.5" />
+            Recorded Payments ({payments.length})
+          </Button>
+          <Button
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={handleDownloadBankingStatementPdf}
+          >
+            <Download className="h-4 w-4 mr-1.5" />
+            Banking Proof PDF
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -809,6 +957,279 @@ export default function BillingPage() {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* ── RECORDED PAYMENTS & BANKING PROOF OF PAYMENT LEDGER ── */}
+      <div
+        id="recorded-payments-ledger"
+        className="rounded-xl border bg-card shadow-sm overflow-hidden space-y-4 p-5"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-emerald-600" />
+              <h2 className="text-lg font-bold tracking-tight">
+                Recorded Payments &amp; Banking Proof Ledger
+              </h2>
+              <Badge variant="secondary" className="text-xs">
+                {recordedPaymentsTotals.count} Payment{recordedPaymentsTotals.count === 1 ? "" : "s"}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Click <b>Voucher</b> on any recorded payment to generate/view its digital receipt, or export filtered payments as an official <b>Banking Proof of Payment Statement PDF</b>.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+              onClick={handleDownloadBankingStatementPdf}
+            >
+              <Download className="h-4 w-4" />
+              Save Banking Proof of Payment (PDF)
+            </Button>
+          </div>
+        </div>
+
+        {/* Date Presets, Custom Date Range & Filters */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-muted-foreground mr-1 flex items-center gap-1">
+              <Calendar className="h-3.5 w-3.5" /> Period:
+            </span>
+            {[
+              { id: "all", label: "All Time" },
+              { id: "today", label: "Today" },
+              { id: "7d", label: "Last 7 Days" },
+              { id: "this_month", label: "This Month" },
+              { id: "last_month", label: "Last Month" },
+              { id: "this_year", label: "This Year" },
+              { id: "custom", label: "Custom Date Range" },
+            ].map((p) => (
+              <Button
+                key={p.id}
+                type="button"
+                size="sm"
+                variant={paymentDatePreset === p.id ? "default" : "outline"}
+                className="h-8 text-xs"
+                onClick={() => setPaymentDatePreset(p.id)}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+
+          {paymentDatePreset === "custom" && (
+            <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-muted/30 border">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs whitespace-nowrap">From Date:</Label>
+                <Input
+                  type="date"
+                  value={paymentFromDate}
+                  onChange={(e) => setPaymentFromDate(e.target.value)}
+                  className="h-8 text-xs w-[155px]"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs whitespace-nowrap">To Date:</Label>
+                <Input
+                  type="date"
+                  value={paymentToDate}
+                  onChange={(e) => setPaymentToDate(e.target.value)}
+                  className="h-8 text-xs w-[155px]"
+                />
+              </div>
+              {(paymentFromDate || paymentToDate) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    setPaymentFromDate("");
+                    setPaymentToDate("");
+                  }}
+                >
+                  Clear Dates
+                </Button>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input
+              placeholder="Search receipt #, client, reference ID..."
+              value={paymentSearchQuery}
+              onChange={(e) => setPaymentSearchQuery(e.target.value)}
+              className="h-9 text-xs"
+            />
+            <Select value={paymentClientFilter} onValueChange={setPaymentClientFilter}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Filter by Client" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Pharmacy Clients</SelectItem>
+                {uniqueClientsList.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={paymentMethodFilter} onValueChange={setPaymentMethodFilter}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Filter by Payment Method" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Payment Methods</SelectItem>
+                <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                <SelectItem value="Cash">Cash</SelectItem>
+                <SelectItem value="Online Gateway">Online Gateway</SelectItem>
+                <SelectItem value="Cheque">Cheque</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Summary KPI Strip for Filtered Recorded Payments */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-lg border bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/80 p-3.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+              Total Verified Amount (Selected Period)
+            </div>
+            <div className="text-xl font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
+              Rs {recordedPaymentsTotals.total.toLocaleString()}
+            </div>
+          </div>
+          <div className="rounded-lg border bg-muted/20 p-3.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Bank / Online / Cheque Transfers
+            </div>
+            <div className="text-xl font-bold mt-0.5">
+              Rs {recordedPaymentsTotals.bankDigital.toLocaleString()}
+            </div>
+          </div>
+          <div className="rounded-lg border bg-muted/20 p-3.5">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Cash Collections
+            </div>
+            <div className="text-xl font-bold mt-0.5">
+              Rs {recordedPaymentsTotals.cash.toLocaleString()}
+            </div>
+          </div>
+        </div>
+
+        {/* Recorded Payments Table */}
+        <div className="rounded-lg border overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date &amp; Time</TableHead>
+                <TableHead>Receipt / Voucher #</TableHead>
+                <TableHead>Client / Pharmacy</TableHead>
+                <TableHead>Project &amp; Model</TableHead>
+                <TableHead>Method &amp; Ref ID</TableHead>
+                <TableHead className="text-right">Amount Paid</TableHead>
+                <TableHead className="text-right w-[210px]">Voucher Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loadingPayments ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground text-sm">
+                    Loading recorded payments...
+                  </TableCell>
+                </TableRow>
+              ) : filteredRecordedPayments.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground text-sm">
+                    No recorded payments match the selected date range or filters.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredRecordedPayments.map((p: any) => (
+                  <TableRow
+                    key={p.id}
+                    className="cursor-pointer hover:bg-muted/40"
+                    onClick={() => {
+                      setActiveVoucherDoc(null);
+                      setActiveVoucherId(p.voucher_id || p.id);
+                    }}
+                  >
+                    <TableCell className="text-xs whitespace-nowrap">
+                      <div className="font-medium">
+                        {format(p.paidAtDate, "dd MMM yyyy")}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {format(p.paidAtDate, "hh:mm a")}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs font-semibold text-primary">
+                      {p.receipt_number || `AV-RNW-${String(p.id).slice(0, 8).toUpperCase()}`}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-xs font-semibold">{p.clientName}</div>
+                      {p.contactName && (
+                        <div className="text-[11px] text-muted-foreground">{p.contactName}</div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-xs">{p.projectName}</div>
+                      <Badge variant="outline" className="text-[10px] mt-0.5">
+                        {p.billingModel}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-xs font-medium">{p.payment_method || "Bank Transfer"}</div>
+                      {p.payment_reference && (
+                        <div className="text-[11px] text-muted-foreground font-mono">
+                          Ref: {p.payment_reference}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-emerald-700 dark:text-emerald-400 text-xs whitespace-nowrap">
+                      {p.currency} {Number(p.amount_paid || 0).toLocaleString()}
+                    </TableCell>
+                    <TableCell
+                      className="text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex justify-end gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => {
+                            setActiveVoucherDoc(null);
+                            setActiveVoucherId(p.voucher_id || p.id);
+                          }}
+                        >
+                          <FileText className="h-3 w-3" />
+                          Voucher
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs gap-1"
+                          onClick={() =>
+                            window.open(
+                              `/api/admin/vouchers/${encodeURIComponent(p.voucher_id || p.id)}?format=pdf`,
+                              "_blank"
+                            )
+                          }
+                        >
+                          <Download className="h-3 w-3" />
+                          PDF
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       <Dialog open={!!paymentTarget} onOpenChange={(v) => !v && setPaymentTarget(null)}>

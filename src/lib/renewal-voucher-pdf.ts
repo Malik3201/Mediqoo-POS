@@ -9,6 +9,54 @@ import fs from "fs";
 import path from "path";
 import { VOUCHER_LOGO_BASE64 } from "./voucher-logo-data";
 
+const ABDULREHMAN_SIGNATURE_PATHS = {
+  mainStroke:
+    "M 16 44 C 21 20, 31 6, 38 8 C 44 10, 39 34, 34 44 C 33 46, 42 26, 49 23 C 54 21, 52 36, 57 36 C 62 36, 67 11, 63 9 C 59 7, 56 35, 64 36 C 70 37, 75 23, 72 21 C 68 19, 67 35, 74 36 C 79 36, 82 26, 85 35 C 88 36, 94 11, 90 9 C 86 7, 84 35, 92 36 C 96 25, 102 24, 105 34 C 108 35, 114 24, 110 22 C 106 20, 105 35, 113 35 C 118 35, 124 10, 120 8 C 116 6, 115 35, 121 35 C 125 25, 129 25, 132 35 C 135 25, 140 25, 143 34 C 146 25, 151 25, 154 34 C 158 35, 164 24, 160 22 C 156 20, 155 35, 163 35 C 168 25, 173 25, 177 34 C 181 25, 187 26, 192 35 C 197 37, 206 31, 214 22",
+  crossAndFlourish:
+    "M 12 27 C 46 22, 92 19, 134 17 M 22 49 C 72 41, 146 38, 208 41 C 216 42, 188 49, 154 52",
+  dots: "M 172 54 L 175 54 M 183 53 L 186 53",
+};
+
+export function drawAbdulrehmanSignaturePdf(
+  doc: PDFKit.PDFDocument,
+  x: number,
+  y: number,
+  scale = 0.78
+) {
+  doc.save();
+  doc.translate(x, y);
+  doc.scale(scale);
+  doc.lineCap("round").lineJoin("round");
+  doc
+    .path(ABDULREHMAN_SIGNATURE_PATHS.mainStroke)
+    .lineWidth(2.1)
+    .strokeColor("#0F172A")
+    .stroke();
+  doc
+    .path(ABDULREHMAN_SIGNATURE_PATHS.crossAndFlourish)
+    .lineWidth(1.6)
+    .strokeColor("#009A4D")
+    .stroke();
+  doc
+    .path(ABDULREHMAN_SIGNATURE_PATHS.dots)
+    .lineWidth(2.4)
+    .strokeColor("#009A4D")
+    .stroke();
+  doc.restore();
+}
+
+export function getAivraSolLogoBuffer(): Buffer {
+  const logoPath = path.join(process.cwd(), "public", "logo-aivrasol-voucher.png");
+  try {
+    if (fs.existsSync(logoPath)) {
+      return fs.readFileSync(logoPath);
+    }
+  } catch {
+    // Fallback to embedded base64
+  }
+  return Buffer.from(VOUCHER_LOGO_BASE64, "base64");
+}
+
 function fmtDate(d: any): string {
   if (!d) return "—";
   try {
@@ -71,7 +119,7 @@ function statusDisplay(status: string): {
 export async function generateRenewalVoucherPdfBuffer(
   voucher: any
 ): Promise<Buffer> {
-  const doc = new PDFDocument({ margin: 42, size: "A4" });
+  const doc = new PDFDocument({ margin: 40, size: "A4" });
   const chunks: Buffer[] = [];
 
   const pdfPromise = new Promise<Buffer>((resolve, reject) => {
@@ -81,27 +129,32 @@ export async function generateRenewalVoucherPdfBuffer(
   });
 
   const pageWidth = 595.28;
-  const margin = 42;
+  const margin = 40;
   const contentWidth = pageWidth - margin * 2;
   const currency =
     voucher.financial_snapshot?.currency || voucher.currency || "PKR";
 
+  const logoBuffer = getAivraSolLogoBuffer();
+
+  // 0. Centered Full AivraSol Light Watermark Behind Voucher Content
+  try {
+    doc.save();
+    doc.opacity(0.055);
+    doc.image(logoBuffer, (pageWidth - 330) / 2, 240, { width: 330 });
+    doc.opacity(1);
+    doc.restore();
+  } catch {
+    // Ignore watermark error if any
+  }
+
   // Top Emerald Brand Bar
   doc.rect(0, 0, pageWidth, 8).fill("#009A4D");
 
-  // Left Header: Large AivraSol Logo on clean white background (no subtitle text)
-  const logoPath = path.join(process.cwd(), "public", "logo-aivrasol-voucher.png");
+  // Left Header: Large AivraSol Logo on clean white background (no extra subtitle text)
   try {
-    const logoSource = fs.existsSync(logoPath)
-      ? fs.readFileSync(logoPath)
-      : Buffer.from(VOUCHER_LOGO_BASE64, "base64");
-    doc.image(logoSource, margin - 12, 12, { width: 102 });
+    doc.image(logoBuffer, margin - 12, 12, { width: 102 });
   } catch {
-    try {
-      doc.image(Buffer.from(VOUCHER_LOGO_BASE64, "base64"), margin - 12, 12, { width: 102 });
-    } catch {
-      // Ignore if image fails
-    }
+    // Ignore if image fails
   }
 
   // Right Header: Voucher Title & Meta
@@ -153,7 +206,7 @@ export async function generateRenewalVoucherPdfBuffer(
     .text(st.label, badgeX, 95, { width: badgeWidth, align: "center" });
 
   // Divider
-  let y = 120;
+  let y = 118;
   doc
     .moveTo(margin, y)
     .lineTo(pageWidth - margin, y)
@@ -161,12 +214,21 @@ export async function generateRenewalVoucherPdfBuffer(
     .lineWidth(1)
     .stroke();
 
-  y += 14;
+  y += 12;
 
-  // Two-column Issuer vs License Holder box
+  // Two-column Issuer vs License Holder box (semi-transparent so watermark shows softly)
   const colWidth = (contentWidth - 16) / 2;
-  doc.roundedRect(margin, y, colWidth, 86, 6).fill("#F8FAFC");
-  doc.roundedRect(margin + colWidth + 16, y, colWidth, 86, 6).fill("#F8FAFC");
+  doc.save();
+  doc.fillOpacity(0.68);
+  doc.roundedRect(margin, y, colWidth, 84, 6).fill("#F8FAFC");
+  doc.roundedRect(margin + colWidth + 16, y, colWidth, 84, 6).fill("#F8FAFC");
+  doc.restore();
+  doc.roundedRect(margin, y, colWidth, 84, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
+  doc
+    .roundedRect(margin + colWidth + 16, y, colWidth, 84, 6)
+    .strokeColor("#E2E8F0")
+    .lineWidth(0.75)
+    .stroke();
 
   // Issuer
   doc
@@ -239,7 +301,7 @@ export async function generateRenewalVoucherPdfBuffer(
       y + 66
     );
 
-  y += 102;
+  y += 98;
 
   // Section: Subscription & License Details
   doc
@@ -247,9 +309,9 @@ export async function generateRenewalVoucherPdfBuffer(
     .font("Helvetica-Bold")
     .fontSize(10)
     .text("SUBSCRIPTION & LICENSE ENTITLEMENT DETAILS", margin, y);
-  y += 16;
+  y += 15;
 
-  doc.roundedRect(margin, y, contentWidth, 92, 6).strokeColor("#E2E8F0").stroke();
+  doc.roundedRect(margin, y, contentWidth, 88, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
 
   const lic = voucher.license_snapshot || {};
   const per = voucher.period_snapshot || {};
@@ -289,7 +351,7 @@ export async function generateRenewalVoucherPdfBuffer(
     lic.product_name || "AivraSol Pharmacy POS",
     "Previous Expiry:",
     per.previous_expiry ? fmtDate(per.previous_expiry) : "Initial / None",
-    y + 12
+    y + 11
   );
   drawGridPair(
     "License Key:",
@@ -300,7 +362,7 @@ export async function generateRenewalVoucherPdfBuffer(
       : per.new_expiry
       ? fmtDate(per.new_expiry)
       : fmtDate(voucher.new_expiry),
-    y + 30
+    y + 29
   );
   drawGridPair(
     "Billing Plan:",
@@ -310,17 +372,17 @@ export async function generateRenewalVoucherPdfBuffer(
         : "Fixed Subscription"),
     "Extension Duration:",
     per.extension_duration_label || "Standard Cycle",
-    y + 48
+    y + 47
   );
   drawGridPair(
     "Allowed Terminals:",
     `${lic.allowed_seats || 1} POS Seat(s)`,
     "Status After Action:",
     lic.status_after_renewal || "Active",
-    y + 66
+    y + 65
   );
 
-  y += 108;
+  y += 102;
 
   // Section: Financial Breakdown
   doc
@@ -328,7 +390,7 @@ export async function generateRenewalVoucherPdfBuffer(
     .font("Helvetica-Bold")
     .fontSize(10)
     .text("FINANCIAL BREAKDOWN", margin, y);
-  y += 16;
+  y += 15;
 
   const fin = voucher.financial_snapshot || {
     plan_charge: voucher.subtotal || 0,
@@ -345,17 +407,17 @@ export async function generateRenewalVoucherPdfBuffer(
   };
 
   // Table Header
-  doc.rect(margin, y, contentWidth, 22).fill("#0F172A");
+  doc.rect(margin, y, contentWidth, 21).fill("#0F172A");
   doc
     .fillColor("#FFFFFF")
     .font("Helvetica-Bold")
     .fontSize(8.5)
-    .text("DESCRIPTION", margin + 12, y + 7)
-    .text("AMOUNT", margin, y + 7, {
+    .text("DESCRIPTION", margin + 12, y + 6.5)
+    .text("AMOUNT", margin, y + 6.5, {
       align: "right",
       width: contentWidth - 12,
     });
-  y += 22;
+  y += 21;
 
   const drawFinRow = (
     desc: string,
@@ -365,7 +427,10 @@ export async function generateRenewalVoucherPdfBuffer(
     textColor = "#0F172A"
   ) => {
     if (highlightBg) {
-      doc.rect(margin, y, contentWidth, 22).fill(highlightBg);
+      doc.save();
+      doc.fillOpacity(0.7);
+      doc.rect(margin, y, contentWidth, 21).fill(highlightBg);
+      doc.restore();
     }
     doc
       .fillColor(textColor)
@@ -377,12 +442,12 @@ export async function generateRenewalVoucherPdfBuffer(
         width: contentWidth - 12,
       });
     doc
-      .moveTo(margin, y + 22)
-      .lineTo(pageWidth - margin, y + 22)
+      .moveTo(margin, y + 21)
+      .lineTo(pageWidth - margin, y + 21)
       .strokeColor("#E2E8F0")
       .lineWidth(0.5)
       .stroke();
-    y += 22;
+    y += 21;
   };
 
   if (lic.billing_model === "per_invoice") {
@@ -441,7 +506,7 @@ export async function generateRenewalVoucherPdfBuffer(
       : "#0F172A"
   );
 
-  y += 16;
+  y += 14;
 
   // Section: Payment & Processing Details
   doc
@@ -452,57 +517,97 @@ export async function generateRenewalVoucherPdfBuffer(
   y += 14;
 
   const pay = voucher.payment_snapshot || {};
-  doc.roundedRect(margin, y, contentWidth, 72, 6).fill("#F8FAFC");
+  doc.save();
+  doc.fillOpacity(0.68);
+  doc.roundedRect(margin, y, contentWidth, 68, 6).fill("#F8FAFC");
+  doc.restore();
+  doc.roundedRect(margin, y, contentWidth, 68, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
 
   drawGridPair(
     "Payment Method:",
     pay.payment_method || voucher.payment_method || "—",
     "Payment Date:",
     pay.paid_at ? fmtDateTime(pay.paid_at) : "No Payment Recorded",
-    y + 12
+    y + 11
   );
   drawGridPair(
     "Reference / Tx ID:",
     pay.transaction_reference || voucher.payment_reference || "—",
     "Processed By:",
     pay.processed_by || "Super Admin",
-    y + 30
+    y + 29
   );
   drawGridPair(
     "Remarks / Notes:",
     (pay.notes || "—").slice(0, 50),
     "Verification Hash:",
     voucher.verification_hash || "—",
-    y + 48
+    y + 47
   );
 
-  // Footer
-  const footerY = 765;
+  // Digital Verification & Handwritten Verified Signature Block
+  const sigBlockY = 695;
   doc
-    .moveTo(margin, footerY)
-    .lineTo(pageWidth - margin, footerY)
-    .strokeColor("#E2E8F0")
-    .lineWidth(1)
-    .stroke();
-
+    .fillColor("#009A4D")
+    .font("Helvetica-Bold")
+    .fontSize(8.5)
+    .text("DIGITAL VERIFICATION RECORD", margin, sigBlockY + 14);
+  doc
+    .fillColor("#334155")
+    .font("Courier-Bold")
+    .fontSize(8.5)
+    .text(`Hash: ${voucher.verification_hash || voucherNo}`, margin, sigBlockY + 26);
   doc
     .fillColor("#64748B")
     .font("Helvetica")
     .fontSize(8)
+    .text("support@aivrasol.com • www.aivrasol.com", margin, sigBlockY + 38);
+
+  // Right-side Handwritten Verified Signature (Abdulrehman graphic stroke)
+  const sigBoxWidth = 185;
+  const sigBoxX = pageWidth - margin - sigBoxWidth;
+  drawAbdulrehmanSignaturePdf(doc, sigBoxX + 4, sigBlockY - 6, 0.78);
+
+  doc
+    .moveTo(sigBoxX, sigBlockY + 38)
+    .lineTo(sigBoxX + sigBoxWidth, sigBlockY + 38)
+    .strokeColor("#334155")
+    .lineWidth(1)
+    .stroke();
+  doc
+    .fillColor("#0F172A")
+    .font("Helvetica-Bold")
+    .fontSize(8.5)
+    .text("Authorized & Verified Signature", sigBoxX, sigBlockY + 42, {
+      width: sigBoxWidth,
+      align: "center",
+    });
+  doc
+    .fillColor("#009A4D")
+    .font("Helvetica-Bold")
+    .fontSize(7.5)
+    .text("AivraSol Billing & Licensing Authority", sigBoxX, sigBlockY + 53, {
+      width: sigBoxWidth,
+      align: "center",
+    });
+
+  // Footer & Non-Banking Digital Receipt Disclaimer
+  const footerY = 766;
+  doc
+    .roundedRect(margin, footerY, contentWidth, 28, 4)
+    .fillAndStroke("#F8FAFC", "#CBD5E1");
+
+  doc
+    .fillColor("#475569")
+    .font("Helvetica")
+    .fontSize(7.5)
     .text(
-      "This is an official computer-generated AivraSol Subscription & License Renewal Voucher and does not require a physical signature.",
-      margin,
-      footerY + 10,
-      { align: "center", width: contentWidth }
-    )
-    .text(
-      `Verification ID: ${voucher.verification_hash || voucherNo} • AivraSol Technologies (support@aivrasol.com | www.aivrasol.com)`,
-      margin,
-      footerY + 23,
-      { align: "center", width: contentWidth }
+      "Disclaimer: This payment voucher is a digital receipt issued by AivraSol for subscription and license verification only and is not valid for banking, tax, or official financial institution purposes.",
+      margin + 10,
+      footerY + 7,
+      { align: "center", width: contentWidth - 20 }
     );
 
   doc.end();
   return pdfPromise;
 }
-
