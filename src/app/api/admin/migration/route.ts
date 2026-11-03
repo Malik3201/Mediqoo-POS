@@ -4,6 +4,7 @@ import MigrationJob from "@/models/MigrationJob";
 import { requireSuperAdmin } from "@/lib/ai/admin-auth";
 import { getPresignedUploadUrl } from "@/lib/r2";
 import { triggerOpportunisticSweep } from "@/lib/migration/cleanup";
+import { decryptRecoverySecret } from "@/lib/backup-crypto";
 import crypto from "crypto";
 import path from "path";
 
@@ -34,11 +35,35 @@ export async function GET(req: NextRequest) {
     }
 
     const total = await MigrationJob.countDocuments(filter);
-    const jobs = await MigrationJob.find(filter)
+    const rawJobs = await MigrationJob.find(filter)
       .sort({ created_at: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean();
+
+    const jobs = rawJobs.map((job: any) => {
+      if (job.restore_key?.encrypted_key && job.restore_key?.iv && job.restore_key?.tag) {
+        let plaintextKey: string | undefined;
+        try {
+          plaintextKey = decryptRecoverySecret(
+            job.restore_key.encrypted_key,
+            job.restore_key.iv,
+            job.restore_key.tag
+          );
+        } catch {
+          plaintextKey = undefined;
+        }
+        return {
+          ...job,
+          restore_key: {
+            key_preview: job.restore_key.key_preview,
+            issued_at: job.restore_key.issued_at,
+            plaintext_key: plaintextKey,
+          },
+        };
+      }
+      return job;
+    });
 
     return NextResponse.json({
       jobs,

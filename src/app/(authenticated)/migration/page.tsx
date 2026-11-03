@@ -136,6 +136,7 @@ interface MigrationJobData {
   restore_key?: {
     key_preview?: string;
     issued_at?: string;
+    plaintext_key?: string;
   };
   created_at: string;
   audit_events?: Array<{
@@ -382,6 +383,32 @@ export default function DataMigrationPage() {
   const handleCopyKey = (key: string) => {
     navigator.clipboard.writeText(key);
     toast.success("Restore key copied to clipboard!");
+  };
+
+  // Copy a specific job's restore key (decrypting on demand if needed)
+  const handleCopyJobRestoreKey = async (job: MigrationJobData) => {
+    if (job.restore_key?.plaintext_key) {
+      handleCopyKey(job.restore_key.plaintext_key);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/migration/${job.id}/restore-key`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to retrieve restore key");
+      const fullKey = data.restore_key as string;
+      handleCopyKey(fullKey);
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id
+            ? { ...j, restore_key: { ...j.restore_key, plaintext_key: fullKey } }
+            : j
+        )
+      );
+    } catch (err: any) {
+      toast.error("Key retrieval failed", { description: err.message });
+    }
   };
 
   // Download .aivrabak package
@@ -978,6 +1005,7 @@ export default function DataMigrationPage() {
                         <th className="py-2.5 px-4 font-medium">Target / Scope</th>
                         <th className="py-2.5 px-4 font-medium">Status</th>
                         <th className="py-2.5 px-4 font-medium">Products</th>
+                        <th className="py-2.5 px-4 font-medium">Restore Key (.aivrabak)</th>
                         <th className="py-2.5 px-4 font-medium">Created</th>
                         <th className="py-2.5 px-4 font-medium text-right">Actions</th>
                       </tr>
@@ -1021,10 +1049,30 @@ export default function DataMigrationPage() {
                           <td className="py-3 px-4 font-medium">
                             {job.normalized_counts.products.toLocaleString()}
                           </td>
+                          <td className="py-3 px-4">
+                            {job.status === "completed" && (job.restore_key?.plaintext_key || job.restore_key?.key_preview) ? (
+                              <div className="inline-flex items-center gap-1.5">
+                                <code className="px-2 py-1 rounded bg-muted font-mono text-[11px] text-foreground select-all border">
+                                  {job.restore_key?.plaintext_key || job.restore_key?.key_preview}
+                                </code>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 text-xs"
+                                  onClick={() => handleCopyJobRestoreKey(job)}
+                                  title="Copy .aivrabak Restore Key"
+                                >
+                                  <Copy className="h-3.5 w-3.5 mr-1" /> Copy Key
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-muted-foreground">
                             {new Date(job.created_at).toLocaleDateString()}
                           </td>
-                          <td className="py-3 px-4 text-right space-x-2">
+                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
                             {job.status === "completed" && (
                               <Button
                                 size="sm"
@@ -1134,11 +1182,22 @@ export default function DataMigrationPage() {
                             Ready
                           </Badge>
                         </div>
-                        <div className="text-xs text-muted-foreground space-y-1">
+                        <div className="text-xs text-muted-foreground space-y-1.5">
                           <div>File: {job.output_backup?.filename}</div>
                           <div>Products: {job.normalized_counts.products.toLocaleString()}</div>
-                          <div>
-                            Key: <span className="font-mono">{job.restore_key?.key_preview}</span>
+                          <div className="flex items-center gap-2 pt-1">
+                            <span>Key:</span>
+                            <code className="px-2 py-0.5 rounded bg-muted font-mono text-[11px] text-foreground select-all border">
+                              {job.restore_key?.plaintext_key || job.restore_key?.key_preview}
+                            </code>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2 text-[11px]"
+                              onClick={() => handleCopyJobRestoreKey(job)}
+                            >
+                              <Copy className="h-3 w-3 mr-1" /> Copy Key
+                            </Button>
                           </div>
                         </div>
                         <div className="flex gap-2 pt-2 border-t">
@@ -1183,6 +1242,26 @@ export default function DataMigrationPage() {
 
           {diagnosticsJob && (
             <div className="space-y-4 text-xs">
+              {(diagnosticsJob.restore_key?.plaintext_key || diagnosticsJob.restore_key?.key_preview) && (
+                <div className="p-3 border rounded-lg bg-primary/5 border-primary/20 flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-semibold uppercase tracking-wider text-[11px] text-primary block mb-1">
+                      .aivrabak Restore Key
+                    </span>
+                    <code className="font-mono text-xs text-foreground select-all">
+                      {diagnosticsJob.restore_key?.plaintext_key || diagnosticsJob.restore_key?.key_preview}
+                    </code>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleCopyJobRestoreKey(diagnosticsJob)}
+                  >
+                    <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy Key
+                  </Button>
+                </div>
+              )}
+
               <div className="p-3 border rounded-lg bg-muted/20 space-y-2">
                 <span className="font-semibold uppercase tracking-wider text-[11px] block">
                   Database Page &amp; Record Summary

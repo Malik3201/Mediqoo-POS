@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2, Building2, Users, RefreshCw, UserX, UserCheck } from "lucide-react";
+import { Plus, Pencil, Trash2, Building2, Users, RefreshCw, UserX, UserCheck, Copy, KeyRound, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 
@@ -52,6 +52,7 @@ type PortalUserRow = {
   email: string;
   role: string;
   status: string;
+  password_plain?: string | null;
   last_login_at?: string | null;
 };
 
@@ -320,6 +321,10 @@ function PortalUsersModal({ client, onClose }: { client: { id: string; name: str
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState({ name: "", email: "", role: "owner" });
   const [inviting, setInviting] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
 
   const fetchUsers = async () => {
     setLoadingUsers(true);
@@ -331,6 +336,42 @@ function PortalUsersModal({ client, onClose }: { client: { id: string; name: str
   };
 
   useEffect(() => { fetchUsers(); }, [client.id]);
+
+  const copyPassword = (id: string, pwd: string) => {
+    navigator.clipboard.writeText(pwd);
+    setCopiedId(id);
+    toast.success("Password copied to clipboard");
+    setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 2000);
+  };
+
+  const saveDirectPassword = async (userId: string) => {
+    const trimmed = newPasswordInput.trim();
+    if (trimmed.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      const res = await fetch(`/api/admin/portal-users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: trimmed }),
+      });
+      if (res.ok) {
+        toast.success("Password updated");
+        setEditingPasswordUserId(null);
+        setNewPasswordInput("");
+        fetchUsers();
+      } else {
+        const d = await res.json();
+        toast.error(d.error ?? "Failed to update password");
+      }
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setSavingPassword(false);
+    }
+  };
 
   const invite = async () => {
     if (!inviteForm.name || !inviteForm.email) { toast.error("Name and email required"); return; }
@@ -378,7 +419,7 @@ function PortalUsersModal({ client, onClose }: { client: { id: string; name: str
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-4xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
@@ -434,15 +475,16 @@ function PortalUsersModal({ client, onClose }: { client: { id: string; name: str
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Password</TableHead>
                 <TableHead>Last Login</TableHead>
-                <TableHead className="w-[100px]" />
+                <TableHead className="w-[110px]" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loadingUsers ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Loading…</TableCell></TableRow>
               ) : users.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">No portal users yet. Create the first one above.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">No portal users yet. Create the first one above.</TableCell></TableRow>
               ) : (
                 users.map((u) => (
                   <TableRow key={u.id}>
@@ -450,6 +492,103 @@ function PortalUsersModal({ client, onClose }: { client: { id: string; name: str
                     <TableCell className="text-muted-foreground">{u.email}</TableCell>
                     <TableCell><Badge variant="secondary">{u.role}</Badge></TableCell>
                     <TableCell>{statusBadge(u.status)}</TableCell>
+                    <TableCell>
+                      {editingPasswordUserId === u.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            type="text"
+                            value={newPasswordInput}
+                            onChange={(e) => setNewPasswordInput(e.target.value)}
+                            placeholder="Min 8 chars"
+                            className="h-7 w-32 text-xs font-mono"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={savingPassword}
+                            onClick={() => saveDirectPassword(u.id)}
+                          >
+                            {savingPassword ? "…" : "Save"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-1.5 text-xs"
+                            onClick={() => {
+                              setEditingPasswordUserId(null);
+                              setNewPasswordInput("");
+                            }}
+                          >
+                            ✕
+                          </Button>
+                        </div>
+                      ) : u.password_plain ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <code className="px-2 py-0.5 rounded bg-muted font-mono text-xs text-foreground select-all border">
+                            {u.password_plain}
+                          </code>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => copyPassword(u.id, u.password_plain!)}
+                            title="Copy password"
+                          >
+                            {copiedId === u.id ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => {
+                              setEditingPasswordUserId(u.id);
+                              setNewPasswordInput(u.password_plain || "");
+                            }}
+                            title="Change password"
+                          >
+                            <KeyRound className="h-3 w-3 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      ) : u.status === "invited" ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground italic">Not set yet</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-1.5 text-[11px]"
+                            onClick={() => {
+                              setEditingPasswordUserId(u.id);
+                              setNewPasswordInput("");
+                            }}
+                            title="Set password manually"
+                          >
+                            <KeyRound className="h-3 w-3 mr-1" /> Set
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground" title="Will sync on user's next login, or click Set to define a new password now">
+                            Set before update
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[11px]"
+                            onClick={() => {
+                              setEditingPasswordUserId(u.id);
+                              setNewPasswordInput("");
+                            }}
+                            title="Set a new visible password"
+                          >
+                            <KeyRound className="h-3 w-3 mr-1" /> Set Password
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : "Never"}
                     </TableCell>

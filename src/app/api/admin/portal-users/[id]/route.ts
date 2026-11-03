@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import bcrypt from "bcryptjs";
 import { getToken } from "next-auth/jwt";
 import connectToDatabase from "@/lib/db";
 import PortalUser from "@/models/PortalUser";
@@ -46,7 +47,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const update: Record<string, string> = {};
+  const update: Record<string, any> = {};
   if (body.role !== undefined) {
     if (!["owner", "manager", "viewer"].includes(body.role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
@@ -59,6 +60,18 @@ export async function PATCH(
     }
     update.status = body.status;
   }
+  if (body.password !== undefined) {
+    const newPassword = String(body.password).trim();
+    if (newPassword.length < 8) {
+      return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
+    }
+    update.password_hash = await bcrypt.hash(newPassword, 12);
+    update.password_plain = newPassword;
+    update.login_attempts = 0;
+    if (!update.status) {
+      update.status = "active";
+    }
+  }
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
@@ -67,9 +80,9 @@ export async function PATCH(
   await connectToDatabase();
   const user = await PortalUser.findOneAndUpdate(
     { id },
-    { $set: update },
+    { $set: update, ...(body.password !== undefined ? { $unset: { locked_until: "" } } : {}) },
     { new: true }
-  );
+  ).select("+password_plain").lean();
 
   if (!user) {
     return NextResponse.json({ error: "Portal user not found" }, { status: 404 });

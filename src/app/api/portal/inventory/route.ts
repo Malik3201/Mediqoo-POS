@@ -263,10 +263,10 @@ export async function GET(req: NextRequest) {
           { "payload.lines.product_id": productId },
           ...(targetProd?.name
             ? [
-                { "payload.items.name": targetProd.name },
-                { "payload.items.product_name": targetProd.name },
-                { "payload.lines.name": targetProd.name },
-              ]
+              { "payload.items.name": targetProd.name },
+              { "payload.items.product_name": targetProd.name },
+              { "payload.lines.name": targetProd.name },
+            ]
             : []),
         ],
       })
@@ -390,16 +390,16 @@ export async function GET(req: NextRequest) {
       stock_value: Number(invSnap?.stock_value ?? 0),
       low_stock_count: Number(
         invSnap?.low_stock_count ??
-          products.filter((p) => p.current_stock > 0 && p.current_stock <= p.reorder_level)
-            .length
+        products.filter((p) => p.current_stock > 0 && p.current_stock <= p.reorder_level)
+          .length
       ),
       out_of_stock_count: Number(
         invSnap?.out_of_stock_count ??
-          products.filter((p) => p.current_stock <= 0).length
+        products.filter((p) => p.current_stock <= 0).length
       ),
       expiring_soon_count: Number(
         invSnap?.expiring_soon_count ??
-          products.filter((p) => p.days_to_expiry !== null && p.days_to_expiry !== undefined && p.days_to_expiry <= 60).length
+        products.filter((p) => p.days_to_expiry !== null && p.days_to_expiry !== undefined && p.days_to_expiry <= 60).length
       ),
       unverified_expiry_count:
         (portalState?.inventory_alerts?.unverified_expiry_items || []).length ||

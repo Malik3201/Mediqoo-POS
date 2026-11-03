@@ -124,6 +124,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   const isPublicPage =
     pathname === "/portal/login" ||
+    pathname === "/portal/accept-invite" ||
+    pathname?.startsWith("/portal/accept-invite") ||
     pathname === "/portal/forgot-password" ||
     pathname === "/portal/reset-password";
 

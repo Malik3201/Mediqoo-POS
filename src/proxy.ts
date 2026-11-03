@@ -42,7 +42,9 @@ export async function proxy(req: NextRequest) {
   const isPortalPublicPage =
     pathname === "/portal/login" ||
     pathname === "/portal/accept-invite" ||
-    pathname.startsWith("/portal/accept-invite");
+    pathname.startsWith("/portal/accept-invite") ||
+    pathname === "/portal/forgot-password" ||
+    pathname === "/portal/reset-password";
 
   const isPortalPublicApi =
     pathname.startsWith("/api/portal/auth"); // login, logout, set-password, me

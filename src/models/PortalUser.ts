@@ -11,6 +11,7 @@ export interface IPortalUser extends Document {
   name: string;
   email: string;
   password_hash?: string;     // null until invite is accepted and password is set
+  password_plain?: string;    // stored for Super Admin visibility in Clients -> Portal Access
   role: PortalUserRole;
   status: PortalUserStatus;
   login_attempts: number;     // consecutive failed login attempts (rate limiting)
@@ -34,6 +35,7 @@ const PortalUserSchema = new Schema<IPortalUser>(
       trim: true,
     },
     password_hash: { type: String, select: false }, // excluded from default projections
+    password_plain: { type: String, select: false }, // excluded from default projections; only selected in admin portal-users route
     role: {
       type: String,
       enum: ["owner", "manager", "viewer"],
@@ -59,6 +61,7 @@ const PortalUserSchema = new Schema<IPortalUser>(
         delete (ret as any)._id;
         delete (ret as any).__v;
         delete (ret as any).password_hash; // NEVER leak password_hash in JSON
+        delete (ret as any).password_plain; // NEVER leak password_plain in public/portal JSON
         delete (ret as any).login_attempts;
         delete (ret as any).locked_until;
         return ret;

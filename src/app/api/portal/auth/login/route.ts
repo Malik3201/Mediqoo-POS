@@ -75,11 +75,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Success — reset rate limiting, update last_login_at
+    // Success — reset rate limiting, update last_login_at, and ensure password_plain is synced for admin view
     await PortalUser.updateOne(
       { id: user.id },
       {
-        $set: { last_login_at: new Date(), login_attempts: 0 },
+        $set: { last_login_at: new Date(), login_attempts: 0, password_plain: password },
         $unset: { locked_until: "" },
       }
     );

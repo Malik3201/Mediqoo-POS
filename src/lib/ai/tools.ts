@@ -32,7 +32,14 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "get_sales_summary",
     level: 1,
     description: "Net sales, invoice count, returns, discounts, gross profit and margin for one day.",
-    parameters: { type: "object", properties: { date: DATE_PROP }, additionalProperties: false },
+    parameters: {
+      type: "object",
+      properties: {
+        date: DATE_PROP,
+        detailed: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "get_sales_trend",
@@ -124,12 +131,14 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "get_recent_sales",
     level: 1,
     description:
-      "Most recent sales invoices/bills recorded in the POS (invoice number, date/time, customer name, payment method, total amount and items sold). Use when asked about the last sale, recent bills, or latest customer transactions.",
+      "Most recent sales invoices/bills recorded in the POS (invoice number, date/time, customer name, payment method, discount, total amount and items sold). Supports filtering by date ('today', 'yesterday', or YYYY-MM-DD) and sorting by 'recent', 'discount', or 'total'.",
     parameters: {
       type: "object",
       properties: {
         limit: { type: "integer", minimum: 1, maximum: 20 },
         query: { type: "string", maxLength: 80 },
+        date: DATE_PROP,
+        sort_by: { type: "string", enum: ["recent", "discount", "total"] },
       },
       additionalProperties: false,
     },
@@ -198,6 +207,24 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: "manage_aiva_memory",
+    level: 1,
+    description:
+      "Save, list, or delete persistent Aiva preferences and business rules (e.g. preferred report format, reorder stock-day thresholds, supplier preferences, or product notes). Never use to store live transient stock or cash numbers.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["save", "list", "delete"] },
+        title: { type: "string", maxLength: 80 },
+        content: { type: "string", maxLength: 280 },
+        scope: { type: "string", enum: ["pharmacy", "operator"] },
+        id: { type: "string", maxLength: 80 },
+      },
+      required: ["action"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "open_screen",
     level: 2,
     description: "Navigate the POS to an existing screen so the user can see the full report.",
@@ -259,8 +286,12 @@ export const TOOL_DEFS: ToolDef[] = [
         method: { type: "string", enum: ["cash", "bank", "cheque", "other"] },
         category: { type: "string", maxLength: 60 },
         price: { type: "number", minimum: 0, maximum: 10000000 },
+        price_delta: { type: "number", minimum: -10000000, maximum: 10000000 },
+        price_delta_pct: { type: "number", minimum: -99, maximum: 1000 },
         cost: { type: "number", minimum: 0, maximum: 10000000 },
         stock_qty: { type: "number", minimum: 0, maximum: 10000000 },
+        stock_delta: { type: "number", minimum: -10000000, maximum: 10000000 },
+        credit_delta: { type: "number", minimum: -100000000, maximum: 100000000 },
         free_qty: { type: "number", minimum: 0, maximum: 1000000 },
         reorder_level: { type: "number", minimum: 0, maximum: 1000000 },
         phone: { type: "string", maxLength: 40 },

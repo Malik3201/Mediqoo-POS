@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
       {
         $set: {
           password_hash: passwordHash,
+          password_plain: String(body.password),
           status: "active",
           last_login_at: new Date(),
           login_attempts: 0,

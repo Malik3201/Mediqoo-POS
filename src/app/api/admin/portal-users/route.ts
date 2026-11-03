@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
 
   await connectToDatabase();
   const users = await PortalUser.find({ client_id: clientId })
+    .select("+password_plain")
     .sort({ created_at: -1 })
     .lean();
 
