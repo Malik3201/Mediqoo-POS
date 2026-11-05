@@ -211,7 +211,11 @@ export function selectModelChain(models: ModelSnap[], input: ModelSelectionInput
   });
 
   const wantComplex =
-    input.modelPolicy === "full_featured" ? true : input.modelPolicy === "fast_only" ? false : input.complexity === "complex" && input.advancedCopilot;
+    input.modelPolicy === "full_featured"
+      ? true
+      : input.modelPolicy === "fast_only"
+        ? false
+        : input.complexity === "complex" || input.advancedCopilot;
 
   const policyOk = (m: ModelSnap) =>
     m.usage_policy === "all_queries" ||

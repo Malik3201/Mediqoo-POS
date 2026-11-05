@@ -131,14 +131,14 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "get_recent_sales",
     level: 1,
     description:
-      "Most recent sales invoices/bills recorded in the POS (invoice number, date/time, customer name, payment method, discount, total amount and items sold). Supports filtering by date ('today', 'yesterday', or YYYY-MM-DD) and sorting by 'recent', 'discount', or 'total'.",
+      "Most recent sales invoices/bills or returned invoices recorded in the POS (invoice number, date/time, customer name, payment method, discount, total amount, items sold, and when sort_by='returns', returned invoices and most-returned products). Supports filtering by date ('today', 'yesterday', or YYYY-MM-DD) and sorting by 'recent', 'discount', 'total', or 'returns'.",
     parameters: {
       type: "object",
       properties: {
         limit: { type: "integer", minimum: 1, maximum: 20 },
         query: { type: "string", maxLength: 80 },
         date: DATE_PROP,
-        sort_by: { type: "string", enum: ["recent", "discount", "total"] },
+        sort_by: { type: "string", enum: ["recent", "discount", "total", "returns"] },
       },
       additionalProperties: false,
     },
