@@ -250,7 +250,7 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "propose_pos_action",
     level: 3,
     description:
-      "Prepare an interactive in-chat Approval Card for ANY POS operation requested by the user: record a purchase/GRN stock receipt (including auto-creating the supplier or product if needed), add items to the billing cart, receive customer khata payment, record supplier payment, add expense or income, cash drawer cash-in/cash-out/open/close, save daily closing, add/update customer, add/update supplier, add/update product (name, generic, selling price, cost price, stock qty, reorder level, rack location), or open customer/supplier ledger. Always call this tool whenever the user asks to perform, add, update, buy/purchase, receive, or pay anything!",
+      "Prepare an interactive in-chat Approval Card or verified live POS draft/cart operation for ANY POS operation requested by the user: record a purchase/GRN stock receipt (when cost price is known), add a purchase line to the editable Purchase Draft (add_to_purchase_draft, preserving Box/Strip/Pack units and expiry date), add items to the billing cart (add_to_billing_cart), apply or modify billing cart discounts (update_billing_cart), hold/park the current billing cart (hold_billing_cart), resume a held bill (resume_held_bill), complete/finalize the current billing cart sale (complete_billing_sale), receive customer khata payment, record supplier payment, add expense or income, cash drawer cash-in/cash-out/open/close (preserving the user's exact business reason), save daily closing, add/update customer, add/update supplier, add/update product, or open customer/supplier ledger. Always call this tool whenever the user asks to perform, add, update, discount, hold, sell/checkout, buy/purchase, receive, or pay anything!",
     parameters: {
       type: "object",
       properties: {
@@ -258,7 +258,12 @@ export const TOOL_DEFS: ToolDef[] = [
           type: "string",
           enum: [
             "record_purchase",
+            "add_to_purchase_draft",
             "add_to_billing_cart",
+            "update_billing_cart",
+            "hold_billing_cart",
+            "resume_held_bill",
+            "complete_billing_sale",
             "receive_customer_payment",
             "record_supplier_payment",
             "add_expense",
@@ -283,7 +288,9 @@ export const TOOL_DEFS: ToolDef[] = [
         customer_name: { type: "string", maxLength: 100 },
         amount: { type: "number", minimum: 0, maximum: 100000000 },
         paid_amount: { type: "number", minimum: 0, maximum: 100000000 },
-        method: { type: "string", enum: ["cash", "bank", "cheque", "other"] },
+        discount_pct: { type: "number", minimum: 0, maximum: 100 },
+        discount_amount: { type: "number", minimum: 0, maximum: 100000000 },
+        method: { type: "string", enum: ["cash", "bank", "cheque", "other", "card", "wallet", "credit"] },
         category: { type: "string", maxLength: 60 },
         price: { type: "number", minimum: 0, maximum: 10000000 },
         price_delta: { type: "number", minimum: -10000000, maximum: 10000000 },
@@ -301,6 +308,7 @@ export const TOOL_DEFS: ToolDef[] = [
         location: { type: "string", maxLength: 60 },
         batch_no: { type: "string", maxLength: 40 },
         expiry: { type: "string", maxLength: 20 },
+        reason: { type: "string", maxLength: 200 },
         note: { type: "string", maxLength: 200 },
       },
       required: ["action_type"],
@@ -444,10 +452,28 @@ const ACTION_TYPE_ALIASES: Record<string, string> = {
   create_grn: "record_purchase",
   purchase_stock: "record_purchase",
   buy_stock: "record_purchase",
+  purchase_draft: "add_to_purchase_draft",
+  add_purchase_line: "add_to_purchase_draft",
+  add_to_purchase_line: "add_to_purchase_draft",
+  prepare_purchase_line: "add_to_purchase_draft",
   add_to_cart: "add_to_billing_cart",
   prepare_bill: "add_to_billing_cart",
   create_bill: "add_to_billing_cart",
   billing: "add_to_billing_cart",
+  cart_discount: "update_billing_cart",
+  apply_cart_discount: "update_billing_cart",
+  discount_cart: "update_billing_cart",
+  modify_cart: "update_billing_cart",
+  hold_bill: "hold_billing_cart",
+  hold_cart: "hold_billing_cart",
+  park_bill: "hold_billing_cart",
+  resume_bill: "resume_held_bill",
+  restore_held_bill: "resume_held_bill",
+  unhold_bill: "resume_held_bill",
+  checkout_cart: "complete_billing_sale",
+  sell_cart: "complete_billing_sale",
+  complete_sale: "complete_billing_sale",
+  finalize_bill: "complete_billing_sale",
   create_product: "add_product",
   new_product: "add_product",
   edit_product: "update_product",
@@ -568,6 +594,10 @@ function normalizeToolArgs(name: string, raw: unknown): void {
     }
     if (!a.batch_no && typeof a.batch === "string" && a.batch.trim()) a.batch_no = a.batch.trim();
     if (!a.expiry && typeof a.expiry_date === "string" && a.expiry_date.trim()) a.expiry = a.expiry_date.trim();
+    if (a.discount_pct === undefined && a.discount_percent !== undefined && String(a.discount_percent).trim() !== "") {
+      a.discount_pct = Number(a.discount_percent);
+    }
+    if (!a.note && typeof a.reason === "string" && a.reason.trim()) a.note = a.reason.trim();
   }
 }
 
