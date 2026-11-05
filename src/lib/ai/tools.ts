@@ -250,13 +250,14 @@ export const TOOL_DEFS: ToolDef[] = [
     name: "propose_pos_action",
     level: 3,
     description:
-      "Prepare an interactive in-chat Approval Card or verified live POS draft/cart operation for ANY POS operation requested by the user: record a purchase/GRN stock receipt (when cost price is known), add a purchase line to the editable Purchase Draft (add_to_purchase_draft, preserving Box/Strip/Pack units and expiry date), add items to the billing cart (add_to_billing_cart), apply or modify billing cart discounts (update_billing_cart), hold/park the current billing cart (hold_billing_cart), resume a held bill (resume_held_bill), complete/finalize the current billing cart sale (complete_billing_sale), receive customer khata payment, record supplier payment, add expense or income, cash drawer cash-in/cash-out/open/close (preserving the user's exact business reason), save daily closing, add/update customer, add/update supplier, add/update product, or open customer/supplier ledger. Always call this tool whenever the user asks to perform, add, update, discount, hold, sell/checkout, buy/purchase, receive, or pay anything!",
+      "Prepare an interactive in-chat Approval Card or verified live POS draft/cart operation for ANY POS operation requested by the user: record a sales return / invoice refund (record_sales_return — restores inventory stock and creates an official RTN sales return record), record a purchase/GRN stock receipt (when cost price is known), add a purchase line to the editable Purchase Draft (add_to_purchase_draft, preserving Box/Strip/Pack units and expiry date), add items to the billing cart (add_to_billing_cart), apply or modify billing cart discounts (update_billing_cart), hold/park the current billing cart (hold_billing_cart), resume a held bill (resume_held_bill), complete/finalize the current billing cart sale (complete_billing_sale), receive customer khata payment, record supplier payment, add operating expense or non-sale income, cash drawer cash-in/cash-out/open/close (preserving the user's exact business reason), save daily closing, add/update customer, add/update supplier, add/update product, or open customer/supplier ledger. Always call this tool whenever the user asks to perform, return, refund, add, update, discount, hold, sell/checkout, buy/purchase, receive, or pay anything!",
     parameters: {
       type: "object",
       properties: {
         action_type: {
           type: "string",
           enum: [
+            "record_sales_return",
             "record_purchase",
             "add_to_purchase_draft",
             "add_to_billing_cart",
@@ -282,6 +283,8 @@ export const TOOL_DEFS: ToolDef[] = [
           ],
         },
         target_name: { type: "string", minLength: 1, maxLength: 100 },
+        invoice_number: { type: "string", maxLength: 60 },
+        refund_method: { type: "string", enum: ["cash", "credit", "card", "wallet"] },
         name: { type: "string", maxLength: 100 },
         supplier_name: { type: "string", maxLength: 100 },
         product_name: { type: "string", maxLength: 100 },
@@ -445,6 +448,14 @@ function checkType(schema: any, value: any, path: string): string | null {
 }
 
 const ACTION_TYPE_ALIASES: Record<string, string> = {
+  sales_return: "record_sales_return",
+  return_sale: "record_sales_return",
+  return_invoice: "record_sales_return",
+  return_bill: "record_sales_return",
+  refund_invoice: "record_sales_return",
+  refund_sale: "record_sales_return",
+  invoice_return: "record_sales_return",
+  bill_return: "record_sales_return",
   purchase: "record_purchase",
   add_purchase: "record_purchase",
   create_purchase: "record_purchase",
@@ -472,6 +483,7 @@ const ACTION_TYPE_ALIASES: Record<string, string> = {
   unhold_bill: "resume_held_bill",
   checkout_cart: "complete_billing_sale",
   sell_cart: "complete_billing_sale",
+  sale_cart: "complete_billing_sale",
   complete_sale: "complete_billing_sale",
   finalize_bill: "complete_billing_sale",
   create_product: "add_product",
@@ -552,6 +564,22 @@ function normalizeToolArgs(name: string, raw: unknown): void {
         a.category = rawType;
       }
     }
+    const combinedText = `${a.target_name ?? ""} ${a.note ?? ""} ${a.reason ?? ""} ${a.category ?? ""} ${a.invoice_number ?? ""}`;
+    if (
+      a.action_type === "add_expense" &&
+      (/\b(INV\d{4}(?:-\d+)?-\d+)\b/i.test(combinedText) ||
+        /\b(return\s*of\s*invoice|invoice\s*return|bill\s*return|sales?\s*return|customer\s*refund|cash\s*refund)\b/i.test(combinedText))
+    ) {
+      a.action_type = "record_sales_return";
+      const invMatch = /\b(INV\d{4}(?:-\d+)?-\d+)\b/i.exec(combinedText);
+      if (invMatch && !a.invoice_number) a.invoice_number = invMatch[1].toUpperCase();
+    }
+    if (
+      a.action_type === "add_income" &&
+      /\b(cart\s*sale|bill\s*sale|walk[- ]?in.*cash\s*received|sell\s*cart|sale\s*cart)\b/i.test(combinedText)
+    ) {
+      a.action_type = "complete_billing_sale";
+    }
     if (!a.supplier_name && typeof a.supplier === "string" && a.supplier.trim()) a.supplier_name = a.supplier.trim();
     if (!a.product_name) {
       const pn = a.medicine_name || a.product || a.medicine || (a.action_type === "record_purchase" ? a.name : undefined);
@@ -560,6 +588,7 @@ function normalizeToolArgs(name: string, raw: unknown): void {
     if (!a.customer_name && typeof a.customer === "string" && a.customer.trim()) a.customer_name = a.customer.trim();
     if (!a.target_name || typeof a.target_name !== "string" || !a.target_name.trim()) {
       const fallbackTarget =
+        a.invoice_number ||
         a.product_name ||
         a.name ||
         a.customer_name ||
