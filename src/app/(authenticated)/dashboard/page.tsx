@@ -1,4 +1,5 @@
-import { Activity, Building2, FolderKanban, KeyRound, Users } from "lucide-react";
+import Link from "next/link";
+import { Activity, Building2, FolderKanban, KeyRound, MapPin, ArrowRight, Users } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import connectToDatabase from "@/lib/db";
 import Profile from "@/models/Profile";
@@ -61,6 +62,28 @@ export default async function DashboardPage() {
           </Card>
         ))}
       </div>
+      <Card className="border-emerald-500/30 bg-emerald-500/5">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+              <MapPin className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle className="text-base">POS Live Map & City Footprint</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                View all active pharmacies on an interactive map with city-wise counts and terminal status
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/pos-map"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+          >
+            Open Live Map
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </CardHeader>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Milestone 1 · Foundation</CardTitle>

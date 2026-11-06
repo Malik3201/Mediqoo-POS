@@ -10,6 +10,18 @@ export interface IClient extends Document {
   contact_phone?: string;
   address?: string;
   notes?: string;
+  location?: {
+    lat?: number;
+    lng?: number;
+    city?: string;
+    region?: string;
+    country?: string;
+    ip?: string;
+    isp?: string;
+    address?: string;
+    source?: string;
+    updated_at?: Date;
+  };
   /**
    * IANA timezone string, e.g. "Asia/Karachi", "Asia/Dubai", "UTC".
    * Used by the portal dashboard to compute business-day date boundaries.
@@ -32,6 +44,18 @@ const ClientSchema = new Schema<IClient>(
     contact_phone: { type: String },
     address: { type: String },
     notes: { type: String },
+    location: {
+      lat: { type: Number },
+      lng: { type: Number },
+      city: { type: String },
+      region: { type: String },
+      country: { type: String },
+      ip: { type: String },
+      isp: { type: String },
+      address: { type: String },
+      source: { type: String },
+      updated_at: { type: Date },
+    },
     timezone: { type: String, default: "Asia/Karachi" },
     created_by: { type: String },
   },

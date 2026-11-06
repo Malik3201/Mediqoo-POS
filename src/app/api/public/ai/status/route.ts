@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleStatus } from "@/lib/ai/gateway";
 import { clientIp, rateLimit } from "@/lib/ai/rate-limit";
+import connectToDatabase from "@/lib/db";
+import License from "@/models/License";
+import LicenseSeat from "@/models/LicenseSeat";
+import Client from "@/models/Client";
+import { extractRequestGeo } from "@/lib/geo-location";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +32,29 @@ export async function POST(req: NextRequest) {
   }
   try {
     const res = await handleStatus(body);
+    if (body?.license_key && body?.machine_id) {
+      // Non-blocking background location capture from Vercel geo headers / body
+      (async () => {
+        try {
+          await connectToDatabase();
+          const lic = await License.findOne({ license_key: body.license_key }).lean();
+          if (!lic) return;
+          const client = lic.client_id ? await Client.findOne({ id: lic.client_id }).lean() : null;
+          const geo = extractRequestGeo(req, body.location, client?.address || client?.name || lic.notes);
+          if (geo) {
+            await LicenseSeat.updateOne(
+              { license_id: lic.id, machine_id: body.machine_id },
+              { $set: { last_seen_at: new Date(), location: geo } }
+            );
+            if (client && client.location?.source !== "admin_manual") {
+              await Client.updateOne({ id: client.id }, { $set: { location: geo } });
+            }
+          }
+        } catch {
+          // Ignore telemetry errors
+        }
+      })();
+    }
     return NextResponse.json(res.body, { status: res.status, headers: CORS });
   } catch (e) {
     console.error("[ai/status] unexpected error:", (e as Error)?.message);

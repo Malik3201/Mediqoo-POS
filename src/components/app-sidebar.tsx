@@ -21,6 +21,7 @@ import {
   Sparkles,
   Database,
   HardDrive,
+  MapPin,
 } from "lucide-react";
 
 import {
@@ -38,6 +39,7 @@ import {
 
 const primary = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+  { title: "POS Live Map", url: "/pos-map", icon: MapPin },
   { title: "Clients", url: "/clients", icon: Building2 },
   { title: "Projects", url: "/projects", icon: FolderKanban },
   { title: "Licenses", url: "/licenses", icon: KeyRound },

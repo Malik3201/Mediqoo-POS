@@ -17,6 +17,18 @@ export interface ILicenseSeat extends Document {
    */
   terminal_number?: number;
   last_seen_version?: string;
+  location?: {
+    lat?: number;
+    lng?: number;
+    city?: string;
+    region?: string;
+    country?: string;
+    ip?: string;
+    isp?: string;
+    address?: string;
+    source?: string;
+    updated_at?: Date;
+  };
   first_seen_at: Date;
   last_seen_at: Date;
   created_at: Date;
@@ -38,6 +50,18 @@ const LicenseSeatSchema = new Schema<ILicenseSeat>(
      */
     terminal_number: { type: Number, index: true },
     last_seen_version: { type: String },
+    location: {
+      lat: { type: Number },
+      lng: { type: Number },
+      city: { type: String },
+      region: { type: String },
+      country: { type: String },
+      ip: { type: String },
+      isp: { type: String },
+      address: { type: String },
+      source: { type: String },
+      updated_at: { type: Date },
+    },
     first_seen_at: { type: Date, default: Date.now },
     last_seen_at: { type: Date, default: Date.now },
   },

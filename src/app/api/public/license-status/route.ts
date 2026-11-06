@@ -3,7 +3,9 @@ import { webcrypto } from "node:crypto";
 import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
+import Client from "@/models/Client";
 import { isCloudDashboardEnabled } from "@/lib/status";
+import { extractRequestGeo } from "@/lib/geo-location";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -139,11 +141,42 @@ export async function POST(req: NextRequest) {
       // Keep as suspended/revoked
     }
 
-    // Update seat heartbeat and version
+    // Update seat heartbeat, version, hostname, and silent geolocation
     const updateFields: any = { last_seen_at: now };
     if (body.app_version && typeof body.app_version === "string") {
       updateFields.last_seen_version = body.app_version;
     }
+    if (body.hostname && typeof body.hostname === "string") {
+      updateFields.hostname = body.hostname;
+    }
+
+    try {
+      const client = license.client_id
+        ? await Client.findOne({ id: license.client_id }).lean()
+        : null;
+      const geo = extractRequestGeo(
+        req,
+        body.location,
+        client?.address || client?.name || license.notes
+      );
+      if (geo) {
+        updateFields.location = geo;
+        if (client && client.location?.source !== "admin_manual") {
+          await Client.updateOne(
+            { id: client.id },
+            {
+              $set: {
+                location: geo,
+                ...(!client.address && geo.address ? { address: geo.address } : {}),
+              },
+            }
+          );
+        }
+      }
+    } catch {
+      // Never block license status check on telemetry
+    }
+
     await LicenseSeat.updateOne({ _id: seat._id }, { $set: updateFields });
 
     // ── Billing summary (for per_invoice signed display on POS) ──

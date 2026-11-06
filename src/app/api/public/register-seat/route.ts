@@ -4,6 +4,8 @@ import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import LicenseCounter from "@/models/LicenseCounter";
+import Client from "@/models/Client";
+import { extractRequestGeo } from "@/lib/geo-location";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -174,6 +176,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── 2b. Silently resolve geolocation from body or request headers ───────
+    let geo: ReturnType<typeof extractRequestGeo> = null;
+    try {
+      const client = lic.client_id
+        ? await Client.findOne({ id: lic.client_id }).lean()
+        : null;
+      geo = extractRequestGeo(
+        req,
+        body.location,
+        client?.address || client?.name || lic.notes
+      );
+      if (geo && client && client.location?.source !== "admin_manual") {
+        await Client.updateOne(
+          { id: client.id },
+          {
+            $set: {
+              location: geo,
+              ...(!client.address && geo.address ? { address: geo.address } : {}),
+            },
+          }
+        );
+      }
+    } catch {
+      // Never block seat registration on telemetry
+    }
+
     // ── 3. Fast path: existing seat for this machine ────────────────────────
     //
     // Read outside the transaction for performance. The transaction recheck
@@ -194,6 +222,8 @@ export async function POST(req: NextRequest) {
               role: body.role,
               last_seen_at: new Date(),
               ...(body.hostname ? { hostname: body.hostname } : {}),
+              ...(body.app_version ? { last_seen_version: body.app_version } : {}),
+              ...(geo ? { location: geo } : {}),
             }
           }
         );
@@ -232,6 +262,8 @@ export async function POST(req: NextRequest) {
             role: body.role,
             last_seen_at: new Date(),
             ...(body.hostname ? { hostname: body.hostname } : {}),
+            ...(body.app_version ? { last_seen_version: body.app_version } : {}),
+            ...(geo ? { location: geo } : {}),
           },
         },
         { new: true }
@@ -344,6 +376,8 @@ export async function POST(req: NextRequest) {
               role: body.role,
               hostname: body.hostname ?? null,
               terminal_number,
+              ...(body.app_version ? { last_seen_version: body.app_version } : {}),
+              ...(geo ? { location: geo } : {}),
             },
           ],
           { session }
