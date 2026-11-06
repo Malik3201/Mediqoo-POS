@@ -5,9 +5,11 @@ import Client from "@/models/Client";
 import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import Project from "@/models/Project";
+import OwnerPortalState from "@/models/OwnerPortalState";
 import {
   PAKISTAN_CITIES,
   resolveCityFromText,
+  resolveDominantCityFromPortalState,
   applyDeterministicJitter,
 } from "@/lib/geo-location";
 
@@ -30,12 +32,22 @@ export async function GET(req: NextRequest) {
   try {
     await connectToDatabase();
 
-    const [clients, licenses, seats, projects] = await Promise.all([
+    const [clients, licenses, seats, projects, portalStates] = await Promise.all([
       Client.find({}).sort({ created_at: -1 }).lean(),
       License.find({}).sort({ created_at: -1 }).lean(),
       LicenseSeat.find({}).sort({ last_seen_at: -1 }).lean(),
       Project.find({}).lean(),
+      OwnerPortalState.find({})
+        .select("client_id suppliers customers")
+        .lean(),
     ]);
+
+    const portalByClientId = new Map<string, any>();
+    for (const ps of portalStates as any[]) {
+      if (ps.client_id) {
+        portalByClientId.set(ps.client_id, ps);
+      }
+    }
 
     const projectById = new Map<string, any>();
     for (const p of projects as any[]) {
@@ -168,19 +180,27 @@ export async function GET(req: NextRequest) {
         accuracy = "exact";
       }
 
-      // Priority 3: Infer city from client address, name, project name, or license notes
+      // Priority 3: Infer city from client address, name, project name, license notes, or synced portal suppliers/customers
       if (rawLat == null || rawLng == null || !city) {
+        const clientProjects = (projects as any[]).filter(
+          (p) => p.client_id === client.id
+        );
         const searchBlob = [
           client.address,
           client.name,
           client.notes,
+          ...clientProjects.map((p) => p.name),
+          ...clientProjects.map((p) => p.description),
           ...clientLicenses.map((l) => l.notes),
           ...clientSeats.map((s) => s.hostname),
         ]
           .filter(Boolean)
           .join(" ");
 
-        const matchedCity = resolveCityFromText(searchBlob);
+        const matchedCity =
+          resolveCityFromText(searchBlob) ||
+          resolveDominantCityFromPortalState(portalByClientId.get(client.id));
+
         if (matchedCity) {
           if (rawLat == null || rawLng == null) {
             rawLat = matchedCity.lat;
@@ -194,11 +214,11 @@ export async function GET(req: NextRequest) {
       }
 
       // Priority 4: If still no coordinates (e.g. legacy client with blank address before first POS heartbeat),
-      // place at a default hub with deterministic spread so it is still visible & clickable on the map
+      // place at a default hub with golden-angle spiral spread so markers do not stack on top of each other
       if (rawLat == null || rawLng == null) {
-        rawLat = 31.5204; // Lahore / Central Punjab hub default until POS heartbeats
+        rawLat = 31.5204; // Central Punjab hub until POS heartbeats
         rawLng = 74.3587;
-        city = city || "Awaiting POS Sync";
+        city = city || "Pending Auto-Detect";
         region = region || "Pakistan";
         source = "pending_sync";
         accuracy = "pending";
@@ -210,23 +230,25 @@ export async function GET(req: NextRequest) {
         if (!region && inferred?.region) region = inferred.region;
       }
 
-      // Apply subtle deterministic jitter when multiple pharmacies share the same city-center coordinate
+      // Apply golden-angle spiral offset when multiple pharmacies share the same city-center coordinate
       const coordKey = `${rawLat.toFixed(3)},${rawLng.toFixed(3)}`;
       const seenCount = coordUsageCount.get(coordKey) || 0;
       coordUsageCount.set(coordKey, seenCount + 1);
 
       let displayLat = rawLat;
       let displayLng = rawLng;
-      if (
-        seenCount > 0 ||
-        source === "address_match" ||
-        source === "pending_sync"
-      ) {
+      if (seenCount > 0) {
+        const angleRad = seenCount * 2.399963229728653; // Golden angle ~137.5 deg
+        const baseStep = source === "pending_sync" ? 0.045 : 0.018;
+        const dist = baseStep * Math.sqrt(seenCount);
+        displayLat = Number((rawLat + Math.sin(angleRad) * dist).toFixed(6));
+        displayLng = Number((rawLng + Math.cos(angleRad) * dist).toFixed(6));
+      } else if (source === "address_match") {
         const jittered = applyDeterministicJitter(
           rawLat,
           rawLng,
-          `${client.id}-${seenCount}`,
-          source === "pending_sync" ? 0.045 : 0.022
+          client.id,
+          0.012
         );
         displayLat = jittered.lat;
         displayLng = jittered.lng;
@@ -293,12 +315,21 @@ export async function GET(req: NextRequest) {
         };
       });
 
+      const clientProjects = (projects as any[]).filter(
+        (p) => p.client_id === client.id
+      );
+      const primaryProjectName =
+        clientProjects[0]?.name ||
+        formattedLicenses[0]?.project_name ||
+        client.name;
+
       return {
         id: client.id,
-        name: client.name,
+        name: primaryProjectName,
+        clientName: client.name,
         status: client.status || "active",
         activityStatus,
-        contact_name: client.contact_name || null,
+        contact_name: client.contact_name || client.name || null,
         contact_email: client.contact_email || null,
         contact_phone: client.contact_phone || null,
         address: resolvedAddress || null,

@@ -26,9 +26,9 @@ export const PAKISTAN_CITIES: CityCoordEntry[] = [
   { city: "Islamabad", region: "Islamabad Capital Territory", lat: 33.6844, lng: 73.0479, aliases: ["isb", "g-8", "g-9", "f-6", "f-7", "f-8", "f-10", "f-11", "i-8", "i-9", "i-10", "blue area", "bharakahu", "tarlai"] },
 
   // Punjab
-  { city: "Lahore", region: "Punjab", lat: 31.5204, lng: 74.3587, aliases: ["lhr", "gulberg", "johar town", "model town", "dha lahore", "cantt lahore", "iqbal town", "samanabad", "shadman", "ichhra", "wapda town", "valencia", "bahria town lahore", "raiwind", "shahdara", "baghbanpura", "mugulpura", "township"] },
-  { city: "Rawalpindi", region: "Punjab", lat: 33.5651, lng: 73.0169, aliases: ["rwp", "pindi", "saddar rawalpindi", "satellite town", "commercial market", "chaklala", "adiala", "peshawar road", "bahria town rawalpindi"] },
-  { city: "Faisalabad", region: "Punjab", lat: 31.4504, lng: 73.135, aliases: ["fsd", "lyallpur", "peoples colony", "madina town", "ghulam muhammad abad", "samanabad faisalabad", "satiana road", "jaranwala road"] },
+  { city: "Lahore", region: "Punjab", lat: 31.5204, lng: 74.3587, aliases: ["lhr", "gulberg", "johar town", "model town", "dha lahore", "cantt lahore", "iqbal town", "samanabad", "shadman", "ichhra", "wapda town", "valencia", "bahria town lahore", "raiwind", "shahdara", "baghbanpura", "mugulpura", "township", "nisar charsi", "boolmind", "hajvery"] },
+  { city: "Rawalpindi", region: "Punjab", lat: 33.5651, lng: 73.0169, aliases: ["rwp", "pindi", "saddar rawalpindi", "satellite town", "commercial market", "chaklala", "adiala", "adiyala", "peshawar road", "bahria town rawalpindi"] },
+  { city: "Faisalabad", region: "Punjab", lat: 31.4504, lng: 73.135, aliases: ["fsd", "lyallpur", "peoples colony", "madina town", "ghulam muhammad abad", "samanabad faisalabad", "satiana road", "satina road", "jaranwala road", "saifabad"] },
   { city: "Multan", region: "Punjab", lat: 30.1575, lng: 71.5249, aliases: ["bosan road", "gulgasht", "shah rukn e alam", "mumtazabad", "cantt multan", "nishtar road"] },
   { city: "Gujranwala", region: "Punjab", lat: 32.1877, lng: 74.1945, aliases: ["grw", "peoples colony gujranwala", "model town gujranwala", "satellite town gujranwala", "wapda town gujranwala"] },
   { city: "Sialkot", region: "Punjab", lat: 32.4945, lng: 74.5229, aliases: ["skt", "sialkot cantt", "ugoki", "pasrur"] },
@@ -48,7 +48,7 @@ export const PAKISTAN_CITIES: CityCoordEntry[] = [
   { city: "Kamoke", region: "Punjab", lat: 31.9753, lng: 74.2239 },
   { city: "Hafizabad", region: "Punjab", lat: 32.0709, lng: 73.688, aliases: ["pindi bhattian"] },
   { city: "Sadiqabad", region: "Punjab", lat: 28.3062, lng: 70.1307 },
-  { city: "Burewala", region: "Punjab", lat: 30.1667, lng: 72.65 },
+  { city: "Burewala", region: "Punjab", lat: 30.1667, lng: 72.65, aliases: ["317 eb", "dewan sahib", "baba haji sher", "haji sher"] },
   { city: "Khanewal", region: "Punjab", lat: 30.3017, lng: 71.9321, aliases: ["mian channu", "kabirwala", "jahanian"] },
   { city: "Muzaffargarh", region: "Punjab", lat: 30.0703, lng: 71.1933, aliases: ["kot addu", "alipur", "jatoi"] },
   { city: "Toba Tek Singh", region: "Punjab", lat: 30.9709, lng: 72.4826, aliases: ["tts", "gojra", "kamalia", "pir mahal"] },
@@ -311,4 +311,44 @@ export function extractRequestGeo(
 
   return null;
 }
+
+/**
+ * Infers the most frequent city mentioned across a pharmacy's synced suppliers & customers
+ * in OwnerPortalState when explicit client address is not set.
+ */
+export function resolveDominantCityFromPortalState(portalState?: any): CityCoordEntry | null {
+  if (!portalState || typeof portalState !== "object") return null;
+  const counts = new Map<string, { entry: CityCoordEntry; score: number }>();
+
+  const suppliers = Array.isArray(portalState.suppliers) ? portalState.suppliers : [];
+  for (const sup of suppliers) {
+    const text = [sup?.address, sup?.name].filter(Boolean).join(" ");
+    const match = resolveCityFromText(text);
+    if (match) {
+      const prev = counts.get(match.city) || { entry: match, score: 0 };
+      prev.score += 2; // Supplier address is a strong indicator of local wholesale market
+      counts.set(match.city, prev);
+    }
+  }
+
+  const customers = Array.isArray(portalState.customers) ? portalState.customers : [];
+  for (const cust of customers) {
+    const text = [cust?.address, cust?.notes].filter(Boolean).join(" ");
+    const match = resolveCityFromText(text);
+    if (match) {
+      const prev = counts.get(match.city) || { entry: match, score: 0 };
+      prev.score += 3; // Customer address is directly around the pharmacy
+      counts.set(match.city, prev);
+    }
+  }
+
+  let best: { entry: CityCoordEntry; score: number } | null = null;
+  for (const item of counts.values()) {
+    if (!best || item.score > best.score) {
+      best = item;
+    }
+  }
+  return best ? best.entry : null;
+}
+
 

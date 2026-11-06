@@ -3,6 +3,8 @@ import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import CloudBackup from "@/models/CloudBackup";
+import Client from "@/models/Client";
+import { extractRequestGeo } from "@/lib/geo-location";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -78,6 +80,27 @@ export async function POST(req: NextRequest) {
     const seat = await LicenseSeat.findOne({ license_id: license.id, machine_id }).lean();
     if (!seat) {
       return NextResponse.json({ error: "unregistered_machine" }, { status: 401, headers: CORS });
+    }
+
+    // Silently update seat heartbeat and geolocation during backup upload
+    try {
+      const client = license.client_id
+        ? await Client.findOne({ id: license.client_id }).lean()
+        : null;
+      const geo = extractRequestGeo(req, body?.location, client?.address || client?.name);
+      const seatUpdate: Record<string, any> = { last_seen_at: new Date() };
+      if (app_version && typeof app_version === "string") {
+        seatUpdate.last_seen_version = app_version;
+      }
+      if (geo) {
+        seatUpdate.location = geo;
+        if (client && client.location?.source !== "admin_manual") {
+          await Client.updateOne({ id: client.id }, { $set: { location: geo } });
+        }
+      }
+      await LicenseSeat.updateOne({ _id: seat._id }, { $set: seatUpdate });
+    } catch {
+      // Never block cloud backup on telemetry
     }
 
     // 2. Feature Entitlement

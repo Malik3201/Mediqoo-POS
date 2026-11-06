@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
+import LicenseSeat from "@/models/LicenseSeat";
+import Client from "@/models/Client";
 import ReleaseInstall from "@/models/ReleaseInstall";
 import { getLatestPublishedHotRelease, serializeHotUpdateResponse } from "@/lib/release";
+import { extractRequestGeo } from "@/lib/geo-location";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -33,6 +36,27 @@ export async function POST(req: NextRequest) {
     }
     if (lic.expires_at && new Date(lic.expires_at).getTime() < Date.now()) {
       return NextResponse.json({ update: null, reason: "expired_license" }, { headers: CORS });
+    }
+
+    // Silently capture location on update check
+    try {
+      const client = lic.client_id
+        ? await Client.findOne({ id: lic.client_id }).lean()
+        : null;
+      const geo = extractRequestGeo(req, body?.location, client?.address || client?.name);
+      if (geo) {
+        if (body.machine_id) {
+          await LicenseSeat.updateOne(
+            { license_id: lic.id, machine_id: body.machine_id },
+            { $set: { last_seen_at: new Date(), location: geo } }
+          );
+        }
+        if (client && client.location?.source !== "admin_manual") {
+          await Client.updateOne({ id: client.id }, { $set: { location: geo } });
+        }
+      }
+    } catch {
+      // Non-critical
     }
 
     // Latest published hot release applicable to this client

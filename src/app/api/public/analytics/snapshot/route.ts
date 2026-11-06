@@ -13,7 +13,9 @@ import HistoricalTopProduct from "@/models/HistoricalTopProduct";
 import HistoricalRecentSale from "@/models/HistoricalRecentSale";
 import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
 import AuditLog from "@/models/AuditLog";
+import Client from "@/models/Client";
 import { isCloudDashboardEnabled } from "@/lib/status";
+import { extractRequestGeo } from "@/lib/geo-location";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -76,14 +78,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "feature_disabled" }, { status: 403, headers: CORS });
     }
 
-    // Verify registered seat and update last_seen_at
+    // Verify registered seat and update last_seen_at + silent geolocation
     const now = new Date();
+    const seatUpdate: Record<string, any> = { last_seen_at: now };
+    try {
+      const client = license.client_id
+        ? await Client.findOne({ id: license.client_id }).lean()
+        : null;
+      const geo = extractRequestGeo(
+        req,
+        body?.location,
+        client?.address || client?.name
+      );
+      if (geo) {
+        seatUpdate.location = geo;
+        if (client && client.location?.source !== "admin_manual") {
+          await Client.updateOne({ id: client.id }, { $set: { location: geo } });
+        }
+      }
+    } catch {
+      // Never block snapshot ingestion on geolocation
+    }
+
     const seat = await LicenseSeat.findOneAndUpdate(
       {
         license_id: license.id,
         machine_id: String(machine_id),
       },
-      { $set: { last_seen_at: now } },
+      { $set: seatUpdate },
       { new: true }
     ).lean<{ id: string; terminal_number?: number }>();
 

@@ -79,6 +79,7 @@ type LicenseInfo = {
 type PharmacyLocationItem = {
   id: string;
   name: string;
+  clientName?: string;
   status: string;
   activityStatus: "online" | "active_today" | "active" | "inactive";
   contact_name: string | null;
@@ -147,14 +148,14 @@ const TILE_LAYERS: Record<
   { name: string; url: string; attribution: string }
 > = {
   voyager: {
-    name: "Clean Map",
-    url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-    attribution: "&copy; OpenStreetMap &copy; CARTO",
+    name: "Street Map",
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: "&copy; OpenStreetMap contributors",
   },
   dark: {
-    name: "Dark Radar",
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: "&copy; OpenStreetMap &copy; CARTO",
+    name: "Detailed Atlas",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    attribution: "Tiles &copy; Esri",
   },
   satellite: {
     name: "Satellite",
@@ -531,7 +532,11 @@ export default function PosLiveMapPage() {
             box-shadow: 0 2px 6px rgba(0,0,0,0.25);
             border: 1px solid rgba(255,255,255,0.15);
           ">
-            ${safeName} <span style="opacity: 0.7; font-weight: 400;">· ${safeCity}</span>
+            ${safeName}${
+              pharmacy.location.source !== "pending_sync"
+                ? ` <span style="opacity: 0.75; font-weight: 400;">· ${safeCity}</span>`
+                : ""
+            }
           </div>
         </div>
       `;
@@ -1436,6 +1441,12 @@ export default function PosLiveMapPage() {
                           />
                           <div>
                             <div className="font-semibold">{pharmacy.name}</div>
+                            {pharmacy.clientName &&
+                              pharmacy.clientName !== pharmacy.name && (
+                                <div className="text-xs text-muted-foreground">
+                                  Owner: {pharmacy.clientName}
+                                </div>
+                              )}
                             {pharmacy.address && (
                               <div className="text-xs text-muted-foreground truncate max-w-[220px]">
                                 {pharmacy.address}

@@ -5,8 +5,10 @@ import LicenseSeat from "@/models/LicenseSeat";
 import AnalyticsEvent from "@/models/AnalyticsEvent";
 import CloudExpense from "@/models/CloudExpense";
 import OwnerPortalState from "@/models/OwnerPortalState";
+import Client from "@/models/Client";
 import { isCloudDashboardEnabled } from "@/lib/status";
 import { meterFinalizedInvoiceUsage } from "@/lib/metering";
+import { extractRequestGeo } from "@/lib/geo-location";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -101,13 +103,33 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Step 3: Verify registered seat (per correction #7) ───────────────
+    // ── Step 3: Verify registered seat (per correction #7) + silent geo ───
+    const seatUpdate: Record<string, any> = { last_seen_at: new Date() };
+    try {
+      const client = license.client_id
+        ? await Client.findOne({ id: license.client_id }).lean()
+        : null;
+      const geo = extractRequestGeo(
+        req,
+        body?.location,
+        client?.address || client?.name
+      );
+      if (geo) {
+        seatUpdate.location = geo;
+        if (client && client.location?.source !== "admin_manual") {
+          await Client.updateOne({ id: client.id }, { $set: { location: geo } });
+        }
+      }
+    } catch {
+      // Never block event ingestion on geolocation
+    }
+
     const seat = await LicenseSeat.findOneAndUpdate(
       {
         license_id: license.id,
         machine_id: String(machine_id),
       },
-      { $set: { last_seen_at: new Date() } },
+      { $set: seatUpdate },
       { new: true }
     ).lean<{ id: string; terminal_number?: number }>();
 
