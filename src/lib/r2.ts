@@ -62,7 +62,8 @@ export function getR2BucketName(): string {
 export async function getPresignedUploadUrl(
   objectKey: string,
   contentType = "application/octet-stream",
-  expiresInSeconds = 3600
+  expiresInSeconds = 3600,
+  metadata?: Record<string, string>
 ): Promise<string> {
   const client = getR2Client();
   const bucket = getR2BucketName();
@@ -71,6 +72,7 @@ export async function getPresignedUploadUrl(
     Bucket: bucket,
     Key: objectKey,
     ContentType: contentType,
+    ...(metadata && Object.keys(metadata).length > 0 ? { Metadata: metadata } : {}),
   });
 
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
@@ -104,7 +106,8 @@ export async function getPresignedDownloadUrl(
 export async function uploadBufferToR2(
   objectKey: string,
   buffer: Buffer,
-  contentType = "application/octet-stream"
+  contentType = "application/octet-stream",
+  metadata?: Record<string, string>
 ): Promise<{ size: number }> {
   const client = getR2Client();
   const bucket = getR2BucketName();
@@ -115,6 +118,7 @@ export async function uploadBufferToR2(
       Key: objectKey,
       Body: buffer,
       ContentType: contentType,
+      ...(metadata && Object.keys(metadata).length > 0 ? { Metadata: metadata } : {}),
     })
   );
 

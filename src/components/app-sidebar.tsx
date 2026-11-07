@@ -22,6 +22,7 @@ import {
   Database,
   HardDrive,
   MapPin,
+  Cloud,
 } from "lucide-react";
 
 import {
@@ -44,12 +45,16 @@ const primary = [
   { title: "Projects", url: "/projects", icon: FolderKanban },
   { title: "Licenses", url: "/licenses", icon: KeyRound },
   { title: "Data Migration", url: "/migration", icon: Database },
-  { title: "Storage Management", url: "/storage", icon: HardDrive },
   { title: "Billing & Renewals", url: "/billing", icon: CreditCard },
   { title: "Packages", url: "/packages", icon: Package },
   { title: "Releases", url: "/releases", icon: Rocket },
   { title: "Business Templates", url: "/templates", icon: Boxes },
   { title: "AI Management", url: "/ai-management", icon: Sparkles },
+];
+
+const infrastructure = [
+  { title: "Cloud Resource Monitor", url: "/infrastructure/cloud-monitor", icon: Cloud },
+  { title: "Storage Management", url: "/storage", icon: HardDrive },
 ];
 
 const admin = [
@@ -86,6 +91,23 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {primary.map((item) => (
+                <SidebarMenuItem key={item.url}>
+                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                    <Link href={item.url}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>Infrastructure</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {infrastructure.map((item) => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
                     <Link href={item.url}>
