@@ -21,6 +21,7 @@ import {
   PackageSearch,
   BellRing,
   BarChart3,
+  Globe,
 } from "lucide-react";
 
 interface PortalMe {
@@ -38,6 +39,13 @@ const PRIMARY_NAV = [
     shortLabel: "Overview",
     subtitle: "Live summary & daily brief",
     icon: LayoutDashboard,
+  },
+  {
+    href: "/portal/website",
+    label: "My Website",
+    shortLabel: "Website",
+    subtitle: "Online storefront & domain",
+    icon: Globe,
   },
   {
     href: "/portal/sales",
