@@ -54,3 +54,4 @@ const SmartPurchaseUsageLog: Model<ISmartPurchaseUsageLog> =
   mongoose.model<ISmartPurchaseUsageLog>("SmartPurchaseUsageLog", SmartPurchaseUsageLogSchema);
 
 export default SmartPurchaseUsageLog;
+
