@@ -110,7 +110,6 @@ export async function proxy(req: NextRequest) {
     pathname.startsWith("/portal") ||     // portal pages handled above
     pathname.startsWith("/download") ||
     pathname.startsWith("/demo") ||
-    pathname.startsWith("/scan") ||
     pathname === "/";
 
   if (!isPublicRoute) {
