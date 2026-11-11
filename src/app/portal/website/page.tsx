@@ -111,7 +111,7 @@ export default function PortalMyWebsitePage() {
     badge_text: "Special Offer",
     promotion_type: "percentage",
     discount_value: 10,
-    min_order_pkr: 1000,
+    min_order_pkr: 0,
   });
   const [newBanner, setNewBanner] = useState({
     title: "",
@@ -152,8 +152,14 @@ export default function PortalMyWebsitePage() {
     if (!rawUrl) return "";
     if (!rawUrl.startsWith("/api/v1/public/media/")) return rawUrl;
     const workerBase = (data?.worker_base_url || "http://localhost:8787").replace(/\/+$/, "");
+    const slug = data?.storefront?.slug || "";
     const primaryDomain = data?.storefront?.primary_domain || "";
-    return `${workerBase}${rawUrl}${primaryDomain ? `?hostname=${encodeURIComponent(primaryDomain)}` : ""}`;
+    const query = slug
+      ? `?store=${encodeURIComponent(slug)}`
+      : primaryDomain
+      ? `?hostname=${encodeURIComponent(primaryDomain)}`
+      : "";
+    return `${workerBase}${rawUrl}${query}`;
   }
 
   // Orders Filter State
@@ -316,6 +322,9 @@ export default function PortalMyWebsitePage() {
           height: optimized.height,
           sha256_hex: optimized.sha256Hex,
           base64_data: optimized.base64Data,
+          variants: optimized.pdfJpegDataUrl
+            ? { pdf_logo_jpeg: optimized.pdfJpegDataUrl }
+            : undefined,
           entity_type:
             purpose === "product"
               ? "product"
@@ -886,6 +895,53 @@ export default function PortalMyWebsitePage() {
                     </div>
                   </div>
 
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      {brandingForm.logo_url ? (
+                        <img
+                          src={resolvePortalMediaUrl(brandingForm.logo_url)}
+                          alt="Pharmacy Logo"
+                          className="w-12 h-12 rounded-xl object-contain bg-white border border-slate-200 p-1"
+                        />
+                      ) : (
+                        <div
+                          className="w-12 h-12 rounded-xl text-white font-extrabold flex items-center justify-center text-sm"
+                          style={{ backgroundColor: brandingForm.primary_color }}
+                        >
+                          {(brandingForm.display_name || "PH").slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <div>
+                        <div className="text-xs font-bold text-slate-900">
+                          Pharmacy Website &amp; 80mm Invoice Logo
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Synced with your POS logo — upload a new image anytime (auto-compressed to KBs WebP)
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="cursor-pointer inline-flex items-center gap-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white px-3 py-1.5 text-[11px] font-bold">
+                        <Upload className="h-3 w-3" />
+                        <span>{uploadingImage ? "Optimizing…" : "Change Logo"}</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) {
+                              void handleWebPImageUpload(f, "logo", sf.id, (url) =>
+                                setBrandingForm((prev) => ({ ...prev, logo_url: url }))
+                              );
+                            }
+                            e.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-xs text-slate-700 flex items-start gap-3">
                     <Lock className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" />
                     <div>
@@ -962,13 +1018,13 @@ export default function PortalMyWebsitePage() {
                   </div>
                 </div>
 
-                {/* Logo Upload with Browser WebP Compression */}
+                {/* Logo Upload with Browser WebP KB Compression + POS Logo Sync */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     {brandingForm.logo_url ? (
                       <img
                         src={resolvePortalMediaUrl(brandingForm.logo_url)}
-                        alt="Logo"
+                        alt="Pharmacy Logo"
                         className="w-14 h-14 rounded-xl object-contain bg-white border border-slate-200 p-1"
                       />
                     ) : (
@@ -980,9 +1036,11 @@ export default function PortalMyWebsitePage() {
                       </div>
                     )}
                     <div>
-                      <div className="text-xs font-bold text-slate-900">Pharmacy Logo (WebP Auto-Compressed)</div>
+                      <div className="text-xs font-bold text-slate-900">
+                        Pharmacy Website &amp; Receipt Logo (Auto KB Optimizer)
+                      </div>
                       <div className="text-[11px] text-slate-500">
-                        Automatically resized to ≤500px and compressed to WebP before upload
+                        Uses your POS logo by default — or upload a new logo (auto-compressed to lightweight WebP in KBs)
                       </div>
                       {lastUploadStats && (
                         <div className="text-[11px] text-emerald-700 font-semibold mt-0.5">
@@ -991,23 +1049,43 @@ export default function PortalMyWebsitePage() {
                       )}
                     </div>
                   </div>
-                  <label className="cursor-pointer inline-flex items-center gap-1.5 rounded-xl bg-slate-900 text-white px-3.5 py-2 text-xs font-bold hover:bg-slate-800">
-                    <Upload className="h-3.5 w-3.5" />
-                    <span>{uploadingImage ? "Optimizing…" : "Upload Logo"}</span>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) {
-                          void handleWebPImageUpload(f, "logo", sf.id, (url) =>
-                            setBrandingForm((prev) => ({ ...prev, logo_url: url }))
-                          );
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={saving || uploadingImage}
+                      onClick={async () => {
+                        const res = await postWebsiteAction("sync_pos_logo", {});
+                        if (res?.ok && res?.logo_url) {
+                          setBrandingForm((prev) => ({ ...prev, logo_url: res.logo_url }));
+                          notify("Synced pharmacy logo from POS");
+                        } else {
+                          notify(res?.message || "No POS logo found for this pharmacy");
                         }
                       }}
-                    />
-                  </label>
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 px-3 py-2 text-xs font-bold"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 text-emerald-600" />
+                      <span>Use POS Logo</span>
+                    </button>
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 rounded-xl bg-slate-900 text-white px-3.5 py-2 text-xs font-bold hover:bg-slate-800">
+                      <Upload className="h-3.5 w-3.5" />
+                      <span>{uploadingImage ? "Optimizing…" : "Upload Custom Logo"}</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) {
+                            void handleWebPImageUpload(f, "logo", sf.id, (url) =>
+                              setBrandingForm((prev) => ({ ...prev, logo_url: url }))
+                            );
+                          }
+                          e.currentTarget.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1191,12 +1269,20 @@ export default function PortalMyWebsitePage() {
                     </div>
                     <div className="bg-white p-3.5 border-b border-slate-200 flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
-                        <div
-                          className="w-9 h-9 rounded-xl text-white font-extrabold text-xs flex items-center justify-center"
-                          style={{ backgroundColor: brandingForm.primary_color }}
-                        >
-                          {(brandingForm.display_name || "PH").slice(0, 2).toUpperCase()}
-                        </div>
+                        {brandingForm.logo_url ? (
+                          <img
+                            src={resolvePortalMediaUrl(brandingForm.logo_url)}
+                            alt="Logo preview"
+                            className="w-9 h-9 rounded-xl object-contain bg-white border border-slate-200 p-0.5"
+                          />
+                        ) : (
+                          <div
+                            className="w-9 h-9 rounded-xl text-white font-extrabold text-xs flex items-center justify-center"
+                            style={{ backgroundColor: brandingForm.primary_color }}
+                          >
+                            {(brandingForm.display_name || "PH").slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
                         <div>
                           <div className="text-xs font-extrabold text-slate-900">
                             {brandingForm.display_name || sf.pharmacy_name}
@@ -2141,39 +2227,78 @@ export default function PortalMyWebsitePage() {
                   Promotional Codes & Seasonal Discounts
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  <input
-                    type="text"
-                    value={newPromo.title}
-                    onChange={(e) => setNewPromo((p) => ({ ...p, title: e.target.value }))}
-                    placeholder="Offer Title (e.g. 10% Off Wellness)"
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-                  />
-                  <input
-                    type="text"
-                    value={newPromo.code}
-                    onChange={(e) =>
-                      setNewPromo((p) => ({ ...p, code: e.target.value.toUpperCase() }))
-                    }
-                    placeholder="Promo Code (e.g. CARE10)"
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono uppercase"
-                  />
-                  <select
-                    value={newPromo.promotion_type}
-                    onChange={(e) => setNewPromo((p) => ({ ...p, promotion_type: e.target.value }))}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-                  >
-                    <option value="percentage">Percentage Discount (%)</option>
-                    <option value="fixed_amount">Fixed Amount Off (PKR)</option>
-                  </select>
-                  <input
-                    type="number"
-                    value={newPromo.discount_value}
-                    onChange={(e) =>
-                      setNewPromo((p) => ({ ...p, discount_value: Number(e.target.value) }))
-                    }
-                    placeholder="Discount Value"
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-                  />
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Offer Title
+                    </label>
+                    <input
+                      type="text"
+                      value={newPromo.title}
+                      onChange={(e) => setNewPromo((p) => ({ ...p, title: e.target.value }))}
+                      placeholder="e.g. 11.11 Sale"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Promo Code
+                    </label>
+                    <input
+                      type="text"
+                      value={newPromo.code}
+                      onChange={(e) =>
+                        setNewPromo((p) => ({ ...p, code: e.target.value.toUpperCase() }))
+                      }
+                      placeholder="e.g. 11NOV"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Discount Type
+                    </label>
+                    <select
+                      value={newPromo.promotion_type}
+                      onChange={(e) => setNewPromo((p) => ({ ...p, promotion_type: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
+                    >
+                      <option value="percentage">Percentage Discount (%)</option>
+                      <option value="fixed_amount">Fixed Amount Off (PKR)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Discount Value ({newPromo.promotion_type === "percentage" ? "%" : "PKR"})
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={newPromo.discount_value}
+                      onChange={(e) =>
+                        setNewPromo((p) => ({ ...p, discount_value: Number(e.target.value) }))
+                      }
+                      placeholder="e.g. 10"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Minimum Order (PKR) — <span className="font-normal text-slate-500">0 = No Minimum</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={newPromo.min_order_pkr}
+                      onChange={(e) =>
+                        setNewPromo((p) => ({
+                          ...p,
+                          min_order_pkr: Math.max(0, Number(e.target.value || 0)),
+                        }))
+                      }
+                      placeholder="0 (applies to every order)"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
+                    />
+                  </div>
                   <button
                     type="button"
                     disabled={saving || !newPromo.title}
@@ -2186,7 +2311,7 @@ export default function PortalMyWebsitePage() {
                         badge_text: "Special Offer",
                         promotion_type: "percentage",
                         discount_value: 10,
-                        min_order_pkr: 1000,
+                        min_order_pkr: 0,
                       });
                       notify("Created pharmacy promotion");
                     }}
@@ -2197,28 +2322,44 @@ export default function PortalMyWebsitePage() {
                 </div>
 
                 <div className="divide-y divide-slate-100">
-                  {promotions.map((p) => (
-                    <div key={p.id} className="py-3 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-slate-900">{p.title}</span>
-                        {p.code && (
-                          <span className="ml-2 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-mono font-bold">
-                            {p.code}
-                          </span>
-                        )}
+                  {promotions.map((p) => {
+                    const pType = p.promo_type || p.promotion_type;
+                    const minOrd = Number(p.min_order_pkr || 0);
+                    return (
+                      <div key={p.id} className="py-3 flex items-center justify-between gap-2 text-xs">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-slate-900">{p.title}</span>
+                            {p.code && (
+                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-mono font-bold">
+                                {p.code}
+                              </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold">
+                              {pType === "percentage"
+                                ? `${Number(p.discount_value || 0)}% OFF`
+                                : `PKR ${Number(p.discount_value || 0).toLocaleString()} OFF`}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {minOrd > 0
+                              ? `Minimum order: PKR ${minOrd.toLocaleString()}`
+                              : "Applies to all orders (no minimum)"}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await postWebsiteAction("delete_promotion", { promotion_id: p.id });
+                            notify("Deleted promotion");
+                          }}
+                          className="text-red-600 hover:underline font-semibold shrink-0"
+                        >
+                          Remove
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await postWebsiteAction("delete_promotion", { promotion_id: p.id });
-                          notify("Deleted promotion");
-                        }}
-                        className="text-red-600 hover:underline font-semibold"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

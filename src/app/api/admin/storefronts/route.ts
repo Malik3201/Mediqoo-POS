@@ -13,6 +13,7 @@ import {
   sanitizePortalProductForStorefront,
   type StorefrontManagementActor,
 } from "@/lib/storefront/client";
+import { syncPosProjectLogoToStorefront } from "@/lib/storefront/pos-logo-sync";
 
 const FALLBACK_PHARMACIES = [
   {
@@ -327,6 +328,17 @@ export async function POST(req: NextRequest) {
   }
 
   const createdSf = createRes.data.storefront;
+
+  // Automatically sync POS project logo onto newly provisioned website if available
+  try {
+    await syncPosProjectLogoToStorefront({
+      storefrontId: createdSf.id,
+      pharmacyId: createdSf.pharmacy_id,
+      actor,
+    });
+  } catch {
+    // Non-blocking if POS logo is absent
+  }
 
   // Optionally publish initial approved catalog items (either from OwnerPortalState or curated starter set)
   // Note: NEVER automatically publishes all 41,441 master medicines!

@@ -18,6 +18,7 @@ import {
   signStorefrontSyncToken,
   type StorefrontManagementActor,
 } from "@/lib/storefront/client";
+import { syncPosProjectLogoToStorefront } from "@/lib/storefront/pos-logo-sync";
 
 async function resolveAuthenticatedPortalActor(req: NextRequest): Promise<
   | {
@@ -137,7 +138,21 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const branding = res.data.branding;
+  let branding = res.data.branding;
+  // Auto-sync pharmacy's POS logo onto website if branding has no logo yet
+  if (!branding?.logo_url && !branding?.logo_media_id) {
+    const syncedLogo = await syncPosProjectLogoToStorefront({
+      storefrontId: sf.id,
+      pharmacyId: clientId,
+      actor,
+    });
+    if (syncedLogo.synced && syncedLogo.logo_url) {
+      branding = {
+        ...(branding || {}),
+        logo_url: syncedLogo.logo_url,
+      };
+    }
+  }
   const domains: any[] = res.data.domains || [];
   const urls = getStorefrontPublicPreviewUrl(sf.slug, sf.primary_domain);
   const hasVerifiedDomain = domains.some((d) => d.verification_status === "verified");
@@ -270,6 +285,30 @@ export async function POST(req: NextRequest) {
       { method: "POST", actor, body: body.payload || body }
     );
     return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "sync_pos_logo") {
+    const syncLogoRes = await syncPosProjectLogoToStorefront({
+      storefrontId: sfId,
+      pharmacyId: clientId,
+      actor,
+    });
+    if (!syncLogoRes.synced) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: syncLogoRes.reason || "no_pos_logo_found",
+          message:
+            "No POS logo is configured on this pharmacy project yet. You can upload any logo image directly.",
+        },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json({
+      ok: true,
+      logo_url: syncLogoRes.logo_url,
+      byte_size: syncLogoRes.byte_size,
+    });
   }
 
   if (action === "cleanup_media") {

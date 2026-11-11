@@ -13,6 +13,7 @@ export type MediaAssetPurpose = "logo" | "banner" | "product" | "category" | "fa
 export interface OptimizedImageResult {
   base64Data: string;
   previewDataUrl: string;
+  pdfJpegDataUrl?: string;
   mimeType: "image/webp";
   byteSize: number;
   width: number;
@@ -165,9 +166,34 @@ export async function optimizeImageForStorefront(
   const sha256Hex = await computeSha256Hex(arrayBuffer);
   const { base64Data, dataUrl } = await blobToBase64(blob);
 
+  let pdfJpegDataUrl: string | undefined;
+  if (purpose === "logo") {
+    try {
+      const pdfMax = 220;
+      const pdfScale = Math.min(pdfMax / targetW, pdfMax / targetH, 1);
+      const pw = Math.max(16, Math.round(targetW * pdfScale));
+      const ph = Math.max(16, Math.round(targetH * pdfScale));
+      const pdfCanvas = document.createElement("canvas");
+      pdfCanvas.width = pw;
+      pdfCanvas.height = ph;
+      const pctx = pdfCanvas.getContext("2d");
+      if (pctx) {
+        pctx.fillStyle = "#FFFFFF";
+        pctx.fillRect(0, 0, pw, ph);
+        pctx.imageSmoothingEnabled = true;
+        pctx.imageSmoothingQuality = "high";
+        pctx.drawImage(img, 0, 0, pw, ph);
+        pdfJpegDataUrl = pdfCanvas.toDataURL("image/jpeg", 0.86);
+      }
+    } catch {
+      // Optional fallback only
+    }
+  }
+
   return {
     base64Data,
     previewDataUrl: dataUrl,
+    pdfJpegDataUrl,
     mimeType: "image/webp",
     byteSize: blob.size,
     width: targetW,

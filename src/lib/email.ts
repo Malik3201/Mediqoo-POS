@@ -527,4 +527,272 @@ export async function sendPaymentReceipt(paymentId: string) {
   }
 }
 
+function escapeEmailHtml(val: unknown): string {
+  return String(val ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatEmailPkr(val: unknown): string {
+  const n = Number(val || 0);
+  if (!Number.isFinite(n)) return "0";
+  const rounded = Math.round(n * 100) / 100;
+  return Number.isInteger(rounded)
+    ? rounded.toLocaleString("en-US")
+    : rounded.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Send Customer Online Order Invoice Email + Attached 80mm POS PDF Receipt
+ * Uses the existing server SMTP configuration (`getTransporter()`).
+ */
+export async function sendStorefrontOrderInvoiceEmail(params: {
+  storefront: {
+    pharmacy_name: string;
+    slug: string;
+    address_line?: string | null;
+    city?: string | null;
+    contact_phone?: string | null;
+    contact_email?: string | null;
+    drug_sale_license_no?: string | null;
+    primary_color?: string | null;
+    logo_url?: string | null;
+    public_url?: string | null;
+  };
+  order: {
+    order_number: string;
+    pos_invoice_number?: string | null;
+    created_at?: string | null;
+    customer_name: string;
+    customer_phone?: string | null;
+    customer_email: string;
+    fulfillment_type?: string | null;
+    branch_name_snapshot?: string | null;
+    delivery_address?: string | null;
+    delivery_city?: string | null;
+    delivery_instructions?: string | null;
+    customer_notes?: string | null;
+    payment_method?: string | null;
+    payment_status?: string | null;
+    subtotal_pkr?: number | null;
+    discount_pkr?: number | null;
+    delivery_fee_pkr?: number | null;
+    total_pkr: number;
+    applied_promo_code?: string | null;
+    items?: Array<{
+      product_name?: string | null;
+      product_name_snapshot?: string | null;
+      selling_unit_name?: string | null;
+      unit_label_snapshot?: string | null;
+      unit_label?: string | null;
+      qty: number;
+      unit_price_pkr?: number | null;
+      line_total_pkr: number;
+    }>;
+  };
+  pdfBuffer: Buffer;
+}) {
+  const { storefront, order, pdfBuffer } = params;
+  const recipient = String(order.customer_email || "").trim();
+  if (!recipient || !recipient.includes("@")) return { sent: false, reason: "invalid_email" };
+
+  const brandColor =
+    storefront.primary_color && /^#[0-9A-Fa-f]{6}$/.test(storefront.primary_color)
+      ? storefront.primary_color
+      : "#176B58";
+  const pharmacyName = storefront.pharmacy_name || "Community Pharmacy";
+  const isPickup = String(order.fulfillment_type || "").toLowerCase() === "pickup";
+  const discountPkr = Math.max(0, Number(order.discount_pkr || 0));
+  const deliveryFeePkr = Math.max(0, Number(order.delivery_fee_pkr || 0));
+  const subtotalPkr = Number(order.subtotal_pkr || 0);
+  const items = Array.isArray(order.items) ? order.items : [];
+
+  const formattedDate = (() => {
+    try {
+      const d = order.created_at ? new Date(order.created_at) : new Date();
+      return d.toLocaleString("en-GB", {
+        timeZone: "Asia/Karachi",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      return new Date().toUTCString();
+    }
+  })();
+
+  const paymentLabel =
+    order.payment_method === "cod"
+      ? "Cash on Delivery (COD)"
+      : order.payment_method === "counter_pay"
+      ? "Pay at Pharmacy Counter"
+      : "Bank Transfer / Raast";
+
+  const itemRowsHtml = items
+    .map((it) => {
+      const name = escapeEmailHtml(
+        it.product_name_snapshot || it.product_name || "Medicine Item"
+      );
+      const unit = escapeEmailHtml(
+        it.selling_unit_name || it.unit_label_snapshot || it.unit_label || "Unit"
+      );
+      const qty = Math.max(1, Number(it.qty || 1));
+      const rate =
+        it.unit_price_pkr !== undefined && it.unit_price_pkr !== null
+          ? Number(it.unit_price_pkr)
+          : Number((Number(it.line_total_pkr || 0) / qty).toFixed(2));
+      return `
+        <tr>
+          <td style="padding: 10px 8px; border-bottom: 1px solid #EEF3F0; font-size: 13px; color: #15283B;">
+            <strong>${name}</strong>
+            <div style="font-size: 11px; color: #64748B; margin-top: 2px;">Unit: ${unit}</div>
+          </td>
+          <td style="padding: 10px 6px; border-bottom: 1px solid #EEF3F0; font-size: 13px; color: #15283B; text-align: center;">
+            ${qty}
+          </td>
+          <td style="padding: 10px 6px; border-bottom: 1px solid #EEF3F0; font-size: 13px; color: #475569; text-align: right;">
+            PKR ${formatEmailPkr(rate)}
+          </td>
+          <td style="padding: 10px 8px; border-bottom: 1px solid #EEF3F0; font-size: 13px; font-weight: 600; color: #15283B; text-align: right;">
+            PKR ${formatEmailPkr(it.line_total_pkr)}
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const logoHeaderHtml =
+    storefront.logo_url && /^https?:\/\//i.test(storefront.logo_url)
+      ? `<img src="${escapeEmailHtml(storefront.logo_url)}" alt="${escapeEmailHtml(pharmacyName)}" style="max-height: 54px; max-width: 140px; object-fit: contain; display: block; margin: 0 auto 10px;" />`
+      : "";
+
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head><meta charset="utf-8" /></head>
+  <body style="margin: 0; padding: 28px 14px; background-color: #F4F7F6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #15283B;">
+    <div style="max-width: 560px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; overflow: hidden; border: 1px solid #DCE7E2;">
+      <div style="border-top: 5px solid ${brandColor}; padding: 26px 28px 20px; text-align: center; border-bottom: 1px solid #EEF3F0;">
+        ${logoHeaderHtml}
+        <div style="font-size: 20px; font-weight: 800; color: #15283B; letter-spacing: -0.01em;">
+          ${escapeEmailHtml(pharmacyName)}
+        </div>
+        ${
+          storefront.address_line || storefront.city
+            ? `<div style="font-size: 12px; color: #64748B; margin-top: 4px;">${escapeEmailHtml([storefront.address_line, storefront.city].filter(Boolean).join(", "))}</div>`
+            : ""
+        }
+        ${
+          storefront.contact_phone
+            ? `<div style="font-size: 12px; color: #475569; margin-top: 2px;">Tel: <strong>${escapeEmailHtml(storefront.contact_phone)}</strong></div>`
+            : ""
+        }
+        <div style="display: inline-block; margin-top: 12px; padding: 4px 12px; border-radius: 999px; background: #EFF7F3; color: ${brandColor}; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;">
+          Official Online Order Invoice
+        </div>
+      </div>
+
+      <div style="padding: 24px 28px;">
+        <p style="margin: 0 0 14px; font-size: 14px; color: #334155;">
+          Assalam-o-Alaikum <strong>${escapeEmailHtml(order.customer_name)}</strong>, thank you for ordering from <strong>${escapeEmailHtml(pharmacyName)}</strong>. Your 80mm thermal receipt PDF is attached to this email.
+        </p>
+
+        <div style="background: #F8FAF9; border: 1px solid #DCE7E2; border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; font-size: 12.5px; line-height: 1.65;">
+          <div><strong>Order Reference:</strong> <span style="font-family: monospace; font-size: 13.5px; font-weight: 700; color: ${brandColor};">${escapeEmailHtml(order.order_number)}</span></div>
+          <div><strong>Date &amp; Time:</strong> ${escapeEmailHtml(formattedDate)}</div>
+          <div><strong>Fulfillment:</strong> ${isPickup ? "Counter Pickup" : "Home Delivery"}</div>
+          ${
+            !isPickup && order.delivery_address
+              ? `<div><strong>Delivery Address:</strong> ${escapeEmailHtml([order.delivery_address, order.delivery_city].filter(Boolean).join(", "))}</div>`
+              : ""
+          }
+          <div><strong>Payment Method:</strong> ${escapeEmailHtml(paymentLabel)}</div>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
+          <thead>
+            <tr style="background: #15283B; color: #FFFFFF;">
+              <th style="padding: 9px 8px; text-align: left; font-size: 11px; text-transform: uppercase;">Medicine &amp; Unit</th>
+              <th style="padding: 9px 6px; text-align: center; font-size: 11px; text-transform: uppercase;">Qty</th>
+              <th style="padding: 9px 6px; text-align: right; font-size: 11px; text-transform: uppercase;">Rate</th>
+              <th style="padding: 9px 8px; text-align: right; font-size: 11px; text-transform: uppercase;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRowsHtml}
+          </tbody>
+        </table>
+
+        <div style="border-top: 1px dashed #CBD5E1; padding-top: 12px; font-size: 13px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 6px; color: #475569;">
+            <span>Items Subtotal:</span>
+            <strong style="float: right; color: #15283B;">PKR ${formatEmailPkr(subtotalPkr)}</strong>
+          </div>
+          ${
+            discountPkr > 0
+              ? `<div style="margin-bottom: 6px; color: ${brandColor}; font-weight: 700;">
+                  <span>Promo Discount${order.applied_promo_code ? ` (${escapeEmailHtml(order.applied_promo_code)})` : ""}:</span>
+                  <strong style="float: right;">- PKR ${formatEmailPkr(discountPkr)}</strong>
+                </div>`
+              : ""
+          }
+          <div style="margin-bottom: 10px; color: #475569;">
+            <span>${isPickup ? "Counter Pickup:" : "Delivery Charges:"}</span>
+            <strong style="float: right; color: #15283B;">${deliveryFeePkr === 0 ? "FREE" : `PKR ${formatEmailPkr(deliveryFeePkr)}`}</strong>
+          </div>
+          <div style="background: #EFF7F3; border: 1px solid ${brandColor}; border-radius: 10px; padding: 12px 14px; font-size: 15px; font-weight: 800; color: #15283B;">
+            <span>Net Total Payable</span>
+            <span style="float: right; color: ${brandColor};">PKR ${formatEmailPkr(order.total_pkr)}</span>
+          </div>
+        </div>
+
+        ${
+          storefront.public_url
+            ? `<div style="text-align: center; margin-top: 22px;">
+                <a href="${escapeEmailHtml(storefront.public_url)}" style="display: inline-block; background: ${brandColor}; color: #FFFFFF; text-decoration: none; padding: 11px 22px; border-radius: 10px; font-size: 13px; font-weight: 700;">
+                  Track Order Online (${escapeEmailHtml(order.order_number)})
+                </a>
+              </div>`
+            : ""
+        }
+      </div>
+
+      <div style="background: #F8FAF9; border-top: 1px solid #EEF3F0; padding: 16px 24px; text-align: center; font-size: 11.5px; color: #64748B;">
+        <div>Thank you for choosing <strong>${escapeEmailHtml(pharmacyName)}</strong> — Get well soon!</div>
+        <div style="margin-top: 4px;">Powered by AivraSol Mediqoo Pharmacy POS</div>
+      </div>
+    </div>
+  </body>
+  </html>
+  `;
+
+  const transporter = getTransporter();
+  const safeOrderRef = String(order.order_number || "Order").replace(/[^A-Za-z0-9_-]/g, "");
+
+  await transporter.sendMail({
+    from: {
+      name: `${pharmacyName} (via AivraSol)`,
+      address: FROM_EMAIL,
+    },
+    replyTo: storefront.contact_email || undefined,
+    to: recipient,
+    subject: `Invoice ${order.order_number} — ${pharmacyName} (PKR ${formatEmailPkr(order.total_pkr)})`,
+    html,
+    attachments: [
+      {
+        filename: `Invoice-${safeOrderRef}-80mm.pdf`,
+        content: pdfBuffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
+
+  return { sent: true, recipient };
+}
+
 
