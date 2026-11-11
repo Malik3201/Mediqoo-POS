@@ -1775,16 +1775,34 @@ export default function PortalMyWebsitePage() {
                                 className={`rounded-xl border px-2 py-1 text-[11px] font-bold ${
                                   paymentSt === "paid"
                                     ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                                    : paymentSt === "partially_paid"
+                                    ? "bg-sky-50 border-sky-200 text-sky-800"
                                     : paymentSt === "refunded"
                                     ? "bg-rose-50 border-rose-200 text-rose-700"
                                     : "bg-amber-50 border-amber-200 text-amber-800"
                                 }`}
                               >
                                 <option value="pending_cod">COD Pending</option>
+                                <option value="partially_paid">Partially Paid</option>
                                 <option value="unpaid">Unpaid</option>
                                 <option value="paid">Paid</option>
                                 <option value="refunded">Refunded</option>
                               </select>
+                              {String(ord.payment_method || "cod").toLowerCase().includes("cod") && (
+                                <div className="mt-1 text-[10px] font-mono text-slate-600">
+                                  Paid: PKR {Number(ord.cod_paid_amount_pkr || 0).toLocaleString()} • Due: PKR{" "}
+                                  {Number(
+                                    ord.cod_balance_due_pkr !== null && ord.cod_balance_due_pkr !== undefined
+                                      ? ord.cod_balance_due_pkr
+                                      : paymentSt === "paid"
+                                      ? 0
+                                      : Math.max(
+                                          0,
+                                          Number(ord.total_pkr || 0) - Number(ord.cod_paid_amount_pkr || 0)
+                                        )
+                                  ).toLocaleString()}
+                                </div>
+                              )}
                             </td>
                             <td className="py-3 px-3">
                               <div className="flex flex-col gap-1 items-start">
@@ -1981,15 +1999,38 @@ export default function PortalMyWebsitePage() {
                     </div>
 
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
-                      <div className="text-slate-600">
-                        Payment:{" "}
-                        <strong className="uppercase">
-                          {selectedOrder.payment_method || "COD"}
-                        </strong>{" "}
-                        • Status:{" "}
-                        <strong className="uppercase">
-                          {selectedOrder.payment_status || "pending_cod"}
-                        </strong>
+                      <div className="text-slate-600 space-y-1">
+                        <div>
+                          Payment:{" "}
+                          <strong className="uppercase">
+                            {selectedOrder.payment_method || "COD"}
+                          </strong>{" "}
+                          • Status:{" "}
+                          <strong className="uppercase">
+                            {String(selectedOrder.payment_status || "pending_cod").replace(/_/g, " ")}
+                          </strong>
+                        </div>
+                        {String(selectedOrder.payment_method || "cod")
+                          .toLowerCase()
+                          .includes("cod") && (
+                          <div className="font-mono text-[11px] text-slate-700">
+                            COD Paid: PKR{" "}
+                            {Number(selectedOrder.cod_paid_amount_pkr || 0).toLocaleString()} •
+                            Remaining COD Due: PKR{" "}
+                            {Number(
+                              selectedOrder.cod_balance_due_pkr !== null &&
+                                selectedOrder.cod_balance_due_pkr !== undefined
+                                ? selectedOrder.cod_balance_due_pkr
+                                : selectedOrder.payment_status === "paid"
+                                ? 0
+                                : Math.max(
+                                    0,
+                                    Number(selectedOrder.total_pkr || 0) -
+                                      Number(selectedOrder.cod_paid_amount_pkr || 0)
+                                  )
+                            ).toLocaleString()}
+                          </div>
+                        )}
                       </div>
                       <div className="text-right space-y-0.5">
                         <div>
@@ -2008,6 +2049,81 @@ export default function PortalMyWebsitePage() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Synced POS COD Collection History (when present) */}
+                    {(() => {
+                      let codEntries: any[] = [];
+                      try {
+                        if (typeof selectedOrder.cod_collections_json === "string" && selectedOrder.cod_collections_json) {
+                          const parsed = JSON.parse(selectedOrder.cod_collections_json);
+                          if (Array.isArray(parsed)) codEntries = parsed;
+                        } else if (Array.isArray(selectedOrder.cod_collections)) {
+                          codEntries = selectedOrder.cod_collections;
+                        }
+                      } catch {
+                        codEntries = [];
+                      }
+                      if (codEntries.length === 0) return null;
+                      return (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2 text-xs">
+                          <div className="font-bold uppercase text-[10px] text-slate-500">
+                            POS COD Collection &amp; Reversal Ledger
+                          </div>
+                          <div className="divide-y divide-slate-200/70">
+                            {codEntries.map((ce: any, idx: number) => {
+                              const amt = Number(ce.amount || 0);
+                              const isRev = Boolean(ce.is_reversal || amt < 0);
+                              return (
+                                <div key={ce.id || idx} className="py-1.5 flex flex-wrap items-center justify-between gap-2">
+                                  <div>
+                                    <span className="font-mono font-bold text-slate-800">
+                                      {ce.number || ce.id}
+                                    </span>{" "}
+                                    <span className="uppercase font-semibold text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200">
+                                      {ce.method || "cash"}
+                                    </span>
+                                    {ce.reference ? (
+                                      <span className="ml-1.5 font-mono text-[11px] text-slate-500">
+                                        Ref: {ce.reference}
+                                      </span>
+                                    ) : null}
+                                    {ce.operator_name ? (
+                                      <span className="ml-1.5 text-[11px] text-slate-500">
+                                        • {ce.operator_name}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <div className={`font-mono font-bold ${isRev ? "text-rose-700" : "text-emerald-700"}`}>
+                                    {isRev ? "−" : "+"}PKR {Math.abs(amt).toLocaleString()}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Synced Order Status Timeline */}
+                    {Array.isArray(selectedOrder.history) && selectedOrder.history.length > 0 && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-1.5 text-xs">
+                        <div className="font-bold uppercase text-[10px] text-slate-500">
+                          Order Status Audit Trail
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedOrder.history.map((h: any, idx: number) => (
+                            <span
+                              key={h.id || idx}
+                              className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[11px] text-slate-700"
+                              title={h.note || undefined}
+                            >
+                              <strong>{String(h.to_status || h.new_status || "").replace(/_/g, " ")}</strong>{" "}
+                              ({new Date(h.created_at).toLocaleString()})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

@@ -167,7 +167,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         }
 
         const attentionCount = Number(
-          json.active_attention_count ?? json.pending_confirmation_count ?? 0
+          json.new_unacknowledged_count ?? json.pending_confirmation_count ?? 0
         );
         setOnlineOrderBadgeCount(attentionCount);
 
