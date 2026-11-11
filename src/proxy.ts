@@ -101,9 +101,10 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // Protect admin routes — everything except public routes
+  // Protect admin routes — everything except public routes (and secret-authenticated internal webhooks)
   const isPublicRoute =
     pathname.startsWith("/api/public") ||
+    pathname.startsWith("/api/internal/storefront") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/updates") ||
     pathname.startsWith("/api/portal") || // portal APIs handled above or are public
