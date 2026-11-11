@@ -215,10 +215,22 @@ async function loadExistingPharmacies() {
         c.location?.city ||
         (c.address ? String(c.address).split(",").pop()?.trim() || "Pakistan" : "Pakistan");
 
+      // Prefer verified pharmacy business identity from Project (`branding.store_name` or `Project.name`)
+      // over `Client.name`, which often stores the owner/contact person's personal name.
+      const primaryProject: any = clientProjects[0] || null;
+      const projectBusinessName =
+        (typeof primaryProject?.branding?.store_name === "string" &&
+          primaryProject.branding.store_name.trim()) ||
+        (typeof primaryProject?.name === "string" && primaryProject.name.trim()) ||
+        "";
+      const verifiedBusinessName = projectBusinessName || c.name;
+
       return {
         pharmacy_id: c.id,
-        name: c.name,
-        company: c.name,
+        project_id: primaryProject?.id || null,
+        name: verifiedBusinessName,
+        company: verifiedBusinessName,
+        contact_name: c.contact_name || c.name || "",
         email: c.contact_email || "",
         phone: c.contact_phone || "",
         city: derivedCity,

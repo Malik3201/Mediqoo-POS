@@ -156,11 +156,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const clientDoc = await Client.findOne({ id: verifiedClientId }).lean<{
-      id: string;
-      name: string;
-    }>();
-    const verifiedPharmacyName = clientDoc?.name || "Licensed Pharmacy";
+    const [clientDoc, projDoc] = await Promise.all([
+      Client.findOne({ id: verifiedClientId }).lean<{
+        id: string;
+        name: string;
+      }>(),
+      license.project_id
+        ? Project.findOne({ id: license.project_id }).lean<{
+            id: string;
+            name?: string;
+            branding?: { store_name?: string };
+          }>()
+        : Project.findOne({ client_id: verifiedClientId }).lean<{
+            id: string;
+            name?: string;
+            branding?: { store_name?: string };
+          }>(),
+    ]);
+    const verifiedPharmacyName =
+      (projDoc?.branding?.store_name && projDoc.branding.store_name.trim()) ||
+      (projDoc?.name && projDoc.name.trim()) ||
+      clientDoc?.name ||
+      "Pharmacy";
 
     // 4. Optional single-use pairing code verification (strictly bound to verifiedClientId)
     if (rawPairingCode) {
