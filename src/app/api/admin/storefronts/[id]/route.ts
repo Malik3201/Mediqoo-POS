@@ -160,7 +160,12 @@ export async function PATCH(
       {
         method: "PATCH",
         actor,
-        body: { status: body.status, note: body.note },
+        body: {
+          status: body.status,
+          payment_status: body.payment_status,
+          pos_invoice_number: body.pos_invoice_number,
+          note: body.note,
+        },
       }
     );
     return NextResponse.json(res.data, { status: res.status });
@@ -243,13 +248,26 @@ export async function POST(
     }
 
     const rev = Math.floor(Date.now() / 1000);
-    const sanitizedItems = rawItems.map((item, idx) =>
-      sanitizePortalProductForStorefront({
-        ...item,
-        source_revision: rev,
-        is_featured: item.is_featured ?? idx < 4,
-      })
-    );
+    const sanitizedItems = rawItems
+      .map((item, idx) =>
+        sanitizePortalProductForStorefront({
+          ...item,
+          source_revision: rev,
+          is_featured: item.is_featured ?? idx < 4,
+        })
+      )
+      .filter((it) => Boolean(it.pos_product_id && it.product_identity?.name));
+
+    if (sanitizedItems.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "missing_pos_product_identity",
+          message: "No valid POS product identities found to publish.",
+        },
+        { status: 400 }
+      );
+    }
 
     const syncRes = await callStorefrontSyncApi("/api/v1/sync/catalog-delta", {
       method: "POST",

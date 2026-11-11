@@ -315,7 +315,7 @@ export async function callStorefrontSyncApi<T = any>(
  * `last_supplier_name`, or controlled substances to be published.
  */
 export function sanitizePortalProductForStorefront(raw: Record<string, any>) {
-  const posProductId = String(raw.product_id || raw.pos_product_id || raw.id || "").trim();
+  const posProductId = String(raw.pos_product_id || raw.product_id || raw.id || "").trim();
   const name = String(raw.product_name || raw.name || "").trim();
   const categoryName = String(raw.category || raw.category_name || "General Medicines").trim();
 
@@ -330,7 +330,10 @@ export function sanitizePortalProductForStorefront(raw: Record<string, any>) {
       /prescription|antibiotic|rx|insulin|cardiac/i.test(categoryName)
   );
 
-  const currentStock = Math.max(0, Number(raw.current_stock ?? raw.available_qty ?? 10));
+  const currentStock = Math.max(
+    0,
+    Number(raw.available_base_qty ?? raw.current_stock ?? raw.available_qty ?? 0)
+  );
   const reorderLevel = Math.max(2, Number(raw.reorder_level ?? 5));
   const availability =
     currentStock <= 0
@@ -343,6 +346,71 @@ export function sanitizePortalProductForStorefront(raw: Record<string, any>) {
     0,
     Number(raw.sale_price ?? raw.public_selling_price_pkr ?? raw.retail_price ?? 0)
   );
+
+  const baseUnitLabel = String(raw.base_unit_label || raw.unit_label || raw.unit || "Unit").trim() || "Unit";
+  const packingLabel = String(raw.packing_label || raw.pack_size || baseUnitLabel).trim() || baseUnitLabel;
+
+  // Build genuine inventory-compatible selling units only from configured POS units/packings (never invent conversions)
+  let sellingUnits: Array<{
+    unit_id: string;
+    unit_name: string;
+    label: string;
+    multiplier: number;
+    price_pkr: number;
+    compare_at_price_pkr: number | null;
+    is_default: boolean;
+    sort_order: number;
+  }> = [];
+
+  if (Array.isArray(raw.selling_units) && raw.selling_units.length > 0) {
+    sellingUnits = raw.selling_units
+      .map((u: any, idx: number) => ({
+        unit_id: String(u.unit_id || `unit_${idx}`).trim(),
+        unit_name: String(u.unit_name || u.label || baseUnitLabel).trim(),
+        label: String(u.label || u.unit_name || baseUnitLabel).trim(),
+        multiplier: Math.max(1, Math.round(Number(u.multiplier || 1))),
+        price_pkr: Math.max(0, Number(u.price_pkr ?? retailPrice)),
+        compare_at_price_pkr:
+          u.compare_at_price_pkr !== null && u.compare_at_price_pkr !== undefined
+            ? Number(u.compare_at_price_pkr)
+            : null,
+        is_default: Boolean(u.is_default ?? idx === 0),
+        sort_order: Number(u.sort_order ?? idx),
+      }))
+      .filter((u: any) => u.multiplier >= 1 && Number.isFinite(u.price_pkr));
+  } else {
+    sellingUnits.push({
+      unit_id: `base_${baseUnitLabel.toLowerCase().replace(/[^a-z0-9]+/g, "_") || "unit"}`,
+      unit_name: baseUnitLabel,
+      label: baseUnitLabel,
+      multiplier: 1,
+      price_pkr: retailPrice,
+      compare_at_price_pkr: raw.compare_at_price_pkr ? Number(raw.compare_at_price_pkr) : null,
+      is_default: true,
+      sort_order: 0,
+    });
+    if (Array.isArray(raw.packings)) {
+      raw.packings.forEach((p: any, idx: number) => {
+        const mult = Math.round(Number(p?.multiplier || 0));
+        const pName = String(p?.name || "").trim();
+        if (!pName || !Number.isFinite(mult) || mult <= 1) return;
+        const unitPrice =
+          p?.price !== undefined && p?.price !== null && Number(p.price) > 0
+            ? Number(p.price)
+            : Number((retailPrice * mult).toFixed(2));
+        sellingUnits.push({
+          unit_id: String(p?.id || `pack_${pName.toLowerCase().replace(/[^a-z0-9]+/g, "_")}_${mult}`),
+          unit_name: pName,
+          label: `${pName} (${mult} ${baseUnitLabel}${mult > 1 ? "s" : ""})`,
+          multiplier: mult,
+          price_pkr: unitPrice,
+          compare_at_price_pkr: null,
+          is_default: false,
+          sort_order: idx + 1,
+        });
+      });
+    }
+  }
 
   return {
     pos_product_id: posProductId,
@@ -357,17 +425,21 @@ export function sanitizePortalProductForStorefront(raw: Record<string, any>) {
           | "draft"),
     availability: availability as "in_stock" | "low_stock" | "out_of_stock",
     available_qty: currentStock,
+    available_base_qty: currentStock,
     is_featured: isControlled ? false : Boolean(raw.is_featured),
-    max_order_qty: Math.max(1, Number(raw.max_order_qty || 10)),
+    max_order_qty: Math.max(1, Number(raw.max_order_qty || 20)),
+    selling_units: sellingUnits,
     product_identity: {
       sku_code: raw.sku || raw.sku_code ? String(raw.sku || raw.sku_code) : undefined,
+      barcode: raw.barcode ? String(raw.barcode) : undefined,
       name,
       generic_name: raw.generic_name ? String(raw.generic_name) : undefined,
       strength: raw.strength ? String(raw.strength) : undefined,
       dosage_form: raw.dosage_form ? String(raw.dosage_form) : undefined,
       brand_name: raw.brand_name || raw.manufacturer ? String(raw.brand_name || raw.manufacturer) : undefined,
-      packing_label: raw.packing_label || raw.unit ? String(raw.packing_label || raw.unit) : "Pack",
-      unit_label: raw.unit_label || raw.unit ? String(raw.unit_label || raw.unit) : "Pack",
+      packing_label: packingLabel,
+      unit_label: baseUnitLabel,
+      base_unit_label: baseUnitLabel,
       category_name: categoryName,
       public_description: raw.public_description ? String(raw.public_description) : undefined,
       primary_image_url: raw.primary_image_url ? String(raw.primary_image_url) : undefined,

@@ -26,6 +26,9 @@ import {
   Plus,
   Trash2,
   Check,
+  Copy,
+  FileText,
+  CreditCard,
 } from "lucide-react";
 import {
   optimizeImageForStorefront,
@@ -154,7 +157,9 @@ export default function PortalMyWebsitePage() {
   }
 
   // Orders Filter State
+  const [orderViewMode, setOrderViewMode] = useState<"active" | "history" | "all">("active");
   const [orderStatusFilter, setOrderStatusFilter] = useState("all");
+  const [orderSearch, setOrderSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
 
   // Image Upload Compression Info
@@ -240,6 +245,33 @@ export default function PortalMyWebsitePage() {
 
   useEffect(() => {
     void loadWebsiteStatus();
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab") as PortalWebsiteTab | null;
+      if (
+        tabParam &&
+        [
+          "overview",
+          "branding",
+          "products",
+          "promotions",
+          "orders",
+          "delivery",
+          "contact",
+          "settings",
+        ].includes(tabParam)
+      ) {
+        setActiveTab(tabParam);
+      }
+      const onOpenOrders = () => {
+        setActiveTab("orders");
+        void loadWebsiteStatus();
+      };
+      window.addEventListener("mediqoo:open-website-orders", onOpenOrders);
+      return () => {
+        window.removeEventListener("mediqoo:open-website-orders", onOpenOrders);
+      };
+    }
   }, []);
 
   async function postWebsiteAction(action: string, extraBody: Record<string, any> = {}) {
@@ -337,10 +369,79 @@ export default function PortalMyWebsitePage() {
     });
   }, [products, productFilterStatus, productSearch]);
 
+  const isHistoryOrder = (st: string) =>
+    ["completed", "delivered", "collected", "cancelled", "rejected"].includes(
+      String(st || "").toLowerCase()
+    );
+
+  const orderMetrics = useMemo(() => {
+    let pendingNew = 0;
+    let inProgress = 0;
+    let completed = 0;
+    let cancelled = 0;
+    let fulfilledValuePkr = 0;
+    let pendingValuePkr = 0;
+    for (const o of orders) {
+      const st = String(o.status || "").toLowerCase();
+      const val = Number(o.total_pkr || 0);
+      if (st === "pending_confirmation" || st === "pending") {
+        pendingNew++;
+        pendingValuePkr += val;
+      } else if (["confirmed", "preparing", "out_for_delivery", "ready_for_pickup"].includes(st)) {
+        inProgress++;
+        pendingValuePkr += val;
+      } else if (["completed", "delivered", "collected"].includes(st)) {
+        completed++;
+        fulfilledValuePkr += val;
+      } else if (st === "cancelled" || st === "rejected") {
+        cancelled++;
+      }
+    }
+    return {
+      pendingNew,
+      inProgress,
+      activeTotal: pendingNew + inProgress,
+      completed,
+      cancelled,
+      fulfilledValuePkr,
+      pendingValuePkr,
+    };
+  }, [orders]);
+
   const filteredOrders = useMemo(() => {
-    if (orderStatusFilter === "all") return orders;
-    return orders.filter((o) => o.status === orderStatusFilter);
-  }, [orders, orderStatusFilter]);
+    return orders.filter((o) => {
+      const st = String(o.status || "").toLowerCase();
+      if (orderViewMode === "active" && isHistoryOrder(st)) return false;
+      if (orderViewMode === "history" && !isHistoryOrder(st)) return false;
+      if (orderStatusFilter !== "all") {
+        if (orderStatusFilter === "pending_confirmation") {
+          if (st !== "pending_confirmation" && st !== "pending") return false;
+        } else if (orderStatusFilter === "delivered") {
+          if (st !== "delivered" && st !== "completed") return false;
+        } else if (st !== orderStatusFilter) {
+          return false;
+        }
+      }
+      if (!orderSearch.trim()) return true;
+      const q = orderSearch.toLowerCase();
+      return (
+        String(o.order_number || "").toLowerCase().includes(q) ||
+        String(o.customer_name || "").toLowerCase().includes(q) ||
+        String(o.customer_phone || "").toLowerCase().includes(q) ||
+        String(o.pos_invoice_number || "").toLowerCase().includes(q)
+      );
+    });
+  }, [orders, orderViewMode, orderStatusFilter, orderSearch]);
+
+  const copyWebsiteLink = async (url: string) => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      notify("Copied live website link to clipboard");
+    } catch {
+      notify("Could not copy link automatically");
+    }
+  };
 
   if (loading && !data) {
     return (
@@ -528,14 +629,24 @@ export default function PortalMyWebsitePage() {
               Sync POS Products
             </button>
           )}
-          {exists && data.preview_link && (
+          {exists && (data.public_link || data.preview_link) && (
+            <button
+              type="button"
+              onClick={() => copyWebsiteLink(data.public_link || data.preview_link)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-800 shadow-xs transition"
+            >
+              <Copy className="h-3.5 w-3.5 text-slate-600" />
+              Copy Link
+            </button>
+          )}
+          {exists && (data.public_link || data.preview_link) && (
             <a
-              href={data.preview_link}
+              href={data.public_link || data.preview_link}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-lg bg-[#009A4D] hover:bg-emerald-700 px-4 py-2 text-xs font-semibold text-white shadow-sm transition"
             >
-              Open Live Website <ExternalLink className="h-3.5 w-3.5" />
+              Open Website <ExternalLink className="h-3.5 w-3.5" />
             </a>
           )}
           <button
@@ -555,7 +666,7 @@ export default function PortalMyWebsitePage() {
             Your Pharmacy Online Storefront is Ready for Activation
           </h2>
           <p className="text-sm text-slate-600 mt-2">
-            Connect your existing AivraSol POS catalog to your own branded `*.aivrasol.pk` pharmacy
+            Connect your existing AivraSol POS catalog to your own branded pharmacy
             website without managing a separate inventory system. Contact AivraSol Support or your
             account manager to enable your storefront entitlement.
           </p>
@@ -565,6 +676,43 @@ export default function PortalMyWebsitePage() {
         </div>
       ) : (
         <>
+          {/* Clean Website Link Presentation Bar */}
+          <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="space-y-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                  Website Link
+                </span>
+                <span className="inline-flex items-center rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs font-mono font-bold text-emerald-800">
+                  Slug: {sf.slug}
+                </span>
+                <span className="text-[11px] text-slate-500">
+                  Custom domain ready via Settings &amp; Domains
+                </span>
+              </div>
+              <div className="font-mono text-xs sm:text-sm font-bold text-emerald-700 break-all">
+                {data.public_link || data.preview_link}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => copyWebsiteLink(data.public_link || data.preview_link)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-slate-50 hover:bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-800 transition"
+              >
+                <Copy className="h-3.5 w-3.5" /> Copy Link
+              </button>
+              <a
+                href={data.public_link || data.preview_link}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 px-3.5 py-2 text-xs font-bold text-white transition"
+              >
+                Open Website <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </div>
+
           {/* 8-Tab Navigation Bar */}
           <div className="flex items-center gap-1.5 overflow-x-auto bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
             {(
@@ -572,12 +720,17 @@ export default function PortalMyWebsitePage() {
                 { id: "overview", label: "Overview", icon: Sparkles },
                 { id: "branding", label: "Appearance & Branding", icon: Palette },
                 { id: "products", label: `Products (${products.length})`, icon: Package },
-                { id: "orders", label: `Online Orders (${orders.length})`, icon: ShoppingBag },
+                {
+                  id: "orders",
+                  label: `Online Orders (${orders.length})`,
+                  icon: ShoppingBag,
+                  badge: orderMetrics.pendingNew,
+                },
                 { id: "promotions", label: "Promotions & Banners", icon: Megaphone },
                 { id: "delivery", label: "Delivery & Pickup", icon: Truck },
                 { id: "contact", label: "Branches & Hours", icon: MapPin },
                 { id: "settings", label: "Settings & Domains", icon: Settings },
-              ] as Array<{ id: PortalWebsiteTab; label: string; icon: any }>
+              ] as Array<{ id: PortalWebsiteTab; label: string; icon: any; badge?: number }>
             ).map((tab) => {
               const Icon = tab.icon;
               const active = activeTab === tab.id;
@@ -595,6 +748,11 @@ export default function PortalMyWebsitePage() {
                 >
                   <Icon className="h-3.5 w-3.5 text-emerald-600" />
                   <span>{tab.label}</span>
+                  {Boolean(tab.badge && tab.badge > 0) && (
+                    <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold">
+                      {tab.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -623,7 +781,7 @@ export default function PortalMyWebsitePage() {
                     )}
                   </div>
                   <div className="mt-2 text-xs text-slate-500">
-                    Domain: <strong className="font-mono text-slate-800">{sf.primary_domain}</strong>
+                    Slug: <strong className="font-mono text-slate-800">{sf.slug}</strong>
                   </div>
                 </div>
 
@@ -647,7 +805,7 @@ export default function PortalMyWebsitePage() {
                     {Number(data?.orders_summary?.total_orders || orders.length)}
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
-                    Pending review: <strong>{Number(data?.orders_summary?.pending_orders || 0)}</strong>
+                    Active attention: <strong>{orderMetrics.activeTotal}</strong>
                   </div>
                 </div>
 
@@ -669,33 +827,62 @@ export default function PortalMyWebsitePage() {
                 <div className="lg:col-span-2 rounded-2xl border border-slate-200 bg-white p-6 space-y-5 shadow-xs">
                   <div>
                     <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-emerald-600" /> Storefront Links & Domain Routing
+                      <Sparkles className="h-4 w-4 text-emerald-600" /> Website Link &amp; Custom Domain Readiness
                     </h2>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Share your public pharmacy link with customers or open the live preview
+                      Share your live pharmacy website link directly with customers or connect your own custom domain
                     </p>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-1.5">
-                      <div className="text-xs font-medium text-slate-500">Public Storefront Link</div>
-                      <div className="font-mono text-sm font-bold text-emerald-700 break-all">
-                        {data.public_link}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-medium text-slate-500">Live Website Link</div>
+                        <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
+                          /s/{sf.slug}
+                        </span>
                       </div>
-                      <p className="text-[11px] text-slate-500">Primary customer-facing pharmacy address</p>
+                      <div className="font-mono text-xs sm:text-sm font-bold text-emerald-700 break-all">
+                        {data.public_link || data.preview_link}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => copyWebsiteLink(data.public_link || data.preview_link)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-700"
+                        >
+                          <Copy className="h-3 w-3" /> Copy Link
+                        </button>
+                        <a
+                          href={data.public_link || data.preview_link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-lg bg-[#009A4D] hover:bg-emerald-700 px-2.5 py-1 text-[11px] font-bold text-white"
+                        >
+                          Open Website <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
                     </div>
 
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-1.5">
-                      <div className="text-xs font-medium text-slate-500">Interactive Preview Link</div>
-                      <a
-                        href={data.preview_link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-mono text-xs font-semibold text-sky-700 hover:underline break-all inline-flex items-center gap-1"
-                      >
-                        {data.preview_link} <ExternalLink className="h-3 w-3 shrink-0" />
-                      </a>
-                      <p className="text-[11px] text-slate-500">Test your live catalog and checkout</p>
+                      <div className="text-xs font-medium text-slate-500">Custom Domain Support</div>
+                      <div className="text-xs font-bold text-slate-900">
+                        {data.domain_status === "verified" &&
+                        !String(sf.primary_domain || "").endsWith(".aivrasol.pk")
+                          ? `Connected: ${sf.primary_domain}`
+                          : "Ready for Custom Pharmacy Domain"}
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Your storefront works immediately via your live pharmacy slug link above, and can be mapped to your own custom domain anytime in{" "}
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("settings")}
+                          className="font-bold text-emerald-700 hover:underline"
+                        >
+                          Settings &amp; Domains
+                        </button>
+                        .
+                      </p>
                     </div>
                   </div>
 
@@ -1361,35 +1548,125 @@ export default function PortalMyWebsitePage() {
           {/* =============================================================== */}
           {activeTab === "orders" && (
             <div className="space-y-4" data-testid="portal-orders-management">
-              <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-4 rounded-2xl border border-slate-200">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {[
-                    "all",
-                    "pending",
-                    "confirmed",
-                    "preparing",
-                    "ready_for_pickup",
-                    "out_for_delivery",
-                    "completed",
-                    "cancelled",
-                  ].map((st) => (
-                    <button
-                      key={st}
-                      type="button"
-                      onClick={() => setOrderStatusFilter(st)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize border ${
-                        orderStatusFilter === st
-                          ? "bg-slate-900 text-white border-slate-900"
-                          : "bg-white text-slate-600 border-slate-200"
-                      }`}
-                    >
-                      {st.replace(/_/g, " ")}
-                    </button>
-                  ))}
+              {/* Order Summary KPIs (Kept strictly separate from finalized POS sales revenue) */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-slate-500">New / Pending</div>
+                  <div className="mt-1 text-xl font-extrabold text-amber-600">
+                    {orderMetrics.pendingNew}
+                  </div>
                 </div>
-                <span className="text-xs font-semibold text-slate-500">
-                  Showing {filteredOrders.length} orders
-                </span>
+                <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-slate-500">In Progress</div>
+                  <div className="mt-1 text-xl font-extrabold text-sky-700">
+                    {orderMetrics.inProgress}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-slate-500">Completed</div>
+                  <div className="mt-1 text-xl font-extrabold text-emerald-700">
+                    {orderMetrics.completed}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-slate-500">
+                    Cancelled / Rejected
+                  </div>
+                  <div className="mt-1 text-xl font-extrabold text-rose-600">
+                    {orderMetrics.cancelled}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-slate-500">
+                    Fulfilled Order Value
+                  </div>
+                  <div className="mt-1 text-base font-extrabold text-emerald-700">
+                    PKR {orderMetrics.fulfilledValuePkr.toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                  <div className="text-[11px] font-bold uppercase text-slate-500">
+                    Pending Order Value
+                  </div>
+                  <div className="mt-1 text-base font-extrabold text-slate-800">
+                    PKR {orderMetrics.pendingValuePkr.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Active Orders vs Order History + Search + Status Filters */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="inline-flex items-center rounded-xl bg-slate-100 p-1 border border-slate-200">
+                    {(
+                      [
+                        { id: "active", label: `Active Orders (${orderMetrics.activeTotal})` },
+                        {
+                          id: "history",
+                          label: `Order History (${orderMetrics.completed + orderMetrics.cancelled})`,
+                        },
+                        { id: "all", label: `All (${orders.length})` },
+                      ] as const
+                    ).map((vm) => (
+                      <button
+                        key={vm.id}
+                        type="button"
+                        onClick={() => setOrderViewMode(vm.id)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${
+                          orderViewMode === vm.id
+                            ? "bg-white text-slate-900 shadow-xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        {vm.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative w-full sm:w-72">
+                    <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type="text"
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      placeholder="Search Order #, customer, phone, POS invoice..."
+                      className="w-full rounded-xl border border-slate-200 pl-8 pr-3 py-1.5 text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      "all",
+                      "pending_confirmation",
+                      "confirmed",
+                      "preparing",
+                      "out_for_delivery",
+                      "ready_for_pickup",
+                      "delivered",
+                      "collected",
+                      "cancelled",
+                      "rejected",
+                    ].map((st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => setOrderStatusFilter(st)}
+                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold capitalize border ${
+                          orderStatusFilter === st
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                        }`}
+                      >
+                        {st.replace(/_/g, " ")}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs font-semibold text-slate-500">
+                    Showing {filteredOrders.length} orders
+                  </span>
+                </div>
               </div>
 
               {filteredOrders.length === 0 ? (
@@ -1397,87 +1674,341 @@ export default function PortalMyWebsitePage() {
                   <ShoppingBag className="h-8 w-8 text-slate-400 mx-auto" />
                   <p className="text-sm font-bold text-slate-800">No Online Orders in This View</p>
                   <p className="text-xs text-slate-500">
-                    Customer orders placed on {sf.primary_domain} appear here and in your POS Order Inbox immediately.
+                    Customer orders placed on your pharmacy website appear here and in your POS Online Orders Inbox immediately.
                   </p>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+                <div className="rounded-2xl border border-slate-200 bg-white overflow-x-auto shadow-xs">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[11px]">
                         <th className="py-3 px-4">Order #</th>
-                        <th className="py-3 px-3">Customer</th>
+                        <th className="py-3 px-3">Customer &amp; Destination</th>
                         <th className="py-3 px-3">Fulfillment</th>
                         <th className="py-3 px-3">Total</th>
-                        <th className="py-3 px-3">Status</th>
-                        <th className="py-3 px-3">POS Handoff</th>
-                        <th className="py-3 px-4 text-right">Manage Status</th>
+                        <th className="py-3 px-3">Payment Status</th>
+                        <th className="py-3 px-3">POS Invoice / Handoff</th>
+                        <th className="py-3 px-4 text-right">Fulfillment Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredOrders.map((ord) => (
-                        <tr key={ord.id} className="hover:bg-slate-50/70">
-                          <td className="py-3 px-4">
-                            <div className="font-mono font-bold text-slate-900">{ord.order_number}</div>
-                            <div className="text-[10px] text-slate-400">
-                              {new Date(ord.created_at).toLocaleString()}
-                            </div>
-                          </td>
-                          <td className="py-3 px-3">
-                            <div className="font-bold text-slate-900">{ord.customer_name}</div>
-                            <div className="text-slate-500">{ord.customer_phone}</div>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className="font-semibold capitalize">{ord.fulfillment_type}</span>
-                            {Number(ord.requires_prescription || 0) === 1 && (
-                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 font-bold text-[10px]">
-                                Rx Order
+                      {filteredOrders.map((ord) => {
+                        const isPickup = String(ord.fulfillment_type || "") === "pickup";
+                        const paymentSt =
+                          ord.payment_status ||
+                          (String(ord.payment_method || "cod").toLowerCase().includes("cod")
+                            ? "pending_cod"
+                            : "unpaid");
+                        return (
+                          <tr key={ord.id} className="hover:bg-slate-50/70 align-top">
+                            <td className="py-3 px-4">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedOrder(ord)}
+                                className="font-mono font-bold text-emerald-700 hover:underline text-left"
+                              >
+                                {ord.order_number}
+                              </button>
+                              <div className="text-[10px] text-slate-400">
+                                {new Date(ord.created_at).toLocaleString()}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedOrder(ord)}
+                                className="mt-1 text-[10px] font-bold text-slate-600 hover:text-slate-900 underline"
+                              >
+                                View Items ({Array.isArray(ord.items) ? ord.items.length : "Details"})
+                              </button>
+                            </td>
+                            <td className="py-3 px-3 max-w-[230px]">
+                              <div className="font-bold text-slate-900">{ord.customer_name}</div>
+                              <div className="text-slate-600 font-mono text-[11px]">
+                                {ord.customer_phone}
+                              </div>
+                              {!isPickup && ord.delivery_address && (
+                                <div className="text-[11px] text-slate-500 line-clamp-2 mt-0.5">
+                                  {ord.delivery_address}
+                                  {ord.delivery_city ? `, ${ord.delivery_city}` : ""}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                  isPickup
+                                    ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                    : "bg-sky-50 text-sky-700 border border-sky-200"
+                                }`}
+                              >
+                                {isPickup ? "Counter Pickup" : "Home Delivery"}
                               </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 font-extrabold text-slate-900">
-                            PKR {Number(ord.total_pkr).toLocaleString()}
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              {String(ord.status).replace(/_/g, " ")}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
-                              {ord.pos_handoff_status || "unread"}
-                              {ord.pos_invoice_number ? ` (${ord.pos_invoice_number})` : ""}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <select
-                              value={ord.status}
-                              disabled={saving}
-                              onChange={async (e) => {
-                                const nextSt = e.target.value;
-                                await postWebsiteAction("update_order_status", {
-                                  order_id: ord.id,
-                                  status: nextSt,
-                                  note: `Updated to ${nextSt} by Pharmacy Owner`,
-                                });
-                                notify(`Order ${ord.order_number} updated to ${nextSt}`);
-                              }}
-                              className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800"
-                            >
-                              <option value="pending_confirmation">Pending Confirmation</option>
-                              <option value="pending">Pending</option>
-                              <option value="confirmed">Confirmed</option>
-                              <option value="preparing">Preparing</option>
-                              <option value="ready_for_pickup">Ready for Pickup</option>
-                              <option value="out_for_delivery">Out for Delivery</option>
-                              <option value="completed">Completed</option>
-                              <option value="cancelled">Cancelled</option>
-                            </select>
-                          </td>
-                        </tr>
-                      ))}
+                              {Number(ord.requires_prescription || 0) === 1 && (
+                                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 font-bold text-[10px]">
+                                  Rx
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
+                              <div className="font-extrabold text-slate-900">
+                                PKR {Number(ord.total_pkr).toLocaleString()}
+                              </div>
+                              {Number(ord.delivery_fee_pkr || 0) > 0 && (
+                                <div className="text-[10px] text-slate-500">
+                                  Incl. PKR {Number(ord.delivery_fee_pkr).toLocaleString()} delivery
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
+                              <select
+                                value={paymentSt}
+                                disabled={saving}
+                                onChange={async (e) => {
+                                  const nextPay = e.target.value;
+                                  await postWebsiteAction("update_order_status", {
+                                    order_id: ord.id,
+                                    status: ord.status,
+                                    payment_status: nextPay,
+                                    note: `Payment status updated to ${nextPay} in Owner Portal`,
+                                  });
+                                  notify(`Payment status for ${ord.order_number} set to ${nextPay}`);
+                                }}
+                                className={`rounded-xl border px-2 py-1 text-[11px] font-bold ${
+                                  paymentSt === "paid"
+                                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                                    : paymentSt === "refunded"
+                                    ? "bg-rose-50 border-rose-200 text-rose-700"
+                                    : "bg-amber-50 border-amber-200 text-amber-800"
+                                }`}
+                              >
+                                <option value="pending_cod">COD Pending</option>
+                                <option value="unpaid">Unpaid</option>
+                                <option value="paid">Paid</option>
+                                <option value="refunded">Refunded</option>
+                              </select>
+                            </td>
+                            <td className="py-3 px-3">
+                              <div className="flex flex-col gap-1 items-start">
+                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]">
+                                  {ord.pos_handoff_status || "unread"}
+                                </span>
+                                {ord.pos_invoice_number && (
+                                  <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 font-mono font-bold text-[10px]">
+                                    POS #{ord.pos_invoice_number}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <select
+                                value={ord.status}
+                                disabled={saving}
+                                onChange={async (e) => {
+                                  const nextSt = e.target.value;
+                                  await postWebsiteAction("update_order_status", {
+                                    order_id: ord.id,
+                                    status: nextSt,
+                                    note: `Updated to ${nextSt} by Pharmacy Owner`,
+                                  });
+                                  notify(`Order ${ord.order_number} updated to ${nextSt}`);
+                                }}
+                                className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800"
+                              >
+                                <option value="pending_confirmation">Pending Confirmation</option>
+                                {ord.status === "pending" && <option value="pending">Pending</option>}
+                                <option value="confirmed">Confirmed</option>
+                                <option value="preparing">Preparing</option>
+                                {isPickup ? (
+                                  <>
+                                    <option value="ready_for_pickup">Ready for Pickup</option>
+                                    <option value="collected">Collected</option>
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="out_for_delivery">Out for Delivery</option>
+                                    <option value="delivered">Delivered</option>
+                                  </>
+                                )}
+                                {ord.status === "completed" && (
+                                  <option value="completed">Completed</option>
+                                )}
+                                <option value="cancelled">Cancelled</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* Order Details Drawer / Modal */}
+              {selectedOrder && (
+                <div
+                  className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+                  onClick={() => setSelectedOrder(null)}
+                >
+                  <div
+                    className="bg-white rounded-2xl border border-slate-200 max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-base font-extrabold font-mono text-slate-900">
+                            Order #{selectedOrder.order_number}
+                          </h3>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            {String(selectedOrder.status || "").replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Placed {new Date(selectedOrder.created_at).toLocaleString()} •{" "}
+                          {selectedOrder.fulfillment_type === "pickup"
+                            ? "Counter Pickup"
+                            : "Home Delivery"}
+                          {selectedOrder.pos_invoice_number
+                            ? ` • POS Invoice #${selectedOrder.pos_invoice_number}`
+                            : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrder(null)}
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold text-slate-500 hover:bg-slate-100"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-1">
+                        <div className="font-bold text-slate-500 uppercase text-[10px]">
+                          Customer &amp; Contact
+                        </div>
+                        <div className="font-bold text-slate-900">{selectedOrder.customer_name}</div>
+                        <div className="font-mono text-slate-700">{selectedOrder.customer_phone}</div>
+                        {selectedOrder.customer_notes && (
+                          <div className="text-slate-600 pt-1">
+                            <strong>Note:</strong> {selectedOrder.customer_notes}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-1">
+                        <div className="font-bold text-slate-500 uppercase text-[10px]">
+                          {selectedOrder.fulfillment_type === "pickup"
+                            ? "Pickup Branch"
+                            : "Delivery Destination"}
+                        </div>
+                        {selectedOrder.fulfillment_type === "pickup" ? (
+                          <div className="text-slate-800 font-semibold">
+                            Counter Pickup ({selectedOrder.branch_id || "Main Branch"})
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-slate-800 font-semibold">
+                              {selectedOrder.delivery_address || "Address not specified"}
+                            </div>
+                            <div className="text-slate-600">
+                              {[selectedOrder.delivery_area, selectedOrder.delivery_city]
+                                .filter(Boolean)
+                                .join(", ")}
+                            </div>
+                            {selectedOrder.delivery_instructions && (
+                              <div className="text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1">
+                                <strong>Rider Instructions:</strong>{" "}
+                                {selectedOrder.delivery_instructions}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500">
+                          <tr>
+                            <th className="py-2 px-3">Medicine</th>
+                            <th className="py-2 px-3">Selling Unit</th>
+                            <th className="py-2 px-3 text-right">Qty</th>
+                            <th className="py-2 px-3 text-right">Unit Price</th>
+                            <th className="py-2 px-3 text-right">Line Total</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {(Array.isArray(selectedOrder.items) ? selectedOrder.items : []).map(
+                            (it: any, idx: number) => {
+                              const unitLabel =
+                                it.selling_unit_label ||
+                                it.selling_unit_name ||
+                                it.packing_label ||
+                                "Unit";
+                              const mult = Number(it.unit_multiplier || 1);
+                              return (
+                                <tr key={it.id || idx}>
+                                  <td className="py-2.5 px-3">
+                                    <div className="font-bold text-slate-900">
+                                      {it.product_name}
+                                    </div>
+                                    <div className="font-mono text-[10px] text-slate-400">
+                                      POS ID: {it.pos_product_id || "—"}
+                                    </div>
+                                  </td>
+                                  <td className="py-2.5 px-3">
+                                    <span className="px-2 py-0.5 rounded bg-slate-100 font-semibold text-slate-700">
+                                      {unitLabel}
+                                      {mult > 1 ? ` (×${mult} base)` : ""}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-bold">
+                                    {it.quantity}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right">
+                                    PKR {Number(it.unit_price_pkr || 0).toLocaleString()}
+                                  </td>
+                                  <td className="py-2.5 px-3 text-right font-bold">
+                                    PKR {Number(it.line_total_pkr || 0).toLocaleString()}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <div className="text-slate-600">
+                        Payment:{" "}
+                        <strong className="uppercase">
+                          {selectedOrder.payment_method || "COD"}
+                        </strong>{" "}
+                        • Status:{" "}
+                        <strong className="uppercase">
+                          {selectedOrder.payment_status || "pending_cod"}
+                        </strong>
+                      </div>
+                      <div className="text-right space-y-0.5">
+                        <div>
+                          Subtotal: PKR {Number(selectedOrder.subtotal_pkr || 0).toLocaleString()}
+                          {Number(selectedOrder.delivery_fee_pkr || 0) > 0
+                            ? ` + Delivery: PKR ${Number(
+                                selectedOrder.delivery_fee_pkr
+                              ).toLocaleString()}`
+                            : ""}
+                          {Number(selectedOrder.discount_pkr || 0) > 0
+                            ? ` − Promo: PKR ${Number(selectedOrder.discount_pkr).toLocaleString()}`
+                            : ""}
+                        </div>
+                        <div className="text-sm font-extrabold text-emerald-700">
+                          Grand Total: PKR {Number(selectedOrder.total_pkr || 0).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

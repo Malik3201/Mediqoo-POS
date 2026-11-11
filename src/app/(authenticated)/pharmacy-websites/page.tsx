@@ -22,6 +22,7 @@ import {
   Power,
   Ban,
   Check,
+  Copy,
   XCircle,
   FileText,
   Palette,
@@ -502,6 +503,16 @@ export default function PharmacyWebsitesAdminPage() {
       return true;
     });
   }, [storefronts, statusFilter, searchQuery]);
+
+  const copyWebsiteLink = async (url: string) => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setBannerNotice({ type: "success", text: `Copied website link: ${url}` });
+    } catch {
+      setBannerNotice({ type: "error", text: "Unable to copy website link automatically." });
+    }
+  };
 
   const statusBadge = (status: string, enabled: boolean) => {
     if (status === "suspended") {
@@ -1073,18 +1084,33 @@ export default function PharmacyWebsitesAdminPage() {
                               {sf.city} • ID: {sf.pharmacy_id}
                             </div>
                           </td>
-                          <td className="py-3 px-3 font-mono text-xs">{sf.slug}</td>
+                          <td className="py-3 px-3 font-mono text-xs">
+                            <span className="inline-flex items-center rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 font-bold text-emerald-700 dark:text-emerald-300">
+                              {sf.slug}
+                            </span>
+                          </td>
                           <td className="py-3 px-3">
-                            <div className="flex flex-col gap-0.5">
-                              <span className="font-medium text-sky-600">{sf.public_url}</span>
-                              <a
-                                href={sf.preview_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-                              >
-                                Open Live Runtime Preview <ExternalLink className="h-2.5 w-2.5" />
-                              </a>
+                            <div className="flex flex-col gap-1">
+                              <span className="font-mono text-xs font-semibold text-sky-600 break-all">
+                                {sf.public_url || sf.preview_url}
+                              </span>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => copyWebsiteLink(sf.public_url || sf.preview_url)}
+                                  className="text-[11px] font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                                >
+                                  <Copy className="h-2.5 w-2.5" /> Copy Link
+                                </button>
+                                <a
+                                  href={sf.public_url || sf.preview_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[11px] font-semibold text-emerald-600 hover:underline inline-flex items-center gap-1"
+                                >
+                                  Open Website <ExternalLink className="h-2.5 w-2.5" />
+                                </a>
+                              </div>
                             </div>
                           </td>
                           <td className="py-3 px-3">
@@ -1202,17 +1228,32 @@ export default function PharmacyWebsitesAdminPage() {
                           {sf.city} • {sf.entitlement_status?.toUpperCase()}
                         </div>
                       </td>
-                      <td className="py-3 px-3 font-mono text-xs">{sf.slug}</td>
+                      <td className="py-3 px-3 font-mono text-xs">
+                        <span className="inline-flex items-center rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 font-bold text-emerald-700 dark:text-emerald-300">
+                          {sf.slug}
+                        </span>
+                      </td>
                       <td className="py-3 px-3">
-                        <div className="font-medium text-sky-600">{sf.public_url}</div>
-                        <a
-                          href={sf.preview_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-muted-foreground hover:underline inline-flex items-center gap-1"
-                        >
-                          Preview Live Shell <ExternalLink className="h-3 w-3" />
-                        </a>
+                        <div className="font-mono text-xs font-semibold text-sky-600 break-all">
+                          {sf.public_url || sf.preview_url}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2.5 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => copyWebsiteLink(sf.public_url || sf.preview_url)}
+                            className="text-xs font-semibold text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                          >
+                            <Copy className="h-3 w-3" /> Copy Link
+                          </button>
+                          <a
+                            href={sf.public_url || sf.preview_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-semibold text-emerald-600 hover:underline inline-flex items-center gap-1"
+                          >
+                            Open Website <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
                       </td>
                       <td className="py-3 px-3">{statusBadge(sf.status, sf.website_enabled)}</td>
                       <td className="py-3 px-3">
@@ -1655,23 +1696,46 @@ export default function PharmacyWebsitesAdminPage() {
                         </Badge>
                       </div>
                       <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-3">
+                        <span>
+                          Slug:{" "}
+                          <strong className="font-mono text-foreground">
+                            {detailsData.storefront.slug}
+                          </strong>
+                        </span>
+                        <span>•</span>
+                        <span>
+                          Live Website Link:{" "}
+                          <strong className="font-mono text-sky-600">
+                            {detailsData.storefront.public_url || detailsData.storefront.preview_url}
+                          </strong>
+                        </span>
+                        <span>•</span>
                         <span>Storefront ID: {detailsData.storefront.id}</span>
-                        <span>•</span>
-                        <span>Pharmacy ID: {detailsData.storefront.pharmacy_id}</span>
-                        <span>•</span>
-                        <span>Primary Domain: {detailsData.storefront.primary_domain}</span>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          copyWebsiteLink(
+                            detailsData.storefront.public_url || detailsData.storefront.preview_url
+                          )
+                        }
+                      >
+                        <Copy className="h-4 w-4 mr-1.5" /> Copy Link
+                      </Button>
+
                       <Button variant="outline" size="sm" asChild>
                         <a
-                          href={detailsData.storefront.preview_url}
+                          href={
+                            detailsData.storefront.public_url || detailsData.storefront.preview_url
+                          }
                           target="_blank"
                           rel="noreferrer"
                         >
-                          <Eye className="h-4 w-4 mr-1.5" /> Open Live Storefront (
-                          {detailsData.storefront.primary_domain})
+                          <ExternalLink className="h-4 w-4 mr-1.5" /> Open Website
                         </a>
                       </Button>
 

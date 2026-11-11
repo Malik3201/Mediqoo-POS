@@ -129,6 +129,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const [checking, setChecking] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [onlineOrderBadgeCount, setOnlineOrderBadgeCount] = useState(0);
+  const [newOrderBanner, setNewOrderBanner] = useState<{
+    id: string;
+    order_number: string;
+    customer_name: string;
+    total_pkr: number;
+    fulfillment_type?: string;
+  } | null>(null);
 
   const isPublicPage =
     pathname === "/portal/login" ||
@@ -140,6 +148,102 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     setMobileMoreOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    if (isPublicPage || !me) return;
+
+    let cancelled = false;
+    const pollWebsiteOrders = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      try {
+        const res = await fetch("/api/portal/website?notifications_only=1", {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled || !json?.ok || !json?.exists) {
+          if (!cancelled) setOnlineOrderBadgeCount(0);
+          return;
+        }
+
+        const attentionCount = Number(
+          json.active_attention_count ?? json.pending_confirmation_count ?? 0
+        );
+        setOnlineOrderBadgeCount(attentionCount);
+
+        const sfId = String(json.storefront_id || me.client_id || "default");
+        const storageKey = `mediqoo:portal-seen-orders:v1:${sfId}`;
+        let seenIds: string[] = [];
+        try {
+          const raw = localStorage.getItem(storageKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) seenIds = parsed.map(String);
+          }
+        } catch {
+          // Ignore storage errors
+        }
+
+        const recentOrders: any[] = Array.isArray(json.recent_orders)
+          ? json.recent_orders
+          : [];
+        const pendingRecent = recentOrders.filter(
+          (o) =>
+            o &&
+            o.id &&
+            (o.status === "pending_confirmation" || o.status === "pending")
+        );
+
+        const unseenOrder = pendingRecent.find((o) => !seenIds.includes(String(o.id)));
+        if (unseenOrder) {
+          const nextSeen = [
+            String(unseenOrder.id),
+            ...seenIds.filter((id) => id !== String(unseenOrder.id)),
+          ].slice(0, 150);
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(nextSeen));
+          } catch {
+            // Ignore quota errors
+          }
+          setNewOrderBanner({
+            id: String(unseenOrder.id),
+            order_number: String(unseenOrder.order_number || "ORD"),
+            customer_name: String(unseenOrder.customer_name || "Online Customer"),
+            total_pkr: Number(unseenOrder.total_pkr || 0),
+            fulfillment_type: String(unseenOrder.fulfillment_type || "delivery"),
+          });
+        }
+      } catch {
+        // Silent background poll resilience
+      }
+    };
+
+    void pollWebsiteOrders();
+    const timer = window.setInterval(() => {
+      void pollWebsiteOrders();
+    }, 25_000);
+
+    const onFocusOrVisible = () => {
+      if (!document.hidden) void pollWebsiteOrders();
+    };
+    window.addEventListener("focus", onFocusOrVisible);
+    document.addEventListener("visibilitychange", onFocusOrVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocusOrVisible);
+      document.removeEventListener("visibilitychange", onFocusOrVisible);
+    };
+  }, [isPublicPage, me]);
+
+  const openOnlineOrdersView = () => {
+    setNewOrderBanner(null);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("mediqoo:open-website-orders"));
+    }
+    router.push("/portal/website?tab=orders");
+  };
 
   useEffect(() => {
     if (isPublicPage) {
@@ -232,6 +336,21 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {onlineOrderBadgeCount > 0 && (
+            <button
+              type="button"
+              onClick={openOnlineOrdersView}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-sm transition-colors"
+              title="New Online Orders Pending Action"
+            >
+              <ShoppingBag className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Online Orders</span>
+              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white text-red-700 text-[11px] font-extrabold">
+                {onlineOrderBadgeCount}
+              </span>
+            </button>
+          )}
+
           <Link
             href="/portal/alerts"
             className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
@@ -268,6 +387,57 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         </div>
       </header>
 
+      {/* Non-Blocking New Online Order Toast Banner */}
+      {newOrderBanner && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-20 right-4 sm:right-6 z-50 max-w-sm w-[calc(100vw-2rem)] rounded-2xl border border-emerald-300 bg-slate-900 text-white p-4 shadow-2xl space-y-3"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1 min-w-0">
+              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-600 text-[10px] font-extrabold uppercase tracking-wider text-white">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                New Online Order
+              </div>
+              <div className="text-sm font-extrabold font-mono truncate">
+                #{newOrderBanner.order_number}
+              </div>
+              <div className="text-xs text-slate-300 truncate">
+                {newOrderBanner.customer_name} •{" "}
+                <span className="font-bold text-emerald-400">
+                  PKR {Number(newOrderBanner.total_pkr || 0).toLocaleString()}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNewOrderBanner(null)}
+              className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              aria-label="Dismiss notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setNewOrderBanner(null)}
+              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800"
+            >
+              Dismiss
+            </button>
+            <button
+              type="button"
+              onClick={openOnlineOrdersView}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-extrabold bg-[#009A4D] hover:bg-emerald-600 text-white shadow-sm"
+            >
+              View Order
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Content + Desktop Collapsible Sidebar */}
       <div className="flex-1 flex min-h-0">
         {/* Desktop Sidebar */}
@@ -286,12 +456,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               {PRIMARY_NAV.map((item) => {
                 const Icon = item.icon;
                 const active = isRouteActive(item.href);
+                const showWebBadge =
+                  item.href === "/portal/website" && onlineOrderBadgeCount > 0;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     title={sidebarCollapsed ? item.label : undefined}
-                    className={`flex items-center gap-3 px-3.5 py-3 rounded-2xl text-[13px] font-semibold transition-all ${
+                    className={`relative flex items-center gap-3 px-3.5 py-3 rounded-2xl text-[13px] font-semibold transition-all ${
                       active
                         ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/25"
                         : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/90"
@@ -302,7 +474,19 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                         active ? "text-white" : "text-slate-500"
                       }`}
                     />
-                    {!sidebarCollapsed && <span className="truncate">{item.label}</span>}
+                    {!sidebarCollapsed && (
+                      <span className="truncate flex-1">{item.label}</span>
+                    )}
+                    {showWebBadge && !sidebarCollapsed && (
+                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[11px] font-extrabold">
+                        {onlineOrderBadgeCount}
+                      </span>
+                    )}
+                    {showWebBadge && sidebarCollapsed && (
+                      <span className="absolute top-1.5 right-1.5 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold">
+                        {onlineOrderBadgeCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -374,6 +558,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         {mobileBottomTabs.map((item) => {
           const Icon = item.icon;
           const active = isRouteActive(item.href);
+          const showWebBadge =
+            item.href === "/portal/website" && onlineOrderBadgeCount > 0;
           return (
             <Link
               key={item.href}
@@ -381,13 +567,18 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               className="flex-1 max-w-[84px] min-h-[58px] py-1 px-1 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95"
             >
               <div
-                className={`w-12 h-8 rounded-2xl flex items-center justify-center transition-all ${
+                className={`relative w-12 h-8 rounded-2xl flex items-center justify-center transition-all ${
                   active
                     ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/30"
                     : "text-slate-500 hover:bg-slate-100"
                 }`}
               >
                 <Icon className="w-[21px] h-[21px]" strokeWidth={active ? 2.4 : 2} />
+                {showWebBadge && (
+                  <span className="absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[17px] h-[17px] px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold shadow-xs">
+                    {onlineOrderBadgeCount}
+                  </span>
+                )}
               </div>
               <span
                 className={`text-[11.5px] tracking-tight leading-none ${

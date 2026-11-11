@@ -99,6 +99,8 @@ export async function GET(req: NextRequest) {
       exists: false,
       client_id: clientId,
       website_activation_status: "not_provisioned",
+      active_attention_count: 0,
+      recent_orders: [],
       public_link: null,
       preview_link: null,
       branding_status: "not_configured",
@@ -114,19 +116,44 @@ export async function GET(req: NextRequest) {
   }
 
   const sf = res.data.storefront;
+
+  // Lightweight polling mode for Owner Portal global layout new-order badge & toast notifications
+  if (req.nextUrl.searchParams.get("notifications_only") === "1") {
+    const notifRes = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders/notifications`,
+      { method: "GET", actor }
+    );
+    return NextResponse.json({
+      ok: true,
+      exists: true,
+      storefront_id: sf.id,
+      slug: sf.slug,
+      pharmacy_name: sf.pharmacy_name,
+      ...(notifRes.data || {
+        active_attention_count: 0,
+        pending_confirmation_count: 0,
+        recent_orders: [],
+      }),
+    });
+  }
+
   const branding = res.data.branding;
   const domains: any[] = res.data.domains || [];
   const urls = getStorefrontPublicPreviewUrl(sf.slug, sf.primary_domain);
   const hasVerifiedDomain = domains.some((d) => d.verification_status === "verified");
 
-  // Fetch products and online orders in parallel for the Owner Portal tabs
-  const [productsRes, ordersRes] = await Promise.all([
+  // Fetch products, online orders, and notification summary in parallel for the Owner Portal tabs
+  const [productsRes, ordersRes, notifRes] = await Promise.all([
     callStorefrontManageApi(
       `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/products?limit=100`,
       { method: "GET", actor }
     ),
     callStorefrontManageApi(
-      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders?limit=60`,
+      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders?limit=100`,
+      { method: "GET", actor }
+    ),
+    callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders/notifications`,
       { method: "GET", actor }
     ),
   ]);
@@ -159,6 +186,7 @@ export async function GET(req: NextRequest) {
     banners: res.data.banners || [],
     media: res.data.media || [],
     orders_summary: res.data.orders_summary || {},
+    order_notifications: notifRes.data || null,
     sync_cursors: res.data.sync_cursors || [],
     products: productsRes.data?.products || [],
     orders: ordersRes.data?.orders || [],
@@ -300,6 +328,7 @@ export async function POST(req: NextRequest) {
         actor,
         body: {
           status: body.status,
+          payment_status: body.payment_status,
           note: body.note,
           pos_invoice_number: body.pos_invoice_number,
         },
@@ -379,13 +408,27 @@ export async function POST(req: NextRequest) {
     }
 
     const rev = Math.floor(Date.now() / 1000);
-    const sanitizedItems = rawItems.map((item, idx) =>
-      sanitizePortalProductForStorefront({
-        ...item,
-        source_revision: rev,
-        is_featured: item.is_featured ?? idx < 4,
-      })
-    );
+    const sanitizedItems = rawItems
+      .map((item, idx) =>
+        sanitizePortalProductForStorefront({
+          ...item,
+          source_revision: rev,
+          is_featured: item.is_featured ?? idx < 4,
+        })
+      )
+      .filter((it) => Boolean(it.pos_product_id && it.product_identity?.name));
+
+    if (sanitizedItems.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "missing_pos_product_identity",
+          message:
+            "Every published website item must preserve an authentic POS product ID. Open AivraSol POS → Online Storefront and click Sync Now.",
+        },
+        { status: 400 }
+      );
+    }
 
     const syncRes = await callStorefrontSyncApi("/api/v1/sync/catalog-delta", {
       method: "POST",
