@@ -147,10 +147,10 @@ export default function PortalBackupsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* 1. Latest Backup */}
-          <PortalSectionCard className="overflow-hidden flex flex-col border-emerald-200/90 shadow-sm">
-            <div className="px-5 py-4 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white flex items-start justify-between gap-3">
+          <PortalSectionCard className="overflow-hidden flex flex-col border-slate-300 border-t-[3px] border-t-emerald-600 shadow-sm">
+            <div className="px-5 py-4 bg-[#0F172B] border-b border-slate-800 text-white flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 flex items-center justify-center shrink-0">
+                <div className="w-10 h-10 rounded-lg bg-slate-800 border border-slate-700 text-emerald-400 flex items-center justify-center shrink-0">
                   <CheckCircle2 className="h-5 w-5" />
                 </div>
                 <div>
@@ -160,7 +160,7 @@ export default function PortalBackupsPage() {
                   </p>
                 </div>
               </div>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold uppercase tracking-wider shrink-0">
+              <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-extrabold uppercase tracking-wider shrink-0">
                 LATEST
               </span>
             </div>
@@ -201,7 +201,7 @@ export default function PortalBackupsPage() {
 
             <div className="p-4 pt-0">
               <Button
-                className="w-full min-h-[44px] rounded-xl bg-[#009A4D] hover:bg-emerald-700 text-white font-bold shadow-sm shadow-emerald-600/20"
+                className="w-full min-h-[44px] rounded-lg bg-[#059669] hover:bg-[#047857] text-white font-bold shadow-xs"
                 onClick={() => downloadBackup(latestBackup.id, "Latest Backup")}
               >
                 <Download className="h-4 w-4 mr-2" />

@@ -153,7 +153,7 @@ function AcceptInviteForm() {
         type="submit"
         disabled={loading || !token}
         id="activate-account-btn"
-        className="w-full h-12 px-4 bg-[#009A4D] hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all text-sm shadow-sm shadow-emerald-600/20"
+        className="w-full h-11 px-4 bg-[#059669] hover:bg-[#047857] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all text-sm shadow-xs"
       >
         {loading ? "Activating Account…" : "Set Password & Activate Account"}
       </button>
@@ -163,24 +163,40 @@ function AcceptInviteForm() {
 
 export default function AcceptInvitePage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F2F7F4] via-white to-emerald-50/60 px-4 py-10">
-      <div className="w-full max-w-md space-y-6">
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-[#009A4D] to-emerald-700 shadow-lg shadow-emerald-600/20 text-white">
-            <KeyRound className="w-7 h-7" />
+    <div className="min-h-screen flex flex-col bg-[#E3E8EE]">
+      <div className="bg-[#0F172B] text-white px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="bg-white rounded-lg px-2 py-1 shadow-xs flex items-center">
+            <img src="/logo-owner-portal.png" alt="AivraSol" className="h-5 w-auto object-contain" />
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-            Set Your Portal Password
-          </h1>
-          <p className="text-slate-500 text-xs sm:text-sm">
-            Activate your AivraSol Pharmacy Owner Portal account
-          </p>
+          <span className="text-xs font-bold text-slate-300 border-l border-slate-700 pl-2.5">
+            Account Activation
+          </span>
         </div>
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400">
+          <ShieldCheck className="w-3.5 h-3.5" /> Encrypted
+        </span>
+      </div>
 
-        <div className="bg-white border border-slate-200/85 rounded-3xl shadow-xl shadow-slate-900/5 p-6 sm:p-8">
-          <Suspense fallback={<div className="text-slate-500 text-sm text-center py-6">Loading invite…</div>}>
-            <AcceptInviteForm />
-          </Suspense>
+      <div className="flex-1 flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-md space-y-5">
+          <div className="text-center space-y-2">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-[#0F172B] border border-slate-800 shadow-xs text-emerald-400">
+              <KeyRound className="w-6 h-6" />
+            </div>
+            <h1 className="text-2xl font-extrabold text-[#0F172B] tracking-tight">
+              Set Your Portal Password
+            </h1>
+            <p className="text-slate-600 text-xs sm:text-sm">
+              Activate your AivraSol Pharmacy Owner Portal account
+            </p>
+          </div>
+
+          <div className="bg-white border border-slate-300 border-t-[3px] border-t-[#059669] rounded-xl shadow-sm p-6 sm:p-7">
+            <Suspense fallback={<div className="text-slate-500 text-sm text-center py-6">Loading invite…</div>}>
+              <AcceptInviteForm />
+            </Suspense>
+          </div>
         </div>
       </div>
     </div>

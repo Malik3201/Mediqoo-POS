@@ -138,10 +138,10 @@ function CashSupervisionContent() {
       />
 
       {/* Current Cash Drawer Supervision Hero Card */}
-      <PortalSectionCard className="overflow-hidden">
-        <div className="px-4 sm:px-6 py-4 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <PortalSectionCard className="overflow-hidden border-t-[3px] border-t-emerald-600">
+        <div className="px-4 sm:px-6 py-4 bg-[#0F172B] border-b border-slate-800 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-lg bg-slate-800 border border-slate-700 text-emerald-400 flex items-center justify-center shrink-0">
               <Wallet className="w-5 h-5" />
             </div>
             <div>
@@ -150,10 +150,10 @@ function CashSupervisionContent() {
                   {drawer.drawer_name || "Main Counter Cash Drawer"}
                 </h2>
                 <span
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
                     drawer.status === "open"
-                      ? "bg-emerald-500/25 text-emerald-300 border border-emerald-400/40"
-                      : "bg-white/10 text-slate-300 border border-white/15"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "bg-slate-800 text-slate-300 border border-slate-700"
                   }`}
                 >
                   {drawer.status === "open" && (
@@ -172,8 +172,8 @@ function CashSupervisionContent() {
             </div>
           </div>
 
-          <div className="sm:text-right bg-white/5 sm:bg-transparent border border-white/10 sm:border-0 rounded-2xl px-4 py-3 sm:p-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 block">
+          <div className="sm:text-right bg-slate-800/75 sm:bg-transparent border border-slate-700/80 sm:border-0 rounded-lg px-4 py-3 sm:p-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
               Expected Physical Cash
             </span>
             <p className="text-2xl sm:text-3xl font-extrabold text-white tabular-nums mt-0.5">
@@ -184,17 +184,17 @@ function CashSupervisionContent() {
 
         {/* Reconciliation Formula Grid */}
         <div className="p-4 sm:p-5 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 bg-white">
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
-            <span className="text-[10px] font-bold uppercase text-slate-400 block">
+          <div className="p-3 rounded-lg bg-[#F8FAFC] border border-slate-300/80">
+            <span className="text-[10px] font-bold uppercase text-slate-500 block">
               Opening Float
             </span>
-            <span className="text-sm sm:text-base font-extrabold text-slate-900 mt-1 block tabular-nums">
+            <span className="text-sm sm:text-base font-extrabold text-[#0F172B] mt-1 block tabular-nums">
               {formatPKR(drawer.opening_float ?? 0)}
             </span>
           </div>
 
-          <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/80">
-            <span className="text-[10px] font-bold uppercase text-emerald-700 block">
+          <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200">
+            <span className="text-[10px] font-bold uppercase text-emerald-800 block">
               + Cash Sales
             </span>
             <span className="text-sm sm:text-base font-extrabold text-emerald-700 mt-1 block tabular-nums">

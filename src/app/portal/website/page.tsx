@@ -598,16 +598,16 @@ export default function PortalMyWebsitePage() {
       )}
 
       {/* Top Header */}
-      <div className="flex flex-col gap-3.5 md:flex-row md:items-center md:justify-between border-b border-slate-200/80 pb-4">
+      <div className="flex flex-col gap-3.5 md:flex-row md:items-center md:justify-between border-b border-slate-300/75 pb-3.5">
         <div className="flex items-start gap-3">
-          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-[#009A4D] to-emerald-700 text-white shadow-sm shadow-emerald-600/20 flex items-center justify-center shrink-0 mt-0.5">
+          <div className="w-10 h-10 rounded-lg bg-[#0F172B] text-emerald-400 border border-slate-800 shadow-xs flex items-center justify-center shrink-0 mt-0.5">
             <Globe className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-900">
+            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-[#0F172B]">
               My Pharmacy Website
             </h1>
-            <p className="text-xs sm:text-[13px] text-slate-500 mt-0.5">
+            <p className="text-xs sm:text-[13px] text-slate-600 mt-0.5">
               Manage your branded customer website, POS product catalog, online orders, and delivery settings.
             </p>
           </div>

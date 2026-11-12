@@ -271,11 +271,59 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         return res.json();
       })
       .then((data) => {
-        if (data) setMe(data);
+        if (!data) return;
+        const u = data.user ?? data;
+        const clientId = u?.client_id ?? data?.client_id ?? "";
+        let cachedPharmacyName = "";
+        try {
+          if (clientId) {
+            cachedPharmacyName =
+              sessionStorage.getItem(`aivrasol_pharmacy_name:${clientId}`) || "";
+          }
+        } catch {
+          // ignore storage errors
+        }
+        const resolvedName =
+          data.pharmacy_name ||
+          cachedPharmacyName ||
+          u?.client?.name ||
+          u?.client_name ||
+          data?.client_name ||
+          u?.name ||
+          "My Pharmacy";
+
+        setMe({
+          user_id: u?.id || u?.user_id || "",
+          client_id: clientId,
+          client_name: resolvedName,
+          email: u?.email || data?.email || "",
+          role: u?.role || data?.role || "owner",
+        });
       })
       .catch(() => router.replace("/portal/login"))
       .finally(() => setChecking(false));
   }, [pathname, isPublicPage, router]);
+
+  useEffect(() => {
+    const onPharmacyMeta = (e: Event) => {
+      const detail = (e as CustomEvent<{ name?: string }>).detail;
+      const nextName = detail?.name?.trim();
+      if (!nextName) return;
+      setMe((prev) => {
+        if (!prev || prev.client_name === nextName) return prev;
+        try {
+          if (prev.client_id) {
+            sessionStorage.setItem(`aivrasol_pharmacy_name:${prev.client_id}`, nextName);
+          }
+        } catch {
+          // ignore storage errors
+        }
+        return { ...prev, client_name: nextName };
+      });
+    };
+    window.addEventListener("aivrasol:pharmacy-meta", onPharmacyMeta);
+    return () => window.removeEventListener("aivrasol:pharmacy-meta", onPharmacyMeta);
+  }, []);
 
   async function handleLogout() {
     await fetch("/api/portal/auth/logout", { method: "POST" });
@@ -288,13 +336,13 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   if (checking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F4F7F9] px-4">
-        <div className="flex flex-col items-center gap-4 bg-white px-8 py-7 rounded-3xl border border-slate-200/80 shadow-sm">
-          <div className="w-11 h-11 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
-            <div className="w-6 h-6 border-[2.5px] border-[#009A4D] border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-[#E3E8EE] px-4">
+        <div className="flex flex-col items-center gap-4 bg-white px-8 py-7 rounded-xl border border-slate-300 shadow-sm">
+          <div className="w-11 h-11 rounded-lg bg-[#0F172B] border border-slate-800 flex items-center justify-center">
+            <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
           </div>
           <div className="text-center space-y-0.5">
-            <p className="text-sm font-extrabold text-slate-900">AivraSol Owner Portal</p>
+            <p className="text-sm font-extrabold text-[#0F172B]">AivraSol Owner Portal</p>
             <p className="text-xs text-slate-500">Syncing encrypted pharmacy command center…</p>
           </div>
         </div>
@@ -344,15 +392,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         key={item.href}
         href={item.href}
         title={sidebarCollapsed ? item.label : undefined}
-        className={`relative group flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
+        className={`relative group flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-semibold transition-all ${
           active
-            ? "bg-gradient-to-r from-[#009A4D] to-emerald-600 text-white shadow-sm shadow-emerald-600/20"
-            : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
-        } ${sidebarCollapsed ? "justify-center px-2" : ""}`}
+            ? "bg-slate-800/95 text-white border-l-[3px] border-l-emerald-400 rounded-l-none shadow-xs"
+            : "text-slate-300 hover:text-white hover:bg-slate-800/60"
+        } ${sidebarCollapsed ? "justify-center px-2 border-l-0 rounded-lg" : ""}`}
       >
         <Icon
-          className={`w-[18px] h-[18px] shrink-0 transition-transform ${
-            active ? "text-white" : "text-slate-500 group-hover:text-[#009A4D]"
+          className={`w-[18px] h-[18px] shrink-0 transition-colors ${
+            active ? "text-emerald-400" : "text-slate-400 group-hover:text-emerald-400"
           }`}
         />
         {!sidebarCollapsed && <span className="truncate flex-1">{item.label}</span>}
@@ -371,44 +419,50 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   };
 
   return (
-    <div className="min-h-screen bg-[#F3F6FA] text-slate-900 flex flex-col">
-      {/* Executive Top Header Bar */}
-      <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-xl border-b border-slate-200/85 px-3.5 sm:px-5 lg:px-6 flex items-center justify-between gap-2.5 shadow-[0_1px_3px_rgba(15,23,42,0.03)]">
-        <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
-          <Link href="/portal/dashboard" className="flex items-center gap-2 shrink-0">
+    <div className="min-h-screen bg-[#E3E8EE] text-slate-900 flex flex-col">
+      {/* Executive Top Header Bar — Deep Obsidian Slate */}
+      <header className="sticky top-0 z-30 h-14 sm:h-16 bg-[#0F172B] border-b border-slate-800 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3 text-white shadow-sm">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+          <Link
+            href="/portal/dashboard"
+            className="flex items-center bg-white rounded-lg px-1.5 sm:px-2 py-0.5 sm:py-1 shadow-xs ring-1 ring-white/15 shrink-0 hover:bg-slate-50 transition-colors"
+            title="AivraSol Owner Portal"
+          >
             <img
               src="/logo-owner-portal.png"
               alt="AivraSol"
-              className="h-7 sm:h-8 w-auto object-contain"
+              className="h-5 sm:h-6 w-auto object-contain"
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).src = "/logo-pharmacy-pos.png";
               }}
             />
           </Link>
-          <div className="h-6 w-px bg-slate-200 shrink-0" />
-          {me && (
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200/80 hidden sm:flex items-center justify-center text-[#009A4D] shrink-0">
-                <Building2 className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <p className="text-xs sm:text-sm font-extrabold text-slate-900 truncate leading-tight">
-                    {me.client_name}
-                  </p>
-                  {currentNav && (
-                    <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-[10.5px] font-bold text-slate-600 shrink-0">
-                      {currentNav.shortLabel}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-slate-500 truncate leading-tight mt-0.5">
-                  <span className="sm:hidden">{currentNav?.label || "Owner Portal"}</span>
-                  <span className="hidden sm:inline">{me.email}</span>
-                </p>
-              </div>
+          <div className="h-6 w-px bg-slate-700/85 shrink-0" />
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 hidden sm:flex items-center justify-center text-emerald-400 shrink-0">
+              <Building2 className="w-4 h-4" />
             </div>
-          )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <p className="text-[13px] sm:text-sm font-bold text-white truncate leading-tight">
+                  {me?.client_name || "My Pharmacy"}
+                </p>
+                {currentNav && (
+                  <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-[10.5px] font-bold text-slate-300 shrink-0">
+                    {currentNav.shortLabel}
+                  </span>
+                )}
+              </div>
+              <p className="text-[10.5px] sm:text-[11px] truncate leading-tight mt-0.5">
+                <span className="sm:hidden font-medium text-emerald-400">
+                  {currentNav?.label || "Owner Portal"}
+                </span>
+                <span className="hidden sm:inline text-slate-400">
+                  {me?.email || "Owner Command Center"}
+                </span>
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -416,12 +470,12 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             <button
               type="button"
               onClick={openOnlineOrdersView}
-              className="inline-flex items-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-600/20 transition-all active:scale-95"
+              className="inline-flex items-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all active:scale-95"
               title="New Online Orders Pending Action"
             >
               <ShoppingBag className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Orders</span>
-              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white text-red-700 text-[10.5px] font-extrabold">
+              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white text-rose-700 text-[10.5px] font-extrabold">
                 {onlineOrderBadgeCount}
               </span>
             </button>
@@ -429,10 +483,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <Link
             href="/portal/alerts"
-            className={`inline-flex items-center justify-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold border transition-colors ${
+            className={`inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-lg text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/alerts")
-                ? "bg-emerald-50 text-[#009A4D] border-emerald-200"
-                : "bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-slate-100"
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                : "bg-slate-800/80 text-slate-200 border-slate-700 hover:bg-slate-800 hover:text-white"
             }`}
             title="Owner Alerts"
           >
@@ -442,10 +496,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <Link
             href="/portal/billing"
-            className={`hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-semibold border transition-colors ${
+            className={`hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/billing")
-                ? "bg-emerald-50 text-[#009A4D] border-emerald-200"
-                : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:text-slate-900"
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                : "bg-slate-800/80 text-slate-200 border-slate-700 hover:bg-slate-800 hover:text-white"
             }`}
           >
             <CreditCard className="w-4 h-4" />
@@ -454,7 +508,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <button
             onClick={handleLogout}
-            className="inline-flex items-center justify-center gap-1.5 h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-lg text-xs font-semibold text-slate-300 hover:text-rose-300 hover:bg-rose-950/60 border border-transparent hover:border-rose-800/70 transition-colors"
             title="Sign out"
             aria-label="Sign out"
           >
@@ -517,17 +571,17 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
       {/* Main Content + Desktop Collapsible Sidebar */}
       <div className="flex-1 flex min-h-0">
-        {/* Desktop Executive Sidebar */}
+        {/* Desktop Executive Sidebar — Deep Obsidian Slate */}
         <aside
-          className={`hidden lg:flex flex-col bg-white border-r border-slate-200/85 shrink-0 transition-all duration-200 sticky top-16 h-[calc(100vh-4rem)] ${
-            sidebarCollapsed ? "w-[76px]" : "w-[260px]"
+          className={`hidden lg:flex flex-col bg-[#11192C] border-r border-slate-800 shrink-0 transition-all duration-200 sticky top-16 h-[calc(100vh-4rem)] text-slate-300 ${
+            sidebarCollapsed ? "w-[76px]" : "w-[256px]"
           }`}
         >
           <div className="flex-1 py-4 px-3 space-y-5 overflow-y-auto portal-scroll">
             {sidebarSections.map((group) => (
               <div key={group.title} className="space-y-1">
                 {!sidebarCollapsed && (
-                  <p className="px-3 pb-1 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                  <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                     {group.title}
                   </p>
                 )}
@@ -535,9 +589,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </div>
             ))}
 
-            <div className="space-y-1 pt-3 border-t border-slate-100">
+            <div className="space-y-1 pt-3 border-t border-slate-800/80">
               {!sidebarCollapsed && (
-                <p className="px-3 pb-1 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                   Backups &amp; Plan
                 </p>
               )}
@@ -546,19 +600,19 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </div>
 
           {/* Owner Status + Collapse Control */}
-          <div className="p-3 border-t border-slate-100 space-y-2">
+          <div className="p-3 border-t border-slate-800/80 space-y-2">
             {!sidebarCollapsed && me && (
-              <div className="px-3 py-2 rounded-xl bg-emerald-50/70 border border-emerald-200/70 flex items-center gap-2 text-[11px]">
-                <ShieldCheck className="w-4 h-4 text-[#009A4D] shrink-0" />
+              <div className="px-3 py-2.5 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center gap-2.5 text-[11px]">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
                 <div className="min-w-0">
-                  <p className="font-bold text-slate-800 truncate">{me.client_name}</p>
-                  <p className="text-[10px] text-emerald-700 font-semibold">Live POS Cloud Sync</p>
+                  <p className="font-bold text-white truncate">{me.client_name}</p>
+                  <p className="text-[10px] text-emerald-400 font-semibold">Live POS Cloud Sync</p>
                 </div>
               </div>
             )}
             <button
               onClick={() => setSidebarCollapsed((c) => !c)}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {sidebarCollapsed ? (
@@ -581,10 +635,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         </main>
       </div>
 
-      {/* Enlarged, Easy-Touch Mobile Bottom Navigation Bar */}
+      {/* Executive Mobile Bottom Navigation Dock */}
       <nav
         aria-label="Mobile Primary Navigation"
-        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-xl border-t border-slate-200/90 px-1.5 pt-2 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] min-h-[76px] flex items-center justify-around shadow-[0_-8px_28px_rgba(15,23,42,0.07)]"
+        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-[#0F172B] border-t border-slate-800 px-1.5 pt-1.5 pb-[calc(0.55rem+env(safe-area-inset-bottom,0px))] min-h-[72px] flex items-center justify-around shadow-[0_-8px_28px_rgba(15,23,42,0.22)]"
       >
         {mobileBottomTabs.map((item) => {
           const Icon = item.icon;
@@ -595,18 +649,18 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             <Link
               key={item.href}
               href={item.href}
-              className="flex-1 max-w-[82px] min-h-[54px] py-1 px-0.5 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
+              className="flex-1 max-w-[82px] min-h-[52px] py-1 px-0.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
             >
               <div
-                className={`relative w-12 h-8 rounded-2xl flex items-center justify-center transition-all ${
+                className={`relative w-11 h-7 rounded-lg flex items-center justify-center transition-all ${
                   active
-                    ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/25"
-                    : "text-slate-500 hover:bg-slate-100"
+                    ? "bg-slate-800 text-emerald-400 ring-1 ring-emerald-500/40"
+                    : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
                 }`}
               >
-                <Icon className="w-[20px] h-[20px]" strokeWidth={active ? 2.4 : 2} />
+                <Icon className="w-[19px] h-[19px]" strokeWidth={active ? 2.3 : 1.9} />
                 {showWebBadge && (
-                  <span className="absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[17px] h-[17px] px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold shadow-xs">
+                  <span className="absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[17px] h-[17px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold shadow-xs">
                     {onlineOrderBadgeCount}
                   </span>
                 )}
@@ -614,8 +668,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               <span
                 className={`text-[11px] tracking-tight leading-none ${
                   active
-                    ? "text-[#009A4D] font-extrabold"
-                    : "text-slate-600 font-semibold"
+                    ? "text-white font-bold"
+                    : "text-slate-400 font-medium"
                 }`}
               >
                 {item.shortLabel}
@@ -627,26 +681,26 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <button
           type="button"
           onClick={() => setMobileMoreOpen((v) => !v)}
-          className="flex-1 max-w-[82px] min-h-[54px] py-1 px-0.5 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
+          className="flex-1 max-w-[82px] min-h-[52px] py-1 px-0.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
         >
           <div
-            className={`w-12 h-8 rounded-2xl flex items-center justify-center transition-all ${
+            className={`w-11 h-7 rounded-lg flex items-center justify-center transition-all ${
               isMoreActive || mobileMoreOpen
-                ? "bg-[#009A4D] text-white shadow-sm shadow-emerald-600/25"
-                : "text-slate-500 hover:bg-slate-100"
+                ? "bg-slate-800 text-emerald-400 ring-1 ring-emerald-500/40"
+                : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
             }`}
           >
             {mobileMoreOpen ? (
-              <X className="w-[20px] h-[20px]" strokeWidth={2.4} />
+              <X className="w-[19px] h-[19px]" strokeWidth={2.3} />
             ) : (
-              <MoreHorizontal className="w-[20px] h-[20px]" strokeWidth={2.2} />
+              <MoreHorizontal className="w-[19px] h-[19px]" strokeWidth={2.1} />
             )}
           </div>
           <span
             className={`text-[11px] tracking-tight leading-none ${
               isMoreActive || mobileMoreOpen
-                ? "text-[#009A4D] font-extrabold"
-                : "text-slate-600 font-semibold"
+                ? "text-white font-bold"
+                : "text-slate-400 font-medium"
             }`}
           >
             Menu
@@ -656,28 +710,30 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
       {/* Mobile "Menu / More" Launcher Sheet */}
       {mobileMoreOpen && (
-        <div className="lg:hidden fixed inset-0 z-30 flex flex-col justify-end bg-slate-900/45 backdrop-blur-[2px]">
+        <div className="lg:hidden fixed inset-0 z-30 flex flex-col justify-end bg-slate-950/60 backdrop-blur-[2px]">
           <div className="flex-1" onClick={() => setMobileMoreOpen(false)} />
-          <div className="bg-white rounded-t-3xl border-t border-slate-200 px-4 pt-3 pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] shadow-2xl space-y-4 max-h-[84dvh] overflow-y-auto animate-portal-drawer">
-            <div className="w-10 h-1.5 rounded-full bg-slate-200 mx-auto" />
-            <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-              <div className="min-w-0">
-                <span className="text-sm font-extrabold text-slate-900 block truncate">
-                  {me?.client_name || "Owner Portal Modules"}
-                </span>
-                <span className="text-xs text-slate-500 truncate block">
-                  {me?.email || "Tap any section to monitor"}
-                </span>
+          <div className="bg-[#E8EDF2] rounded-t-2xl border-t border-slate-300 overflow-hidden pb-[calc(6.25rem+env(safe-area-inset-bottom,0px))] shadow-2xl max-h-[84dvh] overflow-y-auto animate-portal-drawer">
+            <div className="bg-[#0F172B] px-4 pt-2.5 pb-3.5 text-white border-b border-slate-800 space-y-2.5">
+              <div className="w-10 h-1 rounded-full bg-slate-600 mx-auto" />
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <span className="text-sm font-extrabold text-white block truncate">
+                    {me?.client_name || "Owner Portal Modules"}
+                  </span>
+                  <span className="text-xs text-slate-400 truncate block">
+                    {me?.email || "Tap any section to monitor"}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setMobileMoreOpen(false)}
+                  className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                onClick={() => setMobileMoreOpen(false)}
-                className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800 shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="p-3.5 grid grid-cols-2 gap-2.5">
               {[...PRIMARY_NAV.slice(4), ...SECONDARY_NAV].map((item) => {
                 const Icon = item.icon;
                 const active = isRouteActive(item.href);
@@ -686,27 +742,35 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileMoreOpen(false)}
-                    className={`flex flex-col gap-2 p-3.5 rounded-2xl border transition-all active:scale-[0.98] ${
+                    className={`flex flex-col gap-2 p-3.5 rounded-xl border transition-all active:scale-[0.98] ${
                       active
-                        ? "bg-emerald-50/90 border-emerald-300 text-[#009A4D] shadow-2xs"
-                        : "bg-slate-50/80 border-slate-200/80 text-slate-800 hover:bg-slate-100"
+                        ? "bg-[#0F172B] border-slate-900 border-t-[3px] border-t-emerald-400 text-white shadow-sm"
+                        : "bg-white border-slate-300/90 text-[#0F172B] hover:border-slate-400 shadow-2xs"
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div
-                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
                           active
-                            ? "bg-[#009A4D] text-white"
-                            : "bg-white border border-slate-200/80 text-slate-600"
+                            ? "bg-slate-800 text-emerald-400"
+                            : "bg-slate-100 border border-slate-200 text-slate-700"
                         }`}
                       >
-                        <Icon className="w-4.5 h-4.5" />
+                        <Icon className="w-4 h-4" />
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+                      <ChevronRight
+                        className={`w-4 h-4 shrink-0 ${
+                          active ? "text-emerald-400" : "text-slate-400"
+                        }`}
+                      />
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-extrabold truncate">{item.shortLabel}</p>
-                      <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                      <p
+                        className={`text-[11px] truncate mt-0.5 ${
+                          active ? "text-slate-300" : "text-slate-500"
+                        }`}
+                      >
                         {item.subtitle}
                       </p>
                     </div>

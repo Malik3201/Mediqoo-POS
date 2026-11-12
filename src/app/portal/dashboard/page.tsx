@@ -98,6 +98,13 @@ export default function PortalOverviewPage() {
         }
         const json = await res.json();
         setData(json);
+        if (json?.pharmacy?.name && typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("aivrasol:pharmacy-meta", {
+              detail: { name: String(json.pharmacy.name) },
+            })
+          );
+        }
       } catch (err: any) {
         setError(err.message || "Unable to load overview data");
       } finally {
@@ -173,15 +180,15 @@ export default function PortalOverviewPage() {
         }
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="inline-flex bg-white p-1 rounded-2xl border border-slate-200/90 shadow-2xs">
+            <div className="inline-flex bg-white p-1 rounded-lg border border-slate-300 shadow-2xs">
               {(["today", "7d", "30d"] as Period[]).map((p) => (
                 <button
                   key={p}
                   onClick={() => setPeriod(p)}
-                  className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                  className={`px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap ${
                     period === p
-                      ? "bg-[#009A4D] text-white shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
+                      ? "bg-[#0F172B] text-white shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
                   }`}
                 >
                   {p === "today" ? "Today" : p === "7d" ? "7 Days" : "30 Days"}
@@ -191,10 +198,10 @@ export default function PortalOverviewPage() {
             <button
               onClick={() => void loadOverview(period, true)}
               disabled={refreshing || loading}
-              className="h-10 w-10 sm:w-auto sm:px-3.5 rounded-2xl bg-white border border-slate-200/90 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50 shadow-2xs inline-flex items-center justify-center gap-1.5 text-xs font-bold"
+              className="h-9 w-9 sm:w-auto sm:px-3.5 rounded-lg bg-white border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50 shadow-2xs inline-flex items-center justify-center gap-1.5 text-xs font-bold"
               title="Refresh overview"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin text-[#009A4D]" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin text-emerald-600" : ""}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
           </div>
@@ -210,9 +217,9 @@ export default function PortalOverviewPage() {
               <Link
                 key={mod.href}
                 href={mod.href}
-                className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-white border border-slate-200/90 text-xs font-bold text-slate-700 hover:border-[#009A4D] hover:text-[#009A4D] shrink-0 shadow-2xs active:scale-95 transition-all"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-slate-300/90 text-xs font-bold text-[#0F172B] hover:border-slate-400 shrink-0 shadow-2xs active:scale-95 transition-all"
               >
-                <Icon className="w-4 h-4 text-[#009A4D]" />
+                <Icon className="w-3.5 h-3.5 text-emerald-600" />
                 <span>{mod.label}</span>
               </Link>
             );
@@ -221,19 +228,19 @@ export default function PortalOverviewPage() {
       </div>
 
       {error && (
-        <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm font-medium flex items-center gap-2.5">
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm font-medium flex items-center gap-2.5">
           <AlertTriangle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Primary 4 KPI Cards — Pixel-Perfect on 320px through Desktop */}
+      {/* Primary 4 KPI Cards — Executive Ledger Cards */}
       {loading && !data ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {[...Array(4)].map((_, idx) => (
             <div
               key={idx}
-              className="h-32 rounded-2xl bg-white border border-slate-200 p-4 animate-pulse"
+              className="h-32 rounded-xl bg-white border border-slate-300/90 p-4 animate-pulse"
             />
           ))}
         </div>
@@ -243,23 +250,23 @@ export default function PortalOverviewPage() {
             {/* 1. Net Sales */}
             <Link
               href={`/portal/sales?period=${period}`}
-              className="bg-gradient-to-br from-emerald-50/70 via-white to-white rounded-2xl border border-emerald-200/85 hover:border-[#009A4D] p-3.5 sm:p-5 shadow-2xs hover:shadow-md transition-all group flex flex-col justify-between gap-3"
+              className="bg-white rounded-xl border border-slate-300/90 border-t-[3px] border-t-[#059669] hover:border-emerald-600/80 p-3.5 sm:p-4.5 shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:shadow-md transition-all group flex flex-col justify-between gap-2.5"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="text-[11px] sm:text-xs font-extrabold text-emerald-900 leading-tight">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 leading-tight">
                   {period === "today" ? "Today's Net Sales" : `${PERIOD_LABELS[period]} Sales`}
                 </span>
-                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-100 text-[#009A4D] flex items-center justify-center group-hover:bg-[#009A4D] group-hover:text-white transition-colors shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200/80 text-[#059669] flex items-center justify-center group-hover:bg-[#059669] group-hover:text-white transition-colors shrink-0">
                   <TrendingUp className="w-4 h-4" />
                 </div>
               </div>
               <div>
-                <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums tracking-tight truncate">
+                <p className="text-lg sm:text-2xl font-extrabold text-[#0F172B] tabular-nums tracking-tight truncate">
                   {formatPKR(kpis.net_sales ?? 0)}
                 </p>
                 <div className="flex items-center justify-between gap-1 mt-1 text-[10.5px] sm:text-xs text-slate-500">
                   <span className="truncate">Gross: {formatPKR(kpis.gross_sales ?? 0)}</span>
-                  <ArrowUpRight className="w-3.5 h-3.5 text-[#009A4D] shrink-0" />
+                  <ArrowUpRight className="w-3.5 h-3.5 text-[#059669] shrink-0" />
                 </div>
               </div>
             </Link>
@@ -267,23 +274,23 @@ export default function PortalOverviewPage() {
             {/* 2. Total Invoices & Avg Bill */}
             <Link
               href={`/portal/sales?period=${period}`}
-              className="bg-white rounded-2xl border border-slate-200/85 hover:border-[#009A4D] p-3.5 sm:p-5 shadow-2xs hover:shadow-md transition-all group flex flex-col justify-between gap-3"
+              className="bg-white rounded-xl border border-slate-300/90 border-t-[3px] border-t-slate-700 hover:border-slate-500 p-3.5 sm:p-4.5 shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:shadow-md transition-all group flex flex-col justify-between gap-2.5"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="text-[11px] sm:text-xs font-extrabold text-slate-600 leading-tight">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 leading-tight">
                   Finalized Bills
                 </span>
-                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center group-hover:bg-[#0F172B] group-hover:text-white transition-colors shrink-0">
                   <Receipt className="w-4 h-4" />
                 </div>
               </div>
               <div>
-                <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums tracking-tight">
+                <p className="text-lg sm:text-2xl font-extrabold text-[#0F172B] tabular-nums tracking-tight">
                   {(kpis.invoice_count ?? 0).toLocaleString("en-PK")}
                 </p>
                 <div className="flex items-center justify-between gap-1 mt-1 text-[10.5px] sm:text-xs text-slate-500">
                   <span className="truncate">Avg: {formatPKR(kpis.average_bill ?? 0)}</span>
-                  <ArrowUpRight className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <ArrowUpRight className="w-3.5 h-3.5 text-slate-600 shrink-0" />
                 </div>
               </div>
             </Link>
@@ -291,23 +298,23 @@ export default function PortalOverviewPage() {
             {/* 3. Expected Cash in Drawer */}
             <Link
               href="/portal/cash"
-              className="bg-white rounded-2xl border border-slate-200/85 hover:border-[#009A4D] p-3.5 sm:p-5 shadow-2xs hover:shadow-md transition-all group flex flex-col justify-between gap-3"
+              className="bg-white rounded-xl border border-slate-300/90 border-t-[3px] border-t-sky-600 hover:border-sky-500 p-3.5 sm:p-4.5 shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:shadow-md transition-all group flex flex-col justify-between gap-2.5"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="text-[11px] sm:text-xs font-extrabold text-slate-600 leading-tight">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 leading-tight">
                   Drawer Cash
                 </span>
-                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center group-hover:bg-teal-700 group-hover:text-white transition-colors shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:bg-sky-700 group-hover:text-white transition-colors shrink-0">
                   <Wallet className="w-4 h-4" />
                 </div>
               </div>
               <div>
-                <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums tracking-tight truncate">
+                <p className="text-lg sm:text-2xl font-extrabold text-[#0F172B] tabular-nums tracking-tight truncate">
                   {formatPKR(livePos.expected_drawer_cash ?? 0)}
                 </p>
                 <div className="flex items-center justify-between gap-1 mt-1 text-[10.5px] sm:text-xs text-slate-500">
                   <span className="truncate">Cash Sales: {formatPKR(kpis.cash_sales ?? 0)}</span>
-                  <ArrowUpRight className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                  <ArrowUpRight className="w-3.5 h-3.5 text-sky-700 shrink-0" />
                 </div>
               </div>
             </Link>
@@ -315,18 +322,18 @@ export default function PortalOverviewPage() {
             {/* 4. Customer Outstanding (Khata) */}
             <Link
               href="/portal/khata?status=due"
-              className="bg-gradient-to-br from-amber-50/60 via-white to-white rounded-2xl border border-amber-200/85 hover:border-amber-400 p-3.5 sm:p-5 shadow-2xs hover:shadow-md transition-all group flex flex-col justify-between gap-3"
+              className="bg-white rounded-xl border border-slate-300/90 border-t-[3px] border-t-amber-500 hover:border-amber-500 p-3.5 sm:p-4.5 shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:shadow-md transition-all group flex flex-col justify-between gap-2.5"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="text-[11px] sm:text-xs font-extrabold text-amber-900 leading-tight">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600 leading-tight">
                   Khata Due
                 </span>
-                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors shrink-0">
                   <Users className="w-4 h-4" />
                 </div>
               </div>
               <div>
-                <p className="text-lg sm:text-2xl font-extrabold text-slate-900 tabular-nums tracking-tight truncate">
+                <p className="text-lg sm:text-2xl font-extrabold text-[#0F172B] tabular-nums tracking-tight truncate">
                   {formatPKR(livePos.customer_outstanding_total ?? 0)}
                 </p>
                 <div className="flex items-center justify-between gap-1 mt-1 text-[10.5px] sm:text-xs text-slate-500">
@@ -343,7 +350,7 @@ export default function PortalOverviewPage() {
           <div className="md:hidden">
             <button
               onClick={() => setShowAllKpisMobile((v) => !v)}
-              className="w-full py-2.5 px-4 rounded-2xl bg-white border border-slate-200/90 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 shadow-2xs active:scale-[0.99] transition-transform"
+              className="w-full py-2.5 px-4 rounded-xl bg-white border border-slate-300/90 text-xs font-bold text-[#0F172B] flex items-center justify-center gap-1.5 shadow-2xs active:scale-[0.99] transition-transform"
             >
               {showAllKpisMobile ? (
                 <>
@@ -368,12 +375,12 @@ export default function PortalOverviewPage() {
             {/* 5. Gross Profit */}
             <Link
               href={`/portal/sales?period=${period}`}
-              className="bg-white rounded-2xl border border-slate-200/85 hover:border-[#009A4D] p-3.5 sm:p-4 shadow-2xs transition-all"
+              className="bg-white rounded-xl border border-slate-300/90 hover:border-emerald-600 p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all"
             >
-              <span className="text-[11px] font-bold text-slate-500 block">Gross Profit</span>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 block">Gross Profit</span>
               {kpis.has_reliable_costs ? (
                 <>
-                  <p className="text-base font-extrabold text-[#008A44] mt-1 tabular-nums truncate">
+                  <p className="text-base font-extrabold text-[#047857] mt-1 tabular-nums truncate">
                     {formatPKR(kpis.gross_profit ?? 0)}
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5 truncate">
@@ -393,12 +400,12 @@ export default function PortalOverviewPage() {
             {/* 6. Credit Sales */}
             <Link
               href={`/portal/sales?period=${period}&payment=credit`}
-              className="bg-white rounded-2xl border border-slate-200/85 hover:border-[#009A4D] p-3.5 sm:p-4 shadow-2xs transition-all"
+              className="bg-white rounded-xl border border-slate-300/90 hover:border-slate-400 p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all"
             >
-              <span className="text-[11px] font-bold text-slate-500 block truncate">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 block truncate">
                 Credit Sales
               </span>
-              <p className="text-base font-extrabold text-slate-900 mt-1 tabular-nums truncate">
+              <p className="text-base font-extrabold text-[#0F172B] mt-1 tabular-nums truncate">
                 {formatPKR(kpis.credit_sales ?? 0)}
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5">{PERIOD_LABELS[period]} →</p>
@@ -407,12 +414,12 @@ export default function PortalOverviewPage() {
             {/* 7. Supplier Verified Payable */}
             <Link
               href="/portal/purchases?tab=suppliers"
-              className="bg-white rounded-2xl border border-slate-200/85 hover:border-[#009A4D] p-3.5 sm:p-4 shadow-2xs transition-all"
+              className="bg-white rounded-xl border border-slate-300/90 hover:border-slate-400 p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all"
             >
-              <span className="text-[11px] font-bold text-slate-500 block truncate">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 block truncate">
                 Supplier Payable
               </span>
-              <p className="text-base font-extrabold text-slate-900 mt-1 tabular-nums truncate">
+              <p className="text-base font-extrabold text-[#0F172B] mt-1 tabular-nums truncate">
                 {formatPKR(livePos.supplier_verified_payable_total ?? 0)}
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5 truncate">
@@ -425,10 +432,10 @@ export default function PortalOverviewPage() {
             {/* 8. Returns & Refunds */}
             <Link
               href={`/portal/returns?period=${period}`}
-              className="bg-white rounded-2xl border border-slate-200/85 hover:border-red-300 p-3.5 sm:p-4 shadow-2xs transition-all"
+              className="bg-white rounded-xl border border-slate-300/90 hover:border-rose-400 p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all"
             >
-              <span className="text-[11px] font-bold text-slate-500 block">Sales Returns</span>
-              <p className="text-base font-extrabold text-red-600 mt-1 tabular-nums truncate">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 block">Sales Returns</span>
+              <p className="text-base font-extrabold text-rose-700 mt-1 tabular-nums truncate">
                 {formatPKR(kpis.sales_returns ?? 0)}
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5">
@@ -439,10 +446,10 @@ export default function PortalOverviewPage() {
             {/* 9. Purchases */}
             <Link
               href={`/portal/purchases?period=${period}`}
-              className="bg-white rounded-2xl border border-slate-200/85 hover:border-[#009A4D] p-3.5 sm:p-4 shadow-2xs transition-all"
+              className="bg-white rounded-xl border border-slate-300/90 hover:border-slate-400 p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all"
             >
-              <span className="text-[11px] font-bold text-slate-500 block">Stock Purchased</span>
-              <p className="text-base font-extrabold text-slate-900 mt-1 tabular-nums truncate">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 block">Stock Purchased</span>
+              <p className="text-base font-extrabold text-[#0F172B] mt-1 tabular-nums truncate">
                 {formatPKR(kpis.purchases ?? 0)}
               </p>
               <p className="text-[11px] text-slate-500 mt-0.5">
@@ -453,10 +460,10 @@ export default function PortalOverviewPage() {
             {/* 10. Inventory Value */}
             <Link
               href="/portal/inventory"
-              className="bg-white rounded-2xl border border-slate-200/85 hover:border-[#009A4D] p-3.5 sm:p-4 shadow-2xs transition-all"
+              className="bg-white rounded-xl border border-slate-300/90 hover:border-slate-400 p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all"
             >
-              <span className="text-[11px] font-bold text-slate-500 block">Stock Value</span>
-              <p className="text-base font-extrabold text-slate-900 mt-1 tabular-nums truncate">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 block">Stock Value</span>
+              <p className="text-base font-extrabold text-[#0F172B] mt-1 tabular-nums truncate">
                 {formatPKR(livePos.inventory?.stock_value ?? 0)}
               </p>
               <p className="text-[11px] text-amber-700 font-semibold mt-0.5 truncate">
@@ -469,35 +476,35 @@ export default function PortalOverviewPage() {
         </div>
       )}
 
-      {/* Owner Daily Brief — Executive Control Hero */}
+      {/* Owner Daily Brief — Executive Control Panel */}
       {data?.daily_brief && (
-        <div className="bg-gradient-to-br from-slate-900 via-[#0E241C] to-slate-900 text-white rounded-2xl p-4 sm:p-6 shadow-md border border-slate-800 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-white/10">
+        <div className="bg-[#0F172B] text-white rounded-xl p-4 sm:p-5 shadow-sm border border-slate-800 border-t-[3px] border-t-emerald-500 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-800">
             <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="px-2.5 py-1 rounded-lg bg-[#009A4D] text-[10.5px] font-extrabold uppercase tracking-wider text-white shadow-xs">
+              <span className="px-2.5 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10.5px] font-extrabold uppercase tracking-wider text-emerald-400">
                 Executive Daily Brief
               </span>
               <span className="text-xs sm:text-sm font-bold text-white">
-                Today: <span className="text-emerald-300">{formatPKR(data.daily_brief.net_sales_today || 0)}</span> across{" "}
+                Today: <span className="text-emerald-400">{formatPKR(data.daily_brief.net_sales_today || 0)}</span> across{" "}
                 {data.daily_brief.invoices_today || 0} bill(s)
               </span>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Link
                 href="/portal/alerts"
-                className="text-xs font-bold px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-emerald-300 transition-colors"
+                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-emerald-300 transition-colors"
               >
                 Alerts →
               </Link>
               <Link
                 href="/portal/inventory"
-                className="text-xs font-bold px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
+                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition-colors"
               >
                 Inventory →
               </Link>
               <Link
                 href="/portal/reports"
-                className="text-xs font-bold px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
+                className="text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition-colors"
               >
                 Reports →
               </Link>
@@ -507,7 +514,7 @@ export default function PortalOverviewPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
             <Link
               href="/portal/cash"
-              className="rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 p-3 transition-colors"
+              className="rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/80 p-3 transition-colors"
             >
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                 Cash Status
@@ -518,7 +525,7 @@ export default function PortalOverviewPage() {
             </Link>
             <Link
               href="/portal/sales?supervision=high_discount"
-              className="rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 p-3 transition-colors"
+              className="rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/80 p-3 transition-colors"
             >
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                 Discounts Today
@@ -529,18 +536,18 @@ export default function PortalOverviewPage() {
             </Link>
             <Link
               href="/portal/khata"
-              className="rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 p-3 transition-colors"
+              className="rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/80 p-3 transition-colors"
             >
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                 Khata Collected
               </span>
-              <span className="font-bold text-emerald-300 text-xs sm:text-sm mt-1 block tabular-nums truncate">
+              <span className="font-bold text-emerald-400 text-xs sm:text-sm mt-1 block tabular-nums truncate">
                 {formatPKR(data.daily_brief.credit_collections_today || 0)}
               </span>
             </Link>
             <Link
               href="/portal/inventory?filter=low_stock"
-              className="rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 p-3 transition-colors"
+              className="rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/80 p-3 transition-colors"
             >
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                 Low / Out Stock
@@ -551,7 +558,7 @@ export default function PortalOverviewPage() {
             </Link>
             <Link
               href="/portal/inventory?filter=expiring_soon"
-              className="rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 p-3 transition-colors"
+              className="rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/80 p-3 transition-colors"
             >
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                 Expiry Watch
@@ -562,7 +569,7 @@ export default function PortalOverviewPage() {
             </Link>
             <Link
               href="/portal/purchases"
-              className="rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 p-3 transition-colors"
+              className="rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/80 p-3 transition-colors"
             >
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
                 Cost Jumps
@@ -575,7 +582,7 @@ export default function PortalOverviewPage() {
 
           {Array.isArray(data.daily_brief.top_three_actions) &&
             data.daily_brief.top_three_actions.length > 0 && (
-              <div className="pt-3 border-t border-white/10 space-y-2.5">
+              <div className="pt-3 border-t border-slate-800 space-y-2.5">
                 <div className="text-[10.5px] font-extrabold uppercase tracking-wider text-emerald-400">
                   Priority Actions Right Now
                 </div>
@@ -584,11 +591,11 @@ export default function PortalOverviewPage() {
                     <Link
                       key={act.id}
                       href={act.href}
-                      className="flex items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs transition-colors"
+                      className="flex items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-lg bg-slate-800/75 hover:bg-slate-800 border border-slate-700/80 text-xs transition-colors"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-extrabold text-emerald-300">
+                          <span className="text-[11px] font-extrabold text-emerald-400">
                             #{i + 1}
                           </span>
                           <span className="font-bold text-white truncate">{act.title}</span>
@@ -597,7 +604,7 @@ export default function PortalOverviewPage() {
                           {act.description}
                         </p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-emerald-300 shrink-0" />
+                      <ChevronRight className="w-4 h-4 text-emerald-400 shrink-0" />
                     </Link>
                   ))}
                 </div>
@@ -607,7 +614,7 @@ export default function PortalOverviewPage() {
       )}
 
       {/* Live Counter & Terminal Telemetry Strip */}
-      <div className="bg-white rounded-2xl border border-slate-200/85 p-3.5 sm:p-4 shadow-2xs">
+      <div className="bg-white rounded-xl border border-slate-300/90 p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* POS Sync & Freshness */}
           <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/90 border border-slate-200/60">
@@ -728,22 +735,22 @@ export default function PortalOverviewPage() {
       </div>
 
       {/* Action-Required Supervision Triage */}
-      <div className="bg-white rounded-2xl border border-slate-200/85 shadow-2xs overflow-hidden">
-        <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
+      <div className="bg-white rounded-xl border border-slate-300/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
+        <div className="px-4 sm:px-5 py-3 bg-[#F8FAFC] border-b border-slate-200/90 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <ShieldAlert className="w-4 h-4 text-[#009A4D] shrink-0" />
-            <h2 className="text-sm font-extrabold text-slate-900 truncate">
+            <ShieldAlert className="w-4 h-4 text-emerald-600 shrink-0" />
+            <h2 className="text-sm font-extrabold text-[#0F172B] truncate">
               Action Required &amp; Supervision
             </h2>
             {actionRequired.length > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-200">
                 {actionRequired.length}
               </span>
             )}
           </div>
           <Link
             href="/portal/alerts"
-            className="text-xs font-bold text-[#009A4D] hover:underline shrink-0"
+            className="text-xs font-bold text-[#047857] hover:underline shrink-0"
           >
             All Alerts →
           </Link>
@@ -819,10 +826,10 @@ export default function PortalOverviewPage() {
       {/* Recent Counter Invoices & Top Selling Products */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Recent Invoices */}
-        <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/85 shadow-2xs overflow-hidden flex flex-col">
-          <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
+        <div className="lg:col-span-7 bg-white rounded-xl border border-slate-300/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden flex flex-col">
+          <div className="px-4 sm:px-5 py-3 bg-[#F8FAFC] border-b border-slate-200/90 flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <h2 className="text-sm font-extrabold text-slate-900">
+              <h2 className="text-sm font-extrabold text-[#0F172B]">
                 Recent Counter Invoices
               </h2>
               <p className="text-[11px] text-slate-500">
@@ -831,7 +838,7 @@ export default function PortalOverviewPage() {
             </div>
             <Link
               href="/portal/sales"
-              className="text-xs font-bold text-[#009A4D] hover:underline inline-flex items-center gap-0.5 shrink-0"
+              className="text-xs font-bold text-[#047857] hover:underline inline-flex items-center gap-0.5 shrink-0"
             >
               <span>View All</span>
               <ChevronRight className="w-3.5 h-3.5" />
@@ -900,17 +907,17 @@ export default function PortalOverviewPage() {
         {/* Top Products & Stock Watchlist */}
         <div className="lg:col-span-5 space-y-5">
           {/* Top Selling Medicines */}
-          <div className="bg-white rounded-2xl border border-slate-200/85 shadow-2xs overflow-hidden">
-            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
+          <div className="bg-white rounded-xl border border-slate-300/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden">
+            <div className="px-4 sm:px-5 py-3 bg-[#F8FAFC] border-b border-slate-200/90 flex items-center justify-between gap-2">
               <div>
-                <h2 className="text-sm font-extrabold text-slate-900">
+                <h2 className="text-sm font-extrabold text-[#0F172B]">
                   Top Products ({PERIOD_LABELS[period]})
                 </h2>
                 <p className="text-[11px] text-slate-500">Ranked by net revenue</p>
               </div>
               <Link
                 href={`/portal/sales?period=${period}`}
-                className="text-xs font-bold text-[#009A4D] hover:underline shrink-0"
+                className="text-xs font-bold text-[#047857] hover:underline shrink-0"
               >
                 Explore Sales →
               </Link>
@@ -971,18 +978,18 @@ export default function PortalOverviewPage() {
           {/* Inventory Expiry & Low Stock Watchlist */}
           <div
             id="inventory-alerts"
-            className="bg-white rounded-2xl border border-slate-200/85 shadow-2xs overflow-hidden"
+            className="bg-white rounded-xl border border-slate-300/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] overflow-hidden"
           >
-            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
+            <div className="px-4 sm:px-5 py-3 bg-[#F8FAFC] border-b border-slate-200/90 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Package className="w-4 h-4 text-amber-600 shrink-0" />
-                <h2 className="text-sm font-extrabold text-slate-900">
+                <h2 className="text-sm font-extrabold text-[#0F172B]">
                   Stock &amp; Expiry Watchlist
                 </h2>
               </div>
               <Link
                 href="/portal/inventory"
-                className="text-xs font-bold text-[#009A4D] hover:underline shrink-0"
+                className="text-xs font-bold text-[#047857] hover:underline shrink-0"
               >
                 Inventory →
               </Link>

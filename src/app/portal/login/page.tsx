@@ -36,55 +36,79 @@ export default function PortalLoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex bg-[#F4F8F6] font-sans">
-      {/* Desktop Executive Branding Panel */}
-      <div className="hidden lg:flex lg:w-[48%] bg-gradient-to-br from-slate-900 via-[#0C251D] to-[#052E1E] relative flex-col justify-between p-12 overflow-hidden text-white">
-        <div className="absolute -top-28 -right-28 w-80 h-80 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-28 -left-20 w-80 h-80 rounded-full bg-teal-500/15 blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 space-y-10">
-          <div className="flex items-center gap-4">
+    <div className="min-h-screen flex flex-col lg:flex-row bg-[#E3E8EE] font-sans">
+      {/* Mobile Dark Top Bar — Brand Lockup + Portal Title */}
+      <div className="lg:hidden bg-[#0F172B] text-white px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="bg-white rounded-lg px-2 py-1 shadow-xs shrink-0 flex items-center">
             <img
-              src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png"
-              alt="AivraSol Logo"
-              className="h-14 w-auto object-contain"
+              src="/logo-owner-portal.png"
+              alt="AivraSol"
+              className="h-5 w-auto object-contain"
             />
-            <div className="flex flex-col justify-center border-l border-emerald-400/30 pl-4">
-              <span className="text-xl font-extrabold text-white tracking-tight leading-tight">
+          </div>
+          <div className="h-5 w-px bg-slate-700 shrink-0" />
+          <div className="min-w-0">
+            <span className="font-bold text-white text-xs block truncate leading-tight">
+              AivraSol Pharmacy
+            </span>
+            <span className="font-medium text-emerald-400 text-[10.5px] block leading-tight">
+              Owner Portal Sign In
+            </span>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-emerald-400 text-[10px] font-bold shrink-0">
+          <ShieldCheck className="w-3 h-3" /> Encrypted
+        </span>
+      </div>
+
+      {/* Desktop Executive Branding Panel */}
+      <div className="hidden lg:flex lg:w-[46%] bg-[#0F172B] border-r border-slate-800 relative flex-col justify-between p-12 text-white">
+        <div className="space-y-10">
+          <div className="flex items-center gap-4">
+            <div className="bg-white rounded-lg px-3 py-1.5 shadow-sm">
+              <img
+                src="/logo-owner-portal.png"
+                alt="AivraSol Owner Portal"
+                className="h-9 w-auto object-contain"
+              />
+            </div>
+            <div className="flex flex-col justify-center border-l border-slate-700 pl-4">
+              <span className="text-lg font-extrabold text-white tracking-tight leading-tight">
                 Pharmacy POS
               </span>
-              <span className="text-xs font-bold uppercase tracking-widest text-emerald-400">
-                Owner Cloud Portal
+              <span className="text-[11px] font-bold uppercase tracking-widest text-emerald-400">
+                Owner Cloud Command
               </span>
             </div>
           </div>
 
           <div className="max-w-md space-y-4">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/30 text-emerald-300 text-xs font-bold">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800 border border-slate-700 text-emerald-400 text-xs font-bold">
               <ShieldCheck className="w-3.5 h-3.5" />
               Real-Time Store Monitoring
             </span>
-            <h2 className="text-4xl font-extrabold leading-tight tracking-tight">
+            <h2 className="text-3xl font-extrabold leading-tight tracking-tight text-white">
               Your entire pharmacy, clearly in control.
             </h2>
-            <p className="text-base text-slate-300 leading-relaxed">
+            <p className="text-sm text-slate-300 leading-relaxed">
               Monitor live counter sales, gross profit, cash drawer reconciliations, supplier GRNs, Khata credit recovery, and expiry risks from anywhere.
             </p>
           </div>
         </div>
 
-        <div className="relative z-10 grid grid-cols-3 gap-3 max-w-lg">
-          <div className="rounded-2xl bg-white/5 border border-white/10 p-3.5 space-y-1.5 backdrop-blur-sm">
+        <div className="grid grid-cols-3 gap-3 max-w-lg">
+          <div className="rounded-xl bg-slate-800/70 border border-slate-700/80 p-3.5 space-y-1.5">
             <Activity className="w-4 h-4 text-emerald-400" />
             <p className="text-xs font-bold text-white">Live Sales &amp; GP</p>
             <p className="text-[11px] text-slate-400 leading-snug">Verified net sales &amp; WAC margins</p>
           </div>
-          <div className="rounded-2xl bg-white/5 border border-white/10 p-3.5 space-y-1.5 backdrop-blur-sm">
+          <div className="rounded-xl bg-slate-800/70 border border-slate-700/80 p-3.5 space-y-1.5">
             <Wallet className="w-4 h-4 text-emerald-400" />
             <p className="text-xs font-bold text-white">Cash &amp; Khata</p>
             <p className="text-[11px] text-slate-400 leading-snug">Shift variances &amp; customer dues</p>
           </div>
-          <div className="rounded-2xl bg-white/5 border border-white/10 p-3.5 space-y-1.5 backdrop-blur-sm">
+          <div className="rounded-xl bg-slate-800/70 border border-slate-700/80 p-3.5 space-y-1.5">
             <PackageCheck className="w-4 h-4 text-emerald-400" />
             <p className="text-xs font-bold text-white">Stock Guard</p>
             <p className="text-[11px] text-slate-400 leading-snug">Expiry alerts &amp; price changes</p>
@@ -92,33 +116,11 @@ export default function PortalLoginPage() {
         </div>
       </div>
 
-      {/* Right Panel — Mobile-First Flow (Zero Absolute Overlap) */}
-      <div className="w-full lg:w-[52%] flex flex-col justify-center items-center p-5 sm:p-10 bg-white lg:bg-[#F4F8F6]">
-        {/* Mobile Header (Normal Flow, Responsive Spacing) */}
-        <div className="w-full max-w-md lg:hidden flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-2.5">
-            <img
-              src="https://plain-eeur-prod-public.komododecks.com/202609/02/IqMF3ga5yS0lbwP63gtq/image.png"
-              alt="AivraSol"
-              className="h-9 w-auto object-contain"
-            />
-            <div className="flex flex-col border-l border-slate-200 pl-2.5">
-              <span className="font-extrabold text-slate-900 text-xs leading-none">
-                AivraSol Pharmacy
-              </span>
-              <span className="font-bold text-[#009A4D] text-[11px] leading-none mt-1">
-                Owner Portal
-              </span>
-            </div>
-          </div>
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[#009A4D] text-[10px] font-bold">
-            <ShieldCheck className="w-3 h-3" /> Cloud Sync
-          </span>
-        </div>
-
-        <div className="w-full max-w-md lg:bg-white lg:rounded-3xl lg:border lg:border-slate-200/80 lg:shadow-lg lg:shadow-slate-900/5 lg:p-9">
-          <div className="mb-7 space-y-1.5">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+      {/* Right Panel — Centered Clean Card */}
+      <div className="flex-1 flex flex-col justify-center items-center p-4 sm:p-10 bg-[#E3E8EE]">
+        <div className="w-full max-w-md bg-white rounded-xl border border-slate-300 border-t-[3px] border-t-[#059669] shadow-sm p-6 sm:p-8">
+          <div className="mb-6 space-y-1">
+            <h1 className="text-2xl font-extrabold text-[#0F172B] tracking-tight">
               Owner Sign In
             </h1>
             <p className="text-xs sm:text-sm text-slate-500">
@@ -199,7 +201,7 @@ export default function PortalLoginPage() {
               type="submit"
               disabled={loading}
               id="portal-login-btn"
-              className="w-full h-12 px-4 bg-[#009A4D] hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all text-sm shadow-sm shadow-emerald-600/20 flex items-center justify-center"
+              className="w-full h-11 px-4 bg-[#059669] hover:bg-[#047857] active:scale-[0.99] disabled:opacity-70 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all text-sm shadow-xs flex items-center justify-center"
             >
               {loading && (
                 <svg
