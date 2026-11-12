@@ -481,11 +481,11 @@ export default function PortalMyWebsitePage() {
   };
 
   return (
-    <div className="space-y-6 p-4 md:p-6 text-slate-900" data-testid="owner-portal-website-suite">
+    <div className="space-y-4 sm:space-y-5 text-slate-900 animate-portal-in" data-testid="owner-portal-website-suite">
       {/* Connect POS Modal */}
       {connectPosOpen && exists && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-slate-200 max-w-lg w-full p-6 space-y-4 shadow-xl">
+        <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-3xl sm:rounded-2xl border border-slate-200 max-w-lg w-full max-h-[90dvh] overflow-y-auto p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] space-y-4 shadow-2xl">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-emerald-600" />
@@ -591,24 +591,24 @@ export default function PortalMyWebsitePage() {
 
       {/* Toast Notification */}
       {actionToast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-lg text-xs font-semibold flex items-center gap-2 border border-slate-700">
-          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+        <div className="fixed bottom-[88px] lg:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl text-xs font-semibold flex items-center gap-2 border border-slate-700">
+          <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
           <span>{actionToast}</span>
         </div>
       )}
 
       {/* Top Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-slate-200 pb-5">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700">
-            <Globe className="h-6 w-6" />
+      <div className="flex flex-col gap-3.5 md:flex-row md:items-center md:justify-between border-b border-slate-200/80 pb-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-gradient-to-br from-[#009A4D] to-emerald-700 text-white shadow-sm shadow-emerald-600/20 flex items-center justify-center shrink-0 mt-0.5">
+            <Globe className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-900">
               My Pharmacy Website
             </h1>
-            <p className="text-xs md:text-sm text-slate-500">
-              Manage your branded customer website, POS product catalog, online orders, and delivery settings
+            <p className="text-xs sm:text-[13px] text-slate-500 mt-0.5">
+              Manage your branded customer website, POS product catalog, online orders, and delivery settings.
             </p>
           </div>
         </div>
@@ -723,7 +723,7 @@ export default function PortalMyWebsitePage() {
           </div>
 
           {/* 8-Tab Navigation Bar */}
-          <div className="flex items-center gap-1.5 overflow-x-auto bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/80">
             {(
               [
                 { id: "overview", label: "Overview", icon: Sparkles },
@@ -1327,27 +1327,27 @@ export default function PortalMyWebsitePage() {
           {/* =============================================================== */}
           {activeTab === "products" && (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-3.5 sm:p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
                 <div className="relative flex-1">
-                  <Search className="h-4 w-4 text-slate-400 absolute left-3.5 top-3" />
+                  <Search className="h-4 w-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="search"
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
                     placeholder="Search synced POS medicines by name, generic salt, SKU, or category..."
-                    className="w-full rounded-xl border border-slate-200 pl-9 pr-4 py-2 text-xs"
+                    className="w-full min-h-[42px] rounded-xl border border-slate-200/90 bg-slate-50/70 focus:bg-white pl-10 pr-4 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#009A4D]"
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
                   {(["all", "published", "unpublished", "featured"] as const).map((st) => (
                     <button
                       key={st}
                       type="button"
                       onClick={() => setProductFilterStatus(st)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize border ${
+                      className={`min-h-[36px] px-3.5 py-1.5 rounded-xl text-xs font-bold capitalize border whitespace-nowrap transition ${
                         productFilterStatus === st
                           ? "bg-slate-900 text-white border-slate-900"
-                          : "bg-white text-slate-600 border-slate-200"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                       }`}
                     >
                       {st}
@@ -1356,8 +1356,162 @@ export default function PortalMyWebsitePage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
-                <div className="overflow-x-auto">
+              <div className="rounded-2xl border border-slate-200/90 bg-white overflow-hidden shadow-xs">
+                {/* Mobile Catalog Cards */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {filteredProducts.map((prod) => {
+                    const isPublished = prod.publish_status === "published";
+                    const isControlled = Number(prod.is_controlled_substance || 0) === 1;
+                    return (
+                      <div key={prod.id} className="p-4 space-y-3">
+                        <div className="flex items-start gap-3">
+                          {prod.primary_image_url ? (
+                            <img
+                              src={resolvePortalMediaUrl(prod.primary_image_url)}
+                              alt={prod.name}
+                              className="w-12 h-12 rounded-xl object-contain border border-slate-200 bg-white p-1 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-12 h-12 rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center font-extrabold text-[11px] shrink-0">
+                              {String(prod.dosage_form || "MED").slice(0, 3).toUpperCase()}
+                            </div>
+                          )}
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-extrabold text-slate-900 leading-snug">
+                                {prod.name}
+                              </p>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={async () => {
+                                  await postWebsiteAction("update_product_override", {
+                                    product_id: prod.id,
+                                    payload: { is_featured: !prod.is_featured },
+                                  });
+                                  notify(`Updated featured status for ${prod.name}`);
+                                }}
+                                title="Toggle Featured"
+                                className={`p-1.5 rounded-lg border shrink-0 ${
+                                  prod.is_featured
+                                    ? "bg-amber-50 border-amber-300 text-amber-600"
+                                    : "border-slate-200 text-slate-400"
+                                }`}
+                              >
+                                <Star className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                              {prod.generic_name || prod.sku_code} · {prod.category_name}
+                              {Number(prod.requires_prescription || 0) === 1 && (
+                                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 font-bold text-[10px]">
+                                  Rx
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50/90 border border-slate-100 p-2.5 text-[11px]">
+                          <div>
+                            <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                              POS Price
+                            </span>
+                            <span className="font-bold text-slate-900 tabular-nums">
+                              PKR {Number(prod.public_selling_price_pkr || 0).toLocaleString()}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                              Web Price
+                            </span>
+                            {prod.override_price_pkr !== null &&
+                            prod.override_price_pkr !== undefined ? (
+                              <span className="font-extrabold text-emerald-700 tabular-nums">
+                                PKR {Number(prod.override_price_pkr).toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">Uses POS</span>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                              Stock
+                            </span>
+                            <span
+                              className={`font-bold ${
+                                prod.availability_status === "in_stock"
+                                  ? "text-emerald-700"
+                                  : prod.availability_status === "low_stock"
+                                  ? "text-amber-700"
+                                  : "text-rose-700"
+                              }`}
+                            >
+                              {prod.available_qty} u
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          {isControlled ? (
+                            <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold">
+                              Blocked (Controlled)
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={async () => {
+                                const nextStatus = isPublished ? "unpublished" : "published";
+                                await postWebsiteAction("update_product_override", {
+                                  product_id: prod.id,
+                                  payload: { publish_status: nextStatus },
+                                });
+                                notify(`${prod.name} marked ${nextStatus}`);
+                              }}
+                              className={`inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1 rounded-xl text-[11px] font-bold ${
+                                isPublished
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : "bg-slate-100 text-slate-600 border border-slate-200"
+                              }`}
+                            >
+                              {isPublished ? (
+                                <>
+                                  <Eye className="h-3.5 w-3.5" /> Published
+                                </>
+                              ) : (
+                                <>
+                                  <EyeOff className="h-3.5 w-3.5" /> Hidden
+                                </>
+                              )}
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingProduct(prod);
+                              setOverridePriceInput(
+                                prod.override_price_pkr !== null &&
+                                  prod.override_price_pkr !== undefined
+                                  ? String(prod.override_price_pkr)
+                                  : ""
+                              );
+                              setPublicDescInput(prod.public_description || "");
+                            }}
+                            className="min-h-[36px] px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:bg-slate-50"
+                          >
+                            Edit / Photo
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop Catalog Table */}
+                <div className="hidden md:block overflow-x-auto portal-scroll">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[11px]">
@@ -1512,11 +1666,11 @@ export default function PortalMyWebsitePage() {
               {/* Edit Product Website Details & Photo Modal */}
               {editingProduct && (
                 <div
-                  className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4"
+                  className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
                   onClick={() => setEditingProduct(null)}
                 >
                   <div
-                    className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl border border-slate-200"
+                    className="bg-white rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[90dvh] overflow-y-auto p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] space-y-4 shadow-2xl border border-slate-200"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-center justify-between">
@@ -1681,15 +1835,15 @@ export default function PortalMyWebsitePage() {
               </div>
 
               {/* Active Orders vs Order History + Search + Status Filters */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="inline-flex items-center rounded-xl bg-slate-100 p-1 border border-slate-200">
+              <div className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 space-y-3 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center rounded-xl bg-slate-100/90 p-1 border border-slate-200/80 overflow-x-auto no-scrollbar">
                     {(
                       [
-                        { id: "active", label: `Active Orders (${orderMetrics.activeTotal})` },
+                        { id: "active", label: `Active (${orderMetrics.activeTotal})` },
                         {
                           id: "history",
-                          label: `Order History (${orderMetrics.completed + orderMetrics.cancelled})`,
+                          label: `History (${orderMetrics.completed + orderMetrics.cancelled})`,
                         },
                         { id: "all", label: `All (${orders.length})` },
                       ] as const
@@ -1698,7 +1852,7 @@ export default function PortalMyWebsitePage() {
                         key={vm.id}
                         type="button"
                         onClick={() => setOrderViewMode(vm.id)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition ${
+                        className={`min-h-[34px] px-3 py-1.5 rounded-lg text-xs font-extrabold whitespace-nowrap transition ${
                           orderViewMode === vm.id
                             ? "bg-white text-slate-900 shadow-xs"
                             : "text-slate-600 hover:text-slate-900"
@@ -1710,19 +1864,19 @@ export default function PortalMyWebsitePage() {
                   </div>
 
                   <div className="relative w-full sm:w-72">
-                    <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3 top-2.5" />
+                    <Search className="h-3.5 w-3.5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
                       value={orderSearch}
                       onChange={(e) => setOrderSearch(e.target.value)}
                       placeholder="Search Order #, customer, phone, POS invoice..."
-                      className="w-full rounded-xl border border-slate-200 pl-8 pr-3 py-1.5 text-xs"
+                      className="w-full min-h-[38px] rounded-xl border border-slate-200 pl-9 pr-3 py-1.5 text-xs focus:outline-none focus:border-[#009A4D]"
                     />
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
                     {[
                       "all",
                       "pending_confirmation",
@@ -1739,7 +1893,7 @@ export default function PortalMyWebsitePage() {
                         key={st}
                         type="button"
                         onClick={() => setOrderStatusFilter(st)}
-                        className={`px-2.5 py-1 rounded-xl text-[11px] font-bold capitalize border ${
+                        className={`min-h-[32px] px-2.5 py-1 rounded-xl text-[11px] font-bold capitalize border whitespace-nowrap ${
                           orderStatusFilter === st
                             ? "bg-slate-900 text-white border-slate-900"
                             : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -1749,14 +1903,14 @@ export default function PortalMyWebsitePage() {
                       </button>
                     ))}
                   </div>
-                  <span className="text-xs font-semibold text-slate-500">
+                  <span className="text-[11px] font-bold text-slate-500 shrink-0">
                     Showing {filteredOrders.length} orders
                   </span>
                 </div>
               </div>
 
               {filteredOrders.length === 0 ? (
-                <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center space-y-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center space-y-2">
                   <ShoppingBag className="h-8 w-8 text-slate-400 mx-auto" />
                   <p className="text-sm font-bold text-slate-800">No Online Orders in This View</p>
                   <p className="text-xs text-slate-500">
@@ -1764,8 +1918,178 @@ export default function PortalMyWebsitePage() {
                   </p>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-slate-200 bg-white overflow-x-auto shadow-xs">
-                  <table className="w-full text-left border-collapse text-xs">
+                <div className="rounded-2xl border border-slate-200/90 bg-white overflow-hidden shadow-xs">
+                  {/* Mobile Online Orders Cards */}
+                  <div className="md:hidden divide-y divide-slate-100">
+                    {filteredOrders.map((ord) => {
+                      const isPickup = String(ord.fulfillment_type || "") === "pickup";
+                      const paymentSt =
+                        ord.payment_status ||
+                        (String(ord.payment_method || "cod").toLowerCase().includes("cod")
+                          ? "pending_cod"
+                          : "unpaid");
+                      return (
+                        <div key={ord.id} className="p-4 space-y-3">
+                          <div className="flex items-start justify-between gap-2.5">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedOrder(ord)}
+                                  className="font-mono font-extrabold text-sm text-[#009A4D] hover:underline"
+                                >
+                                  {ord.order_number}
+                                </button>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                    isPickup
+                                      ? "bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                      : "bg-sky-50 text-sky-700 border border-sky-200"
+                                  }`}
+                                >
+                                  {isPickup ? "Pickup" : "Delivery"}
+                                </span>
+                                {Number(ord.requires_prescription || 0) === 1 && (
+                                  <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 font-bold text-[10px]">
+                                    Rx
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                {new Date(ord.created_at).toLocaleString()}
+                              </p>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <p className="text-sm font-extrabold text-slate-900 tabular-nums">
+                                PKR {Number(ord.total_pkr).toLocaleString()}
+                              </p>
+                              {Number(ord.delivery_fee_pkr || 0) > 0 && (
+                                <p className="text-[10px] text-slate-500">
+                                  Incl. PKR {Number(ord.delivery_fee_pkr).toLocaleString()} del
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl bg-slate-50/90 border border-slate-100 p-2.5 text-xs space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-slate-900">{ord.customer_name}</span>
+                              <span className="font-mono text-[11px] text-slate-700">
+                                {ord.customer_phone}
+                              </span>
+                            </div>
+                            {!isPickup && ord.delivery_address && (
+                              <p className="text-[11px] text-slate-500 line-clamp-2">
+                                {ord.delivery_address}
+                                {ord.delivery_city ? `, ${ord.delivery_city}` : ""}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                              <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 font-mono text-[10px]">
+                                POS: {ord.pos_handoff_status || "unread"}
+                              </span>
+                              {ord.pos_invoice_number && (
+                                <span className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 font-mono font-bold text-[10px]">
+                                  POS #{ord.pos_invoice_number}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                                Payment Status
+                              </label>
+                              <select
+                                value={paymentSt}
+                                disabled={saving}
+                                onChange={async (e) => {
+                                  const nextPay = e.target.value;
+                                  await postWebsiteAction("update_order_status", {
+                                    order_id: ord.id,
+                                    status: ord.status,
+                                    payment_status: nextPay,
+                                    note: `Payment status updated to ${nextPay} in Owner Portal`,
+                                  });
+                                  notify(`Payment status for ${ord.order_number} set to ${nextPay}`);
+                                }}
+                                className={`w-full min-h-[36px] rounded-xl border px-2 py-1 text-[11px] font-bold ${
+                                  paymentSt === "paid"
+                                    ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                                    : paymentSt === "partially_paid"
+                                    ? "bg-sky-50 border-sky-200 text-sky-800"
+                                    : paymentSt === "refunded"
+                                    ? "bg-rose-50 border-rose-200 text-rose-700"
+                                    : "bg-amber-50 border-amber-200 text-amber-800"
+                                }`}
+                              >
+                                <option value="pending_cod">COD Pending</option>
+                                <option value="partially_paid">Partially Paid</option>
+                                <option value="unpaid">Unpaid</option>
+                                <option value="paid">Paid</option>
+                                <option value="refunded">Refunded</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
+                                Order Status
+                              </label>
+                              <select
+                                value={ord.status}
+                                disabled={saving}
+                                onChange={async (e) => {
+                                  const nextSt = e.target.value;
+                                  await postWebsiteAction("update_order_status", {
+                                    order_id: ord.id,
+                                    status: nextSt,
+                                    note: `Updated to ${nextSt} by Pharmacy Owner`,
+                                  });
+                                  notify(`Order ${ord.order_number} updated to ${nextSt}`);
+                                }}
+                                className="w-full min-h-[36px] rounded-xl border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-800"
+                              >
+                                <option value="pending_confirmation">Pending Confirmation</option>
+                                {ord.status === "pending" && <option value="pending">Pending</option>}
+                                <option value="confirmed">Confirmed</option>
+                                <option value="preparing">Preparing</option>
+                                {isPickup ? (
+                                  <>
+                                    <option value="ready_for_pickup">Ready for Pickup</option>
+                                    <option value="collected">Collected</option>
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="out_for_delivery">Out for Delivery</option>
+                                    <option value="delivered">Delivered</option>
+                                  </>
+                                )}
+                                {ord.status === "completed" && (
+                                  <option value="completed">Completed</option>
+                                )}
+                                <option value="cancelled">Cancelled</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedOrder(ord)}
+                            className="w-full min-h-[36px] py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-800 transition-colors"
+                          >
+                            View Ordered Items ({Array.isArray(ord.items) ? ord.items.length : "Details"})
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Orders Table */}
+                  <div className="hidden md:block overflow-x-auto portal-scroll">
+                    <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[11px]">
                         <th className="py-3 px-4">Order #</th>
@@ -1944,17 +2268,18 @@ export default function PortalMyWebsitePage() {
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
 
               {/* Order Details Drawer / Modal */}
               {selectedOrder && (
                 <div
-                  className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4"
+                  className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
                   onClick={() => setSelectedOrder(null)}
                 >
                   <div
-                    className="bg-white rounded-2xl border border-slate-200 max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto"
+                    className="bg-white rounded-t-3xl sm:rounded-2xl border border-slate-200 max-w-2xl w-full p-5 sm:p-6 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))] space-y-4 shadow-2xl max-h-[90dvh] overflow-y-auto"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
@@ -2032,7 +2357,37 @@ export default function PortalMyWebsitePage() {
                     </div>
 
                     <div className="rounded-xl border border-slate-200 overflow-hidden">
-                      <table className="w-full text-left text-xs">
+                      {/* Mobile Order Items Cards */}
+                      <div className="sm:hidden divide-y divide-slate-100">
+                        {(Array.isArray(selectedOrder.items) ? selectedOrder.items : []).map(
+                          (it: any, idx: number) => {
+                            const unitLabel =
+                              it.selling_unit_label ||
+                              it.selling_unit_name ||
+                              it.packing_label ||
+                              "Unit";
+                            const mult = Number(it.unit_multiplier || 1);
+                            return (
+                              <div key={it.id || idx} className="p-3 text-xs flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="font-bold text-slate-900">{it.product_name}</p>
+                                  <p className="text-[11px] text-slate-500 mt-0.5">
+                                    Qty {it.quantity} · {unitLabel}
+                                    {mult > 1 ? ` (×${mult})` : ""} @ PKR{" "}
+                                    {Number(it.unit_price_pkr || 0).toLocaleString()}
+                                  </p>
+                                </div>
+                                <span className="font-extrabold text-slate-900 shrink-0 tabular-nums">
+                                  PKR {Number(it.line_total_pkr || 0).toLocaleString()}
+                                </span>
+                              </div>
+                            );
+                          }
+                        )}
+                      </div>
+
+                      {/* Desktop Order Items Table */}
+                      <table className="hidden sm:table w-full text-left text-xs">
                         <thead className="bg-slate-50 border-b border-slate-200 text-[10px] uppercase text-slate-500">
                           <tr>
                             <th className="py-2 px-3">Medicine</th>

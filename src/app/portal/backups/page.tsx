@@ -2,12 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { Download, Cloud, RefreshCw, AlertCircle, ShieldCheck, Clock, HardDrive, CheckCircle2 } from "lucide-react";
+import {
+  Download,
+  Cloud,
+  AlertCircle,
+  ShieldCheck,
+  Clock,
+  HardDrive,
+  CheckCircle2,
+  Database,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatBytes } from "@/lib/utils";
+import {
+  PortalPageHeader,
+  PortalRefreshButton,
+  PortalSectionCard,
+  PortalStatusBadge,
+  PortalEmptyState,
+} from "@/components/portal/PortalUI";
 
 interface Backup {
   id: string;
@@ -51,9 +65,9 @@ export default function PortalBackupsPage() {
       const res = await fetch(`/api/portal/backups/${id}/download`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Download failed");
-      
+
       toast.success("Download starting", { id: toastId });
-      
+
       const link = document.createElement("a");
       link.href = data.download_url;
       document.body.appendChild(link);
@@ -69,184 +83,205 @@ export default function PortalBackupsPage() {
   const hasBackups = backups.length > 0;
 
   return (
-    <div className="space-y-6 max-w-[1000px] mx-auto pb-10">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-            <Cloud className="h-6 w-6 text-primary" />
-            Cloud Backup
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Continuous disaster recovery backups for your pharmacy. Download anytime.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Badge 
-            variant="outline" 
-            className={`px-3 py-1 text-xs font-semibold flex items-center gap-1.5 ${
-              hasBackups 
-                ? "border-emerald-300 text-emerald-700 bg-emerald-50" 
-                : "border-amber-300 text-amber-700 bg-amber-50"
-            }`}
-          >
-            <ShieldCheck className="h-3.5 w-3.5" />
-            Status: {hasBackups ? "Protected" : "Never Backed Up"}
-          </Badge>
-          <Button onClick={fetchBackups} variant="outline" size="sm" disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-4 sm:space-y-5 max-w-5xl animate-portal-in">
+      <PortalPageHeader
+        icon={<Cloud className="w-5 h-5" />}
+        title="Cloud Backups"
+        subtitle="Continuous encrypted disaster recovery snapshots for your pharmacy. Download anytime."
+        badge={
+          <PortalStatusBadge tone={hasBackups ? "emerald" : "amber"} dot>
+            {hasBackups ? "Protected" : "Never Backed Up"}
+          </PortalStatusBadge>
+        }
+        actions={<PortalRefreshButton loading={loading} onClick={fetchBackups} />}
+      />
 
       {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-destructive flex items-center gap-2">
-          <AlertCircle className="h-5 w-5" />
-          {error}
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs sm:text-sm font-semibold text-rose-800 flex items-center gap-2.5">
+          <AlertCircle className="h-5 w-5 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
-      {/* Retention Policy Note */}
-      <div className="rounded-lg border bg-muted/40 p-4 text-xs text-muted-foreground flex items-center justify-between">
-        <span className="flex items-center gap-2">
-          <HardDrive className="h-4 w-4 text-primary" />
-          <span>Storage Policy: Only the newest 2 recovery snapshots are retained. Older backups are automatically pruned.</span>
-        </span>
-        <span className="font-semibold text-foreground">
-          {backups.length} of 2 Slots Used
-        </span>
+      {/* Retention Policy Banner */}
+      <div className="rounded-2xl border border-slate-200/90 bg-white p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+        <div className="flex items-start sm:items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200/80 text-[#009A4D] flex items-center justify-center shrink-0">
+            <HardDrive className="h-4 w-4" />
+          </div>
+          <div className="text-xs text-slate-600 leading-relaxed">
+            <strong className="text-slate-900 block sm:inline">Rolling 2-Snapshot Retention: </strong>
+            Only the newest 2 encrypted recovery archives are kept in cloud storage; older snapshots rotate automatically.
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+          <div className="flex items-center gap-1">
+            {[0, 1].map((slot) => (
+              <span
+                key={slot}
+                className={`w-6 h-2 rounded-full ${
+                  backups[slot] ? "bg-[#009A4D]" : "bg-slate-200"
+                }`}
+              />
+            ))}
+          </div>
+          <span className="text-xs font-extrabold text-slate-900 tabular-nums">
+            {backups.length} / 2 Slots
+          </span>
+        </div>
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="animate-pulse h-64 bg-muted/20" />
-          <Card className="animate-pulse h-64 bg-muted/20" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="h-72 rounded-2xl bg-slate-100 animate-pulse" />
+          <div className="h-72 rounded-2xl bg-slate-100 animate-pulse" />
         </div>
       ) : !hasBackups ? (
-        <Card className="border-dashed py-12 text-center">
-          <CardContent className="space-y-3">
-            <Cloud className="h-12 w-12 text-muted-foreground mx-auto opacity-50" />
-            <h3 className="font-semibold text-lg">No cloud backup available yet</h3>
-            <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              Your AivraSol POS on your main terminal will automatically back up your data continuously as sales and changes occur.
-            </p>
-          </CardContent>
-        </Card>
+        <PortalSectionCard>
+          <PortalEmptyState
+            icon={<Cloud className="w-7 h-7" />}
+            title="No Cloud Backup Available Yet"
+            description="Your AivraSol POS terminal automatically uploads encrypted backups continuously as sales and stock updates occur."
+          />
+        </PortalSectionCard>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* 1. Latest Backup */}
-          <Card className="border-primary/30 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 right-0 bg-primary text-primary-foreground text-[10px] font-bold px-3 py-1 rounded-bl">
-              LATEST
+          <PortalSectionCard className="overflow-hidden flex flex-col border-emerald-200/90 shadow-sm">
+            <div className="px-5 py-4 bg-gradient-to-br from-slate-900 via-slate-900 to-emerald-950 text-white flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-white">Latest Backup</h3>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Authoritative most recent recovery snapshot
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold uppercase tracking-wider shrink-0">
+                LATEST
+              </span>
             </div>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                Latest Backup
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Authoritative most recent recovery snapshot
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="flex justify-between items-center py-1.5 border-b text-xs">
-                <span className="text-muted-foreground flex items-center gap-1.5">
-                  <Clock className="h-3.5 w-3.5" /> Date &amp; Time
+
+            <div className="p-5 space-y-3 flex-1 text-xs">
+              <div className="flex justify-between items-center py-2 border-b border-slate-100">
+                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                  <Clock className="h-3.5 w-3.5 text-slate-400" /> Snapshot Time
                 </span>
-                <span className="font-semibold">
-                  {latestBackup.uploaded_at ? format(new Date(latestBackup.uploaded_at), "dd/MM/yyyy hh:mm a") : format(new Date(latestBackup.created_at), "dd/MM/yyyy hh:mm a")}
+                <span className="font-bold text-slate-900 tabular-nums">
+                  {latestBackup.uploaded_at
+                    ? format(new Date(latestBackup.uploaded_at), "dd/MM/yyyy hh:mm a")
+                    : format(new Date(latestBackup.created_at), "dd/MM/yyyy hh:mm a")}
                 </span>
               </div>
-              <div className="flex justify-between items-center py-1.5 border-b text-xs">
-                <span className="text-muted-foreground flex items-center gap-1.5">
-                  <HardDrive className="h-3.5 w-3.5" /> File Size
+              <div className="flex justify-between items-center py-2 border-b border-slate-100">
+                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                  <Database className="h-3.5 w-3.5 text-slate-400" /> Archive Size
                 </span>
-                <span className="font-mono font-medium">
+                <span className="font-mono font-bold text-slate-900">
                   {latestBackup.size_bytes ? formatBytes(latestBackup.size_bytes) : "—"}
                 </span>
               </div>
-              <div className="flex justify-between items-center py-1.5 border-b text-xs">
-                <span className="text-muted-foreground">POS Version</span>
-                <span className="font-mono text-[11px]">{latestBackup.app_version || "1.5.x"}</span>
+              <div className="flex justify-between items-center py-2 border-b border-slate-100">
+                <span className="text-slate-500 font-medium">POS Terminal Version</span>
+                <span className="font-mono text-[11px] font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                  {latestBackup.app_version || "1.5.x"}
+                </span>
               </div>
-              <div className="flex justify-between items-center py-1.5 text-xs">
-                <span className="text-muted-foreground">Integrity</span>
-                <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-300">
+              <div className="flex justify-between items-center py-1.5">
+                <span className="text-slate-500 font-medium">Security Integrity</span>
+                <PortalStatusBadge tone="emerald">
+                  <ShieldCheck className="w-3 h-3" />
                   Verified &amp; Encrypted
-                </Badge>
+                </PortalStatusBadge>
               </div>
-            </CardContent>
-            <CardFooter className="pt-2">
-              <Button 
-                className="w-full" 
+            </div>
+
+            <div className="p-4 pt-0">
+              <Button
+                className="w-full min-h-[44px] rounded-xl bg-[#009A4D] hover:bg-emerald-700 text-white font-bold shadow-sm shadow-emerald-600/20"
                 onClick={() => downloadBackup(latestBackup.id, "Latest Backup")}
               >
                 <Download className="h-4 w-4 mr-2" />
                 Download Latest Backup
               </Button>
-            </CardFooter>
-          </Card>
+            </div>
+          </PortalSectionCard>
 
           {/* 2. Previous Backup */}
           {previousBackup ? (
-            <Card className="border shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Clock className="h-5 w-5 text-muted-foreground" />
-                  Previous Backup
-                </CardTitle>
-                <CardDescription className="text-xs">
-                  Prior verified recovery snapshot fallback
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="flex justify-between items-center py-1.5 border-b text-xs">
-                  <span className="text-muted-foreground flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5" /> Date &amp; Time
+            <PortalSectionCard className="overflow-hidden flex flex-col">
+              <div className="px-5 py-4 bg-slate-50 border-b border-slate-200/80 flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-600 flex items-center justify-center shrink-0">
+                  <Clock className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
+                    Previous Backup
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Prior verified recovery snapshot fallback
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-3 flex-1 text-xs">
+                <div className="flex justify-between items-center py-2 border-b border-slate-100">
+                  <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                    <Clock className="h-3.5 w-3.5 text-slate-400" /> Snapshot Time
                   </span>
-                  <span className="font-semibold">
-                    {previousBackup.uploaded_at ? format(new Date(previousBackup.uploaded_at), "dd/MM/yyyy hh:mm a") : format(new Date(previousBackup.created_at), "dd/MM/yyyy hh:mm a")}
+                  <span className="font-bold text-slate-900 tabular-nums">
+                    {previousBackup.uploaded_at
+                      ? format(new Date(previousBackup.uploaded_at), "dd/MM/yyyy hh:mm a")
+                      : format(new Date(previousBackup.created_at), "dd/MM/yyyy hh:mm a")}
                   </span>
                 </div>
-                <div className="flex justify-between items-center py-1.5 border-b text-xs">
-                  <span className="text-muted-foreground flex items-center gap-1.5">
-                    <HardDrive className="h-3.5 w-3.5" /> File Size
+                <div className="flex justify-between items-center py-2 border-b border-slate-100">
+                  <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                    <Database className="h-3.5 w-3.5 text-slate-400" /> Archive Size
                   </span>
-                  <span className="font-mono font-medium">
+                  <span className="font-mono font-bold text-slate-900">
                     {previousBackup.size_bytes ? formatBytes(previousBackup.size_bytes) : "—"}
                   </span>
                 </div>
-                <div className="flex justify-between items-center py-1.5 border-b text-xs">
-                  <span className="text-muted-foreground">POS Version</span>
-                  <span className="font-mono text-[11px]">{previousBackup.app_version || "1.5.x"}</span>
+                <div className="flex justify-between items-center py-2 border-b border-slate-100">
+                  <span className="text-slate-500 font-medium">POS Terminal Version</span>
+                  <span className="font-mono text-[11px] font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                    {previousBackup.app_version || "1.5.x"}
+                  </span>
                 </div>
-                <div className="flex justify-between items-center py-1.5 text-xs">
-                  <span className="text-muted-foreground">Integrity</span>
-                  <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-300">
+                <div className="flex justify-between items-center py-1.5">
+                  <span className="text-slate-500 font-medium">Security Integrity</span>
+                  <PortalStatusBadge tone="emerald">
+                    <ShieldCheck className="w-3 h-3" />
                     Verified &amp; Encrypted
-                  </Badge>
+                  </PortalStatusBadge>
                 </div>
-              </CardContent>
-              <CardFooter className="pt-2">
-                <Button 
-                  variant="outline" 
-                  className="w-full" 
+              </div>
+
+              <div className="p-4 pt-0">
+                <Button
+                  variant="outline"
+                  className="w-full min-h-[44px] rounded-xl font-bold border-slate-200 hover:bg-slate-50"
                   onClick={() => downloadBackup(previousBackup.id, "Previous Backup")}
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Download Previous Backup
                 </Button>
-              </CardFooter>
-            </Card>
+              </div>
+            </PortalSectionCard>
           ) : (
-            <Card className="border border-dashed flex flex-col justify-center items-center p-6 text-center text-muted-foreground">
-              <Clock className="h-8 w-8 mb-2 opacity-40" />
-              <h4 className="font-semibold text-sm">No Previous Backup Yet</h4>
-              <p className="text-xs mt-1 max-w-xs">
-                A second snapshot slot will be saved here automatically on the next backup cycle.
+            <PortalSectionCard className="border-dashed flex flex-col justify-center items-center p-8 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3">
+                <Clock className="h-6 w-6" />
+              </div>
+              <h4 className="font-bold text-sm text-slate-800">No Previous Backup Yet</h4>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs leading-relaxed">
+                A secondary fallback snapshot will appear here automatically after the next POS cloud backup cycle.
               </p>
-            </Card>
+            </PortalSectionCard>
           )}
         </div>
       )}

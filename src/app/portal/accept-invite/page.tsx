@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Eye, EyeOff, ShieldCheck, KeyRound, CheckCircle2 } from "lucide-react";
 
 function AcceptInviteForm() {
   const router = useRouter();
@@ -11,6 +11,7 @@ function AcceptInviteForm() {
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
@@ -57,73 +58,104 @@ function AcceptInviteForm() {
 
   if (done) {
     return (
-      <div className="text-center py-8">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-500/20 mb-4">
-          <svg className="w-7 h-7 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
+      <div className="text-center py-6 space-y-3">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 text-[#009A4D]">
+          <CheckCircle2 className="w-7 h-7" />
         </div>
-        <h3 className="text-lg font-semibold text-white mb-1">Account activated!</h3>
-        <p className="text-slate-400 text-sm">Redirecting to your dashboard…</p>
+        <h3 className="text-lg font-extrabold text-slate-900">Account Activated!</h3>
+        <p className="text-slate-500 text-sm">Redirecting to your Owner Portal dashboard…</p>
       </div>
     );
   }
 
   return (
-    <form onSubmit={submit} className="space-y-5">
-      <div>
-        <label htmlFor="new-password" className="block text-sm font-medium text-slate-300 mb-1.5">
-          New password
+    <form onSubmit={submit} className="space-y-4">
+      <div className="space-y-1.5">
+        <label
+          htmlFor="new-password"
+          className="block text-xs font-bold uppercase tracking-wider text-slate-600"
+        >
+          New Password
         </label>
-        <input
-          id="new-password"
-          type="password"
-          autoComplete="new-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition text-sm"
-          placeholder="Minimum 8 characters"
-        />
+        <div className="relative">
+          <input
+            id="new-password"
+            type={showPassword ? "text" : "password"}
+            autoComplete="new-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full h-12 px-4 pr-12 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#009A4D] transition-all text-sm"
+            placeholder="Minimum 8 characters"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute inset-y-0 right-0 w-12 flex items-center justify-center text-slate-400 hover:text-slate-700"
+            aria-label={showPassword ? "Hide password" : "Show password"}
+          >
+            {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
-      <div>
-        <label htmlFor="confirm-password" className="block text-sm font-medium text-slate-300 mb-1.5">
-          Confirm password
+
+      <div className="space-y-1.5">
+        <label
+          htmlFor="confirm-password"
+          className="block text-xs font-bold uppercase tracking-wider text-slate-600"
+        >
+          Confirm Password
         </label>
         <input
           id="confirm-password"
-          type="password"
+          type={showPassword ? "text" : "password"}
           autoComplete="new-password"
           required
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
-          className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition text-sm"
+          className="w-full h-12 px-4 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#009A4D] transition-all text-sm"
           placeholder="Re-enter password"
         />
       </div>
-      <div className="text-xs text-slate-500 bg-slate-800/60 rounded-lg px-3 py-2">
-        Password must be at least 8 characters with at least one letter and one number.
+
+      <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2.5 flex items-center gap-2">
+        <ShieldCheck className="w-4 h-4 text-[#009A4D] shrink-0" />
+        <span>Use at least 8 characters including letters and numbers.</span>
       </div>
+
       {error && (
-        <div className="flex items-start gap-2 bg-red-900/30 border border-red-800/50 text-red-400 text-sm px-4 py-3 rounded-xl" role="alert">
-          <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+        <div
+          className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm font-medium px-4 py-3 rounded-xl"
+          role="alert"
+        >
+          <svg
+            className="w-4 h-4 flex-shrink-0 mt-0.5 text-red-500"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fillRule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z"
+              clipRule="evenodd"
+            />
           </svg>
-          {error}
+          <span>{error}</span>
         </div>
       )}
+
       {!token && (
-        <div className="text-amber-400 text-sm">
+        <div className="text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3.5 py-2.5 text-xs font-medium">
           This invite link appears to be invalid. Please use the link from your invitation email.
         </div>
       )}
+
       <button
         type="submit"
         disabled={loading || !token}
         id="activate-account-btn"
-        className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors text-sm shadow-lg shadow-emerald-900/30"
+        className="w-full h-12 px-4 bg-[#009A4D] hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-all text-sm shadow-sm shadow-emerald-600/20"
       >
-        {loading ? "Activating…" : "Set password & activate account"}
+        {loading ? "Activating Account…" : "Set Password & Activate Account"}
       </button>
     </form>
   );
@@ -131,20 +163,22 @@ function AcceptInviteForm() {
 
 export default function AcceptInvitePage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 px-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500 shadow-lg shadow-emerald-500/30 mb-4">
-            <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-            </svg>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#F2F7F4] via-white to-emerald-50/60 px-4 py-10">
+      <div className="w-full max-w-md space-y-6">
+        <div className="text-center space-y-2">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-[#009A4D] to-emerald-700 shadow-lg shadow-emerald-600/20 text-white">
+            <KeyRound className="w-7 h-7" />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Set your password</h1>
-          <p className="text-slate-400 text-sm mt-1">Activate your AivraSol Owner Portal account</p>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+            Set Your Portal Password
+          </h1>
+          <p className="text-slate-500 text-xs sm:text-sm">
+            Activate your AivraSol Pharmacy Owner Portal account
+          </p>
         </div>
 
-        <div className="bg-slate-900/80 backdrop-blur border border-slate-800 rounded-2xl shadow-2xl p-8">
-          <Suspense fallback={<div className="text-slate-400 text-sm">Loading…</div>}>
+        <div className="bg-white border border-slate-200/85 rounded-3xl shadow-xl shadow-slate-900/5 p-6 sm:p-8">
+          <Suspense fallback={<div className="text-slate-500 text-sm text-center py-6">Loading invite…</div>}>
             <AcceptInviteForm />
           </Suspense>
         </div>

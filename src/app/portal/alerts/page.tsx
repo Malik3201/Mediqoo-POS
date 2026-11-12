@@ -5,24 +5,24 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   BellRing,
-  AlertTriangle,
   CheckCircle2,
-  Clock,
+  AlertTriangle,
   ExternalLink,
-  RefreshCw,
-  ShieldAlert,
-  Percent,
-  Wallet,
-  Package,
-  CalendarClock,
-  TrendingUp,
-  RotateCcw,
-  Users,
-  WifiOff,
+  MessageSquarePlus,
   Plus,
   Check,
+  ShieldAlert,
+  Clock,
 } from "lucide-react";
 import InvoiceDetailDrawer from "@/components/portal/InvoiceDetailDrawer";
+import {
+  PortalPageHeader,
+  PortalRefreshButton,
+  PortalKpiCard,
+  PortalSectionCard,
+  PortalStatusBadge,
+  PortalEmptyState,
+} from "@/components/portal/PortalUI";
 
 const CATEGORY_TABS = [
   { id: "all", label: "All Alerts" },
@@ -52,25 +52,29 @@ function formatDateTime(iso?: string): string {
   }
 }
 
-function severityBadge(sev: string) {
+function severityMeta(sev: string): {
+  label: string;
+  tone: "rose" | "amber" | "sky";
+  cardBorder: string;
+} {
   switch (sev) {
     case "critical":
       return {
         label: "Critical",
-        cls: "bg-red-100 text-red-800 border-red-300",
-        cardBorder: "border-l-4 border-l-red-600",
+        tone: "rose",
+        cardBorder: "border-l-4 border-l-rose-600",
       };
     case "warning":
       return {
         label: "Warning",
-        cls: "bg-amber-100 text-amber-800 border-amber-300",
+        tone: "amber",
         cardBorder: "border-l-4 border-l-amber-500",
       };
     default:
       return {
         label: "Review",
-        cls: "bg-blue-50 text-blue-700 border-blue-200",
-        cardBorder: "border-l-4 border-l-blue-500",
+        tone: "sky",
+        cardBorder: "border-l-4 border-l-sky-500",
       };
   }
 }
@@ -79,9 +83,7 @@ function AlertsPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const [category, setCategory] = useState(
-    searchParams.get("category") || "all"
-  );
+  const [category, setCategory] = useState(searchParams.get("category") || "all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [severityFilter, setSeverityFilter] = useState("all");
 
@@ -91,10 +93,8 @@ function AlertsPageInner() {
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [activeNoteBoxId, setActiveNoteBoxId] = useState<string | null>(null);
 
-  // Invoice detail drawer for invoice-sourced alerts
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
 
-  // Review Task form
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskCategory, setNewTaskCategory] = useState("audit");
   const [addingTask, setAddingTask] = useState(false);
@@ -185,6 +185,13 @@ function AlertsPageInner() {
     await loadAlerts();
   };
 
+  const selectCategory = (catId: string) => {
+    setCategory(catId);
+    router.replace(catId === "all" ? "/portal/alerts" : `/portal/alerts?category=${catId}`, {
+      scroll: false,
+    });
+  };
+
   const countsByCategory = data?.counts_by_category || {};
   const countsBySeverity = data?.counts_by_severity || {};
   const countsByStatus = data?.counts_by_status || {};
@@ -192,239 +199,209 @@ function AlertsPageInner() {
   const tasks: any[] = data?.review_tasks || [];
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-            <BellRing className="w-5 h-5 text-[#009A4D]" />
-            <span>Actionable Owner Alert Center</span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Deterministic supervision rules across discounts, cash variances, stock, expiry, margins, supplier prices &amp; credit.
-          </p>
-        </div>
-        <button
-          onClick={() => void loadAlerts()}
-          disabled={loading}
-          className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw
-            className={`w-3.5 h-3.5 ${loading ? "animate-spin text-[#009A4D]" : ""}`}
-          />
-          Refresh Alerts
-        </button>
-      </div>
+    <div className="space-y-4 sm:space-y-5 animate-portal-in">
+      <PortalPageHeader
+        icon={<BellRing className="w-5 h-5" />}
+        title="Exception Alerts & Supervision"
+        subtitle="Audit discounts, cash variance, expiry exposure, supplier cost spikes, and sync health."
+        actions={<PortalRefreshButton loading={loading} onClick={() => void loadAlerts()} />}
+      />
 
-      {/* Summary Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <button
-          onClick={() => setStatusFilter("open")}
-          className={`text-left p-3 rounded-2xl border transition-colors ${
-            statusFilter === "open"
-              ? "bg-slate-900 text-white border-slate-900"
-              : "bg-white border-slate-200 hover:border-slate-300"
-          }`}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider opacity-75 block">
-            Open Alerts
-          </span>
-          <span className="text-base font-extrabold mt-0.5 block">
-            {countsByStatus.open || 0}
-          </span>
-        </button>
-
-        <button
+      {/* Executive Alert KPI Strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+        <PortalKpiCard
+          label="Open Alerts"
+          value={String(countsByStatus.open || 0)}
+          subtext="Needs owner supervision"
+          icon={<BellRing className="w-4 h-4" />}
+          tone={(countsByStatus.open || 0) > 0 ? "rose" : "default"}
+          active={statusFilter === "open"}
+          onClick={() => setStatusFilter(statusFilter === "open" ? "all" : "open")}
+        />
+        <PortalKpiCard
+          label="Critical Severity"
+          value={String(countsBySeverity.critical || 0)}
+          subtext="High-priority anomalies"
+          icon={<ShieldAlert className="w-4 h-4" />}
+          tone={(countsBySeverity.critical || 0) > 0 ? "amber" : "default"}
+          active={severityFilter === "critical"}
           onClick={() =>
             setSeverityFilter(severityFilter === "critical" ? "all" : "critical")
           }
-          className={`text-left p-3 rounded-2xl border transition-colors ${
-            severityFilter === "critical"
-              ? "bg-red-600 text-white border-red-600"
-              : "bg-white border-slate-200 hover:border-red-300"
-          }`}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider opacity-75 block">
-            Critical Priority
-          </span>
-          <span className="text-base font-extrabold mt-0.5 block">
-            {countsBySeverity.critical || 0}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setStatusFilter("acknowledged")}
-          className={`text-left p-3 rounded-2xl border transition-colors ${
-            statusFilter === "acknowledged"
-              ? "bg-amber-600 text-white border-amber-600"
-              : "bg-white border-slate-200 hover:border-amber-300"
-          }`}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider opacity-75 block">
-            Acknowledged
-          </span>
-          <span className="text-base font-extrabold mt-0.5 block">
-            {countsByStatus.acknowledged || 0}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setStatusFilter("resolved")}
-          className={`text-left p-3 rounded-2xl border transition-colors ${
-            statusFilter === "resolved"
-              ? "bg-[#009A4D] text-white border-[#009A4D]"
-              : "bg-white border-slate-200 hover:border-emerald-300"
-          }`}
-        >
-          <span className="text-[10px] font-bold uppercase tracking-wider opacity-75 block">
-            Resolved
-          </span>
-          <span className="text-base font-extrabold mt-0.5 block">
-            {countsByStatus.resolved || 0}
-          </span>
-        </button>
+        />
+        <PortalKpiCard
+          label="Acknowledged"
+          value={String(countsByStatus.acknowledged || 0)}
+          subtext="Under counter review"
+          icon={<Clock className="w-4 h-4" />}
+          tone="sky"
+          active={statusFilter === "acknowledged"}
+          onClick={() =>
+            setStatusFilter(statusFilter === "acknowledged" ? "all" : "acknowledged")
+          }
+        />
+        <PortalKpiCard
+          label="Resolved"
+          value={String(countsByStatus.resolved || 0)}
+          subtext="Closed audit exceptions"
+          icon={<CheckCircle2 className="w-4 h-4" />}
+          tone="emerald"
+          active={statusFilter === "resolved"}
+          onClick={() => setStatusFilter(statusFilter === "resolved" ? "all" : "resolved")}
+        />
       </div>
 
-      {/* Category Filter Pills & Status Selector */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2.5">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+      {/* Category & Filter Bar */}
+      <PortalSectionCard className="p-3.5 sm:p-4 space-y-3">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
           {CATEGORY_TABS.map((t) => {
-            const count = countsByCategory[t.id] || 0;
+            const count =
+              t.id === "all"
+                ? countsByCategory.all ?? alerts.length
+                : countsByCategory[t.id] || 0;
+            const active = category === t.id;
             return (
               <button
                 key={t.id}
-                onClick={() => setCategory(t.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-                  category === t.id
-                    ? "bg-[#009A4D] text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                type="button"
+                onClick={() => selectCategory(t.id)}
+                className={`inline-flex items-center gap-1.5 min-h-[36px] px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                  active
+                    ? "bg-[#009A4D] text-white shadow-xs shadow-emerald-600/20"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200/70"
                 }`}
               >
                 <span>{t.label}</span>
-                <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                    category === t.id
-                      ? "bg-white/20 text-white"
-                      : "bg-white text-slate-700"
-                  }`}
-                >
-                  {count}
-                </span>
+                {count > 0 && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold tabular-nums ${
+                      active ? "bg-white/20 text-white" : "bg-white text-slate-700"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 text-xs">
-          <span className="text-[11px] font-semibold text-slate-500">Status:</span>
-          {["all", "open", "acknowledged", "resolved"].map((st) => (
-            <button
-              key={st}
-              onClick={() => setStatusFilter(st)}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold capitalize ${
-                statusFilter === st
-                  ? "bg-slate-900 text-white"
-                  : "bg-slate-100 text-slate-600"
-              }`}
-            >
-              {st}
-            </button>
-          ))}
-        </div>
-      </div>
+        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:outline-none focus:border-[#009A4D]"
+          >
+            <option value="all">All Statuses</option>
+            <option value="open">Open Only</option>
+            <option value="acknowledged">Acknowledged</option>
+            <option value="resolved">Resolved</option>
+          </select>
 
-      {/* Alert Cards List */}
-      <div className="space-y-2.5">
+          <select
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value)}
+            className="min-h-[38px] px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 focus:outline-none focus:border-[#009A4D]"
+          >
+            <option value="all">All Severities</option>
+            <option value="critical">Critical Only</option>
+            <option value="warning">Warning Only</option>
+            <option value="info">Review / Info</option>
+          </select>
+
+          {(category !== "all" || statusFilter !== "all" || severityFilter !== "all") && (
+            <button
+              type="button"
+              onClick={() => {
+                selectCategory("all");
+                setStatusFilter("all");
+                setSeverityFilter("all");
+              }}
+              className="text-xs font-bold text-[#009A4D] hover:underline px-2 py-1"
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+      </PortalSectionCard>
+
+      {/* Exception Alerts Feed */}
+      <div className="space-y-3">
         {loading ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-xs text-slate-500 animate-pulse">
-            Evaluating supervision rules across pharmacy records…
+          <div className="space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="h-28 rounded-2xl bg-slate-100 animate-pulse" />
+            ))}
           </div>
         ) : alerts.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-2">
-            <CheckCircle2 className="w-8 h-8 text-[#009A4D] mx-auto" />
-            <p className="text-xs font-bold text-slate-800">
-              No active alerts match the selected filter.
-            </p>
-            <p className="text-[11px] text-slate-500">
-              All monitored thresholds for this category are currently clear.
-            </p>
-          </div>
+          <PortalSectionCard>
+            <PortalEmptyState
+              icon={<CheckCircle2 className="w-7 h-7 text-[#009A4D]" />}
+              title="All Clear — No Matching Alerts"
+              description="No operational exceptions match your selected filters right now."
+            />
+          </PortalSectionCard>
         ) : (
           alerts.map((alert) => {
-            const sev = severityBadge(alert.severity);
+            const sev = severityMeta(alert.severity);
             const isResolved = alert.resolution_status === "resolved";
-            const isAck = alert.resolution_status === "acknowledged";
 
             return (
               <div
                 key={alert.id}
-                className={`bg-white rounded-2xl border border-slate-200 p-4 shadow-xs transition-all ${
+                className={`bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs transition-all space-y-3 ${
                   sev.cardBorder
                 } ${isResolved ? "opacity-75" : ""}`}
               >
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${sev.cls}`}
-                      >
+                <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-3">
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <PortalStatusBadge tone={sev.tone} dot>
                         {sev.label}
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
-                        {alert.category_label}
-                      </span>
-                      <span className="text-[11px] text-slate-500">
+                      </PortalStatusBadge>
+                      <PortalStatusBadge tone="slate">{alert.category_label}</PortalStatusBadge>
+                      {alert.resolution_status !== "open" && (
+                        <PortalStatusBadge tone={isResolved ? "emerald" : "amber"}>
+                          {alert.resolution_status}
+                        </PortalStatusBadge>
+                      )}
+                      <span className="text-[11px] text-slate-400 font-medium">
                         {alert.pharmacy_name} • {formatDateTime(alert.occurred_at)}
                       </span>
-                      {alert.resolution_status !== "open" && (
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            isResolved
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800"
-                          }`}
-                        >
-                          {alert.resolution_status}
-                        </span>
-                      )}
                     </div>
 
-                    <h3 className="text-sm font-bold text-slate-900">
+                    <h3 className="text-sm sm:text-[15px] font-extrabold text-slate-900 leading-snug">
                       {alert.title}
                     </h3>
-                    <p className="text-xs text-slate-600">{alert.description}</p>
+                    <p className="text-xs text-slate-600 leading-relaxed">{alert.description}</p>
 
-                    <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-500 flex-wrap">
+                    <div className="flex items-center gap-x-3 gap-y-1 pt-1 text-[11px] text-slate-500 flex-wrap">
                       <span>
                         Impact:{" "}
-                        <strong className="text-slate-800">
-                          {alert.subject_label}
-                        </strong>
+                        <strong className="text-slate-800">{alert.subject_label}</strong>
                       </span>
-                      <span>•</span>
+                      <span className="text-slate-300">•</span>
                       <span>
-                        Source Ref:{" "}
+                        Ref:{" "}
                         <strong className="font-mono text-slate-800">
                           {alert.source_ref_label}
                         </strong>
                       </span>
                       {alert.resolution_note && (
-                        <>
-                          <span>•</span>
-                          <span className="text-emerald-700 font-medium">
-                            Owner Note: &ldquo;{alert.resolution_note}&rdquo;
-                          </span>
-                        </>
+                        <span className="w-full sm:w-auto text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200/60">
+                          Note: &ldquo;{alert.resolution_note}&rdquo;
+                        </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Action Buttons */}
-                  <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                  {/* Mobile-Friendly Action Buttons */}
+                  <div className="flex items-center gap-2 flex-wrap shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100">
                     {alert.source_ref_type === "invoice" ? (
                       <button
+                        type="button"
                         onClick={() => setSelectedInvoiceId(alert.source_ref_id)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800"
+                        className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors"
                       >
                         <span>View Invoice</span>
                         <ExternalLink className="w-3 h-3" />
@@ -432,20 +409,19 @@ function AlertsPageInner() {
                     ) : (
                       <Link
                         href={alert.href}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800"
+                        className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors"
                       >
-                        <span>View Details</span>
+                        <span>Inspect</span>
                         <ExternalLink className="w-3 h-3" />
                       </Link>
                     )}
 
                     {alert.resolution_status === "open" && (
                       <button
+                        type="button"
                         disabled={updatingId === alert.id}
-                        onClick={() =>
-                          void updateAlertStatus(alert.id, "acknowledged")
-                        }
-                        className="px-2.5 py-1.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 text-xs font-semibold hover:bg-amber-100"
+                        onClick={() => void updateAlertStatus(alert.id, "acknowledged")}
+                        className="min-h-[36px] px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 text-xs font-bold hover:bg-amber-100 disabled:opacity-50"
                       >
                         Acknowledge
                       </button>
@@ -453,45 +429,43 @@ function AlertsPageInner() {
 
                     {alert.resolution_status !== "resolved" ? (
                       <button
+                        type="button"
                         disabled={updatingId === alert.id}
-                        onClick={() =>
-                          void updateAlertStatus(alert.id, "resolved")
-                        }
-                        className="px-2.5 py-1.5 rounded-xl border border-emerald-300 bg-emerald-50 text-[#009A4D] text-xs font-semibold hover:bg-emerald-100"
+                        onClick={() => void updateAlertStatus(alert.id, "resolved")}
+                        className="min-h-[36px] px-3 py-1.5 rounded-xl border border-emerald-300 bg-emerald-50 text-[#009A4D] text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
                       >
                         Resolve
                       </button>
                     ) : (
                       <button
+                        type="button"
                         disabled={updatingId === alert.id}
                         onClick={() => void updateAlertStatus(alert.id, "open")}
-                        className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:bg-slate-50"
+                        className="min-h-[36px] px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 disabled:opacity-50"
                       >
                         Reopen
                       </button>
                     )}
 
                     <button
+                      type="button"
                       onClick={() =>
-                        setActiveNoteBoxId(
-                          activeNoteBoxId === alert.id ? null : alert.id
-                        )
+                        setActiveNoteBoxId(activeNoteBoxId === alert.id ? null : alert.id)
                       }
-                      className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-slate-600 text-xs hover:bg-slate-50"
+                      className="inline-flex items-center gap-1 min-h-[36px] px-3 py-1.5 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50"
                     >
-                      + Note
+                      <MessageSquarePlus className="w-3.5 h-3.5" />
+                      Note
                     </button>
                   </div>
                 </div>
 
                 {/* Inline Note Box */}
                 {activeNoteBoxId === alert.id && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
+                  <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     <input
                       type="text"
-                      value={
-                        noteDrafts[alert.id] ?? alert.resolution_note ?? ""
-                      }
+                      value={noteDrafts[alert.id] ?? alert.resolution_note ?? ""}
                       onChange={(e) =>
                         setNoteDrafts((prev) => ({
                           ...prev,
@@ -499,9 +473,10 @@ function AlertsPageInner() {
                         }))
                       }
                       placeholder="Add owner review note (e.g. Verified with counter pharmacist)…"
-                      className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs"
+                      className="flex-1 min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#009A4D]"
                     />
                     <button
+                      type="button"
                       onClick={() =>
                         void updateAlertStatus(
                           alert.id,
@@ -510,7 +485,7 @@ function AlertsPageInner() {
                             : alert.resolution_status
                         )
                       }
-                      className="px-3 py-1.5 rounded-lg bg-[#009A4D] text-white text-xs font-semibold"
+                      className="min-h-[40px] px-4 py-2 rounded-xl bg-[#009A4D] text-white text-xs font-bold hover:bg-emerald-700 shrink-0"
                     >
                       Save Note
                     </button>
@@ -522,76 +497,78 @@ function AlertsPageInner() {
         )}
       </div>
 
-      {/* Owner Review Tasks Checklist (Section 6) */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
-        <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
-          Owner Follow-Up &amp; Review Tasks
-        </h2>
-        <form onSubmit={handleAddTask} className="flex flex-col sm:flex-row gap-2">
-          <input
-            type="text"
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-            placeholder="Add a store review task (e.g. Audit Friday evening shift discount invoices)…"
-            className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs"
-          />
-          <select
-            value={newTaskCategory}
-            onChange={(e) => setNewTaskCategory(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-slate-200 text-xs bg-white"
-          >
-            <option value="audit">Cash / Discount Audit</option>
-            <option value="purchasing">Supplier / Stock</option>
-            <option value="khata">Customer Collection</option>
-          </select>
-          <button
-            type="submit"
-            disabled={addingTask || !newTaskTitle.trim()}
-            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#009A4D] text-white text-xs font-semibold disabled:opacity-50"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Task
-          </button>
-        </form>
+      {/* Owner Review Tasks Checklist */}
+      <PortalSectionCard
+        title="Owner Follow-Up & Review Tasks"
+        subtitle="Personal pharmacy audit checklist saved privately in your owner cloud"
+        icon={<CheckCircle2 className="w-4 h-4" />}
+      >
+        <div className="p-4 sm:p-5 space-y-4">
+          <form onSubmit={handleAddTask} className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              placeholder="Add a store review task (e.g. Audit Friday evening shift discount invoices)…"
+              className="flex-1 min-h-[42px] px-3.5 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm focus:outline-none focus:border-[#009A4D]"
+            />
+            <select
+              value={newTaskCategory}
+              onChange={(e) => setNewTaskCategory(e.target.value)}
+              className="min-h-[42px] px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white"
+            >
+              <option value="audit">Cash / Discount Audit</option>
+              <option value="purchasing">Supplier / Stock</option>
+              <option value="khata">Customer Collection</option>
+            </select>
+            <button
+              type="submit"
+              disabled={addingTask || !newTaskTitle.trim()}
+              className="inline-flex items-center justify-center gap-1.5 min-h-[42px] px-4 py-2 rounded-xl bg-[#009A4D] text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 shrink-0 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Task
+            </button>
+          </form>
 
-        {tasks.length > 0 && (
-          <div className="divide-y divide-slate-100">
-            {tasks.map((t: any) => (
-              <div
-                key={t.task_id}
-                className="py-2.5 flex items-center justify-between gap-2 text-xs"
-              >
-                <button
-                  onClick={() => void toggleTaskStatus(t)}
-                  className="flex items-center gap-2.5 text-left"
+          {tasks.length > 0 && (
+            <div className="divide-y divide-slate-100 border-t border-slate-100">
+              {tasks.map((t: any) => (
+                <div
+                  key={t.task_id}
+                  className="py-3 flex items-center justify-between gap-3 text-xs"
                 >
-                  <span
-                    className={`w-4 h-4 rounded border flex items-center justify-center ${
-                      t.status === "completed"
-                        ? "bg-[#009A4D] border-[#009A4D] text-white"
-                        : "border-slate-300"
-                    }`}
+                  <button
+                    type="button"
+                    onClick={() => void toggleTaskStatus(t)}
+                    className="flex items-center gap-3 text-left min-w-0 flex-1"
                   >
-                    {t.status === "completed" && <Check className="w-3 h-3" />}
-                  </span>
-                  <span
-                    className={
-                      t.status === "completed"
-                        ? "line-through text-slate-400"
-                        : "font-semibold text-slate-800"
-                    }
-                  >
-                    {t.title}
-                  </span>
-                </button>
-                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                  {t.category}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                    <span
+                      className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors ${
+                        t.status === "completed"
+                          ? "bg-[#009A4D] border-[#009A4D] text-white"
+                          : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      {t.status === "completed" && <Check className="w-3.5 h-3.5" />}
+                    </span>
+                    <span
+                      className={`leading-snug ${
+                        t.status === "completed"
+                          ? "line-through text-slate-400"
+                          : "font-bold text-slate-800"
+                      }`}
+                    >
+                      {t.title}
+                    </span>
+                  </button>
+                  <PortalStatusBadge tone="slate">{t.category}</PortalStatusBadge>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </PortalSectionCard>
 
       {/* Invoice Detail Drawer */}
       <InvoiceDetailDrawer

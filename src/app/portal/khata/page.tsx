@@ -5,20 +5,28 @@ import { useSearchParams } from "next/navigation";
 import {
   Users,
   Search,
-  RefreshCw,
   ChevronRight,
   X,
   Printer,
   Phone,
-  MapPin,
   Clock,
   CheckCircle2,
   AlertTriangle,
   Bookmark,
-  FileText,
   Receipt,
+  Calendar,
+  ArrowUpDown,
 } from "lucide-react";
 import InvoiceDetailDrawer from "@/components/portal/InvoiceDetailDrawer";
+import {
+  PortalPageHeader,
+  PortalRefreshButton,
+  PortalKpiCard,
+  PortalSectionCard,
+  PortalStatusBadge,
+  PortalSlideOver,
+  PortalEmptyState,
+} from "@/components/portal/PortalUI";
 
 function formatPKR(n: number): string {
   return `Rs ${Math.round(n || 0).toLocaleString("en-PK")}`;
@@ -38,18 +46,12 @@ function formatDateTime(iso: string | null | undefined): string {
   }
 }
 
-const FOLLOW_UP_LABELS: Record<string, { label: string; style: string }> = {
-  none: { label: "No Follow-Up Tag", style: "bg-slate-100 text-slate-600 border-slate-200" },
-  promised_to_pay: {
-    label: "Promised to Pay",
-    style: "bg-blue-50 text-blue-700 border-blue-200",
-  },
-  follow_up_needed: {
-    label: "Follow-Up Needed",
-    style: "bg-amber-50 text-amber-800 border-amber-200",
-  },
-  disputed: { label: "Disputed / Review", style: "bg-red-50 text-red-700 border-red-200" },
-  vip: { label: "VIP Credit Account", style: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+const FOLLOW_UP_LABELS: Record<string, { label: string; tone: "slate" | "sky" | "amber" | "rose" | "emerald" }> = {
+  none: { label: "No Follow-Up Tag", tone: "slate" },
+  promised_to_pay: { label: "Promised to Pay", tone: "sky" },
+  follow_up_needed: { label: "Follow-Up Needed", tone: "amber" },
+  disputed: { label: "Disputed / Review", tone: "rose" },
+  vip: { label: "VIP Credit Account", tone: "emerald" },
 };
 
 function KhataContent() {
@@ -64,7 +66,9 @@ function KhataContent() {
   const [loading, setLoading] = useState(true);
 
   // Selected customer drawer
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
+    searchParams.get("customer") || null
+  );
   const [customerDetail, setCustomerDetail] = useState<any | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [stmtFrom, setStmtFrom] = useState("");
@@ -269,419 +273,545 @@ function KhataContent() {
     printWin.document.close();
   };
 
+  const renderCreditBadge = (status: string) => {
+    const tone =
+      status === "overdue"
+        ? "rose"
+        : status === "due"
+        ? "amber"
+        : status === "advance"
+        ? "sky"
+        : "emerald";
+    return (
+      <PortalStatusBadge tone={tone} dot>
+        {status?.toUpperCase() || "CLEAR"}
+      </PortalStatusBadge>
+    );
+  };
+
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
-            Customers & Khata Credit Management
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Track verified customer receivables, running ledgers, printable statements, and owner follow-up notes
-          </p>
-        </div>
+    <div className="space-y-4 sm:space-y-5 animate-portal-in">
+      <PortalPageHeader
+        icon={<Users className="w-5 h-5" />}
+        title="Customer Khata & Credit"
+        subtitle="Track verified customer receivables, running ledgers, printable statements, and owner follow-up notes."
+        actions={
+          <PortalRefreshButton loading={loading} onClick={() => void fetchCustomers()} />
+        }
+      />
 
-        <button
-          onClick={() => void fetchCustomers()}
-          className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-[#009A4D]" : ""}`} />
-          <span>Refresh</span>
-        </button>
+      {/* KPI Strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <PortalKpiCard
+          label="Total Receivable"
+          value={formatPKR(summary.total_receivable ?? 0)}
+          subtext="Verified net customer balances"
+          icon={<Users className="w-4 h-4" />}
+          tone="amber"
+          active={statusFilter === "all"}
+          onClick={() => setStatusFilter("all")}
+        />
+        <PortalKpiCard
+          label="Customers Owing"
+          value={String(summary.due_count ?? 0)}
+          subtext={`of ${summary.total_customers ?? customers.length} total accounts`}
+          icon={<Clock className="w-4 h-4" />}
+          tone="default"
+          active={statusFilter === "due"}
+          onClick={() => setStatusFilter(statusFilter === "due" ? "all" : "due")}
+        />
+        <PortalKpiCard
+          label="Overdue 30d+"
+          value={String(summary.overdue_count ?? 0)}
+          subtext="Accounts needing urgent call"
+          icon={<AlertTriangle className="w-4 h-4" />}
+          tone={(summary.overdue_count ?? 0) > 0 ? "rose" : "default"}
+          active={statusFilter === "overdue"}
+          onClick={() => setStatusFilter(statusFilter === "overdue" ? "all" : "overdue")}
+        />
+        <PortalKpiCard
+          label="Follow-Up Tagged"
+          value={String(summary.follow_up_count ?? 0)}
+          subtext="Promised, disputed, or VIP"
+          icon={<Bookmark className="w-4 h-4" />}
+          tone="sky"
+          active={statusFilter === "follow_up"}
+          onClick={() => setStatusFilter(statusFilter === "follow_up" ? "all" : "follow_up")}
+        />
       </div>
 
-      {/* Top KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5">
-          <span className="text-[11px] font-semibold text-slate-500">Total Khata Receivable</span>
-          <p className="text-base sm:text-lg font-extrabold text-amber-700 mt-1 tabular-nums">
-            {formatPKR(summary.total_receivable ?? 0)}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Verified due from customers</p>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5">
-          <span className="text-[11px] font-semibold text-slate-500">Accounts with Due</span>
-          <p className="text-base sm:text-lg font-extrabold text-slate-900 mt-1 tabular-nums">
-            {summary.due_count ?? 0}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Out of {summary.total_customers ?? 0} customers
-          </p>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5">
-          <span className="text-[11px] font-semibold text-slate-500">Overdue / High Balance</span>
-          <p className="text-base sm:text-lg font-extrabold text-red-600 mt-1 tabular-nums">
-            {summary.overdue_count ?? 0}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">&gt;30d inactive or ≥Rs 5,000</p>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5">
-          <span className="text-[11px] font-semibold text-slate-500">Owner Follow-Up Tagged</span>
-          <p className="text-base sm:text-lg font-extrabold text-blue-700 mt-1 tabular-nums">
-            {summary.follow_up_count ?? 0}
-          </p>
-          <p className="text-[11px] text-slate-400 mt-0.5">Promised / follow-up notes</p>
-        </div>
-      </div>
-
-      {/* Search & Filters */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs space-y-3">
-        <div className="flex flex-col lg:flex-row gap-3">
+      {/* Filters & Search */}
+      <PortalSectionCard className="p-3.5 sm:p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row gap-2.5">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search customer by name, phone number, or owner note…"
-              className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-900 focus:outline-none focus:border-[#009A4D]"
+              placeholder="Search customer name or phone number…"
+              className="w-full min-h-[42px] pl-10 pr-9 py-2 rounded-xl border border-slate-200/90 bg-slate-50/70 focus:bg-white text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#009A4D] transition-all"
             />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => setSearchInput("")}
+                aria-label="Clear search"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            {[
-              { id: "all", label: "All Accounts" },
-              { id: "due", label: "Balance Due" },
-              { id: "overdue", label: "Overdue / High" },
-              { id: "follow_up", label: "Follow-Up Tagged" },
-              { id: "clear", label: "Cleared" },
-            ].map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setStatusFilter(f.id)}
-                className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap ${
-                  statusFilter === f.id
-                    ? "bg-[#009A4D] text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200/70"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
+          <div className="relative shrink-0">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full sm:w-auto min-h-[42px] pl-8 pr-4 py-2 rounded-xl border border-slate-200/90 bg-white text-xs font-bold text-slate-700 focus:outline-none focus:border-[#009A4D]"
+            >
+              <option value="balance_desc">Highest Balance First</option>
+              <option value="name_asc">Name A–Z</option>
+              <option value="recent">Most Recent Activity</option>
+            </select>
           </div>
         </div>
-      </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+          {[
+            { id: "all", label: "All Accounts" },
+            { id: "due", label: "With Balance Due" },
+            { id: "overdue", label: "Overdue (30d+)" },
+            { id: "follow_up", label: "Follow-Up Tagged" },
+            { id: "clear", label: "Clear / Advance" },
+          ].map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setStatusFilter(f.id)}
+              className={`min-h-[36px] px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                statusFilter === f.id
+                  ? "bg-[#009A4D] text-white shadow-xs shadow-emerald-600/20"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200/70"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </PortalSectionCard>
 
       {/* Customer List */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+      <PortalSectionCard
+        title="Customer Accounts"
+        subtitle="Tap any customer to view itemized running ledger, print statement, or add recovery notes"
+        icon={<Users className="w-4 h-4" />}
+        headerRight={
+          <span className="text-[11px] font-bold text-slate-400">
+            {customers.length} {customers.length === 1 ? "account" : "accounts"}
+          </span>
+        }
+      >
         {loading ? (
-          <div className="p-6 space-y-3">
+          <div className="p-4 sm:p-5 space-y-3">
             {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-16 rounded-xl bg-slate-100 animate-pulse" />
+              <div key={i} className="h-16 rounded-2xl bg-slate-100 animate-pulse" />
             ))}
           </div>
         ) : customers.length === 0 ? (
-          <div className="p-10 text-center space-y-2">
-            <Users className="w-8 h-8 text-slate-300 mx-auto" />
-            <p className="text-sm font-bold text-slate-800">No Matching Customer Accounts</p>
-            <p className="text-xs text-slate-500">
-              Try changing the credit filter to &ldquo;All Accounts&rdquo; or clearing your search.
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {customers.map((cust) => {
-              const followTag =
-                FOLLOW_UP_LABELS[cust.owner_meta?.follow_up_status || "none"] ||
-                FOLLOW_UP_LABELS.none;
-              return (
+          <PortalEmptyState
+            icon={<Users className="w-6 h-6" />}
+            title="No Matching Customer Accounts"
+            description='Try changing the credit filter to "All Accounts" or clearing your search.'
+            action={
+              (statusFilter !== "all" || searchInput) && (
                 <button
-                  key={cust.id}
-                  onClick={() => setSelectedCustomerId(cust.id)}
-                  className="w-full text-left px-4 sm:px-5 py-4 hover:bg-emerald-50/40 transition-colors flex items-center justify-between gap-3 group"
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter("all");
+                    setSearchInput("");
+                  }}
+                  className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold"
                 >
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-bold text-slate-900 group-hover:text-[#009A4D]">
-                        {cust.name}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                          cust.credit_status === "overdue"
-                            ? "bg-red-50 text-red-700 border border-red-200"
-                            : cust.credit_status === "due"
-                            ? "bg-amber-50 text-amber-800 border border-amber-200"
-                            : cust.credit_status === "advance"
-                            ? "bg-blue-50 text-blue-700 border border-blue-200"
-                            : "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                        }`}
-                      >
-                        {cust.credit_status}
-                      </span>
-                      {cust.owner_meta?.follow_up_status &&
-                        cust.owner_meta.follow_up_status !== "none" && (
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${followTag.style}`}
-                          >
-                            {followTag.label}
+                  Show All Accounts
+                </button>
+              )
+            }
+          />
+        ) : (
+          <>
+            {/* Mobile Structured Customer Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {customers.map((cust) => {
+                const followTag =
+                  FOLLOW_UP_LABELS[cust.owner_meta?.follow_up_status || "none"] ||
+                  FOLLOW_UP_LABELS.none;
+                return (
+                  <button
+                    key={cust.id}
+                    type="button"
+                    onClick={() => setSelectedCustomerId(cust.id)}
+                    className="w-full text-left p-4 active:bg-emerald-50/50 transition-colors space-y-2"
+                  >
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-extrabold text-slate-900 truncate">{cust.name}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                          {renderCreditBadge(cust.credit_status)}
+                          {cust.owner_meta?.follow_up_status &&
+                            cust.owner_meta.follow_up_status !== "none" && (
+                              <PortalStatusBadge tone={followTag.tone}>
+                                {followTag.label}
+                              </PortalStatusBadge>
+                            )}
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                          Balance
+                        </span>
+                        <p
+                          className={`text-sm font-extrabold tabular-nums ${
+                            cust.credit_balance > 0
+                              ? "text-amber-700"
+                              : cust.credit_balance < 0
+                              ? "text-sky-700"
+                              : "text-emerald-700"
+                          }`}
+                        >
+                          {formatPKR(cust.credit_balance)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 pt-0.5">
+                      <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+                        {cust.phone && (
+                          <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                            <Phone className="w-3 h-3 text-slate-400" />
+                            {cust.phone}
                           </span>
                         )}
+                        {cust.last_purchase_at && (
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            Sale: {formatDateTime(cust.last_purchase_at)}
+                          </span>
+                        )}
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
-                      {cust.phone && <span>Tel: {cust.phone}</span>}
-                      {cust.last_purchase_at && (
-                        <span>Last Purchase: {formatDateTime(cust.last_purchase_at)}</span>
-                      )}
-                      {cust.last_payment_at && (
-                        <span>Last Payment: {formatDateTime(cust.last_payment_at)}</span>
-                      )}
-                    </div>
+
                     {cust.owner_meta?.owner_note && (
-                      <p className="text-xs text-blue-700 bg-blue-50/70 px-2 py-0.5 rounded inline-block truncate max-w-md">
+                      <p className="text-[11px] text-sky-800 bg-sky-50/90 border border-sky-200/70 px-2.5 py-1 rounded-lg truncate">
                         Note: {cust.owner_meta.owner_note}
                       </p>
                     )}
-                  </div>
+                  </button>
+                );
+              })}
+            </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right">
-                      <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                        Verified Balance
-                      </span>
-                      <p
-                        className={`text-sm sm:text-base font-extrabold tabular-nums ${
-                          cust.credit_balance > 0
-                            ? "text-amber-700"
-                            : cust.credit_balance < 0
-                            ? "text-blue-700"
-                            : "text-emerald-700"
-                        }`}
+            {/* Desktop Customer Table */}
+            <div className="hidden md:block overflow-x-auto portal-scroll">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50/90 border-b border-slate-200/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <th className="py-3 pl-5 pr-3">Customer &amp; Tags</th>
+                    <th className="py-3 px-3">Phone &amp; Last Activity</th>
+                    <th className="py-3 px-3">Credit Status</th>
+                    <th className="py-3 pl-3 pr-5 text-right">Verified Balance</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {customers.map((cust) => {
+                    const followTag =
+                      FOLLOW_UP_LABELS[cust.owner_meta?.follow_up_status || "none"] ||
+                      FOLLOW_UP_LABELS.none;
+                    return (
+                      <tr
+                        key={cust.id}
+                        onClick={() => setSelectedCustomerId(cust.id)}
+                        className="hover:bg-emerald-50/40 cursor-pointer transition-colors group"
                       >
-                        {formatPKR(cust.credit_balance)}
-                      </p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-[#009A4D]" />
-                  </div>
-                </button>
-              );
-            })}
+                        <td className="py-3.5 pl-5 pr-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-bold text-slate-900 group-hover:text-[#009A4D]">
+                              {cust.name}
+                            </span>
+                            {cust.owner_meta?.follow_up_status &&
+                              cust.owner_meta.follow_up_status !== "none" && (
+                                <PortalStatusBadge tone={followTag.tone}>
+                                  {followTag.label}
+                                </PortalStatusBadge>
+                              )}
+                          </div>
+                          {cust.owner_meta?.owner_note && (
+                            <p className="text-[11px] text-sky-700 bg-sky-50 px-2 py-0.5 rounded-md inline-block mt-1 max-w-md truncate">
+                              Note: {cust.owner_meta.owner_note}
+                            </p>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-3 text-slate-500">
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                            {cust.phone && <span className="text-slate-700 font-medium">Tel: {cust.phone}</span>}
+                            {cust.last_purchase_at && (
+                              <span>Sale: {formatDateTime(cust.last_purchase_at)}</span>
+                            )}
+                            {cust.last_payment_at && (
+                              <span>Paid: {formatDateTime(cust.last_payment_at)}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-3 whitespace-nowrap">
+                          {renderCreditBadge(cust.credit_status)}
+                        </td>
+                        <td className="py-3.5 pl-3 pr-5 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-2">
+                            <span
+                              className={`text-sm sm:text-base font-extrabold tabular-nums ${
+                                cust.credit_balance > 0
+                                  ? "text-amber-700"
+                                  : cust.credit_balance < 0
+                                  ? "text-sky-700"
+                                  : "text-emerald-700"
+                              }`}
+                            >
+                              {formatPKR(cust.credit_balance)}
+                            </span>
+                            <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-[#009A4D]" />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </PortalSectionCard>
+
+      {/* Customer Khata & Statement Slide-Over Drawer */}
+      <PortalSlideOver
+        open={Boolean(selectedCustomerId)}
+        onClose={() => setSelectedCustomerId(null)}
+        maxWidthClass="max-w-2xl"
+        eyebrow="Customer Khata & Recovery"
+        title={customerDetail?.customer?.name || "Customer Khata Ledger"}
+        subtitle={
+          customerDetail?.customer?.phone
+            ? `Phone: ${customerDetail.customer.phone}`
+            : "Verified running khata statement"
+        }
+        headerActions={
+          customerDetail?.customer ? (
+            <button
+              type="button"
+              onClick={handlePrintStatement}
+              className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-xl bg-emerald-50 text-[#009A4D] border border-emerald-200 hover:bg-emerald-100 text-xs font-bold transition-colors"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Print Statement</span>
+              <span className="sm:hidden">Print</span>
+            </button>
+          ) : undefined
+        }
+      >
+        {loadingDetail && (
+          <div className="space-y-3">
+            <div className="h-24 rounded-2xl bg-slate-100 animate-pulse" />
+            <div className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
           </div>
         )}
-      </div>
 
-      {/* Customer Khata Detail & Statement Drawer */}
-      {selectedCustomerId && (
-        <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/50 backdrop-blur-[2px]">
-          <div className="fixed inset-0" onClick={() => setSelectedCustomerId(null)} />
-          <div className="relative z-10 w-full max-w-2xl bg-white h-full shadow-2xl border-l border-slate-200 flex flex-col overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-base font-bold text-slate-900 truncate">
-                  {customerDetail?.customer?.name || "Customer Khata Statement"}
-                </h2>
-                {customerDetail?.customer?.phone && (
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Phone: {customerDetail.customer.phone}
-                  </p>
+        {customerDetail?.customer && !loadingDetail && (
+          <div className="space-y-4">
+            {/* Balance Summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <span className="text-[10px] font-bold uppercase text-slate-400">
+                  Opening Bal
+                </span>
+                <p className="text-sm font-extrabold text-slate-900 mt-1 tabular-nums">
+                  {formatPKR(customerDetail.customer.opening_balance)}
+                </p>
+              </div>
+              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
+                <span className="text-[10px] font-bold uppercase text-slate-400">
+                  Credit Sales
+                </span>
+                <p className="text-sm font-extrabold text-slate-900 mt-1 tabular-nums">
+                  {formatPKR(customerDetail.customer.total_credit_sales)}
+                </p>
+              </div>
+              <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/80">
+                <span className="text-[10px] font-bold uppercase text-emerald-700">
+                  Paid / Returned
+                </span>
+                <p className="text-sm font-extrabold text-emerald-700 mt-1 tabular-nums">
+                  {formatPKR(
+                    (customerDetail.customer.total_payments || 0) +
+                      (customerDetail.customer.total_returns_deducted || 0)
+                  )}
+                </p>
+              </div>
+              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200/90">
+                <span className="text-[10px] font-bold uppercase text-amber-800">
+                  Balance Due
+                </span>
+                <p className="text-sm sm:text-base font-extrabold text-amber-800 mt-1 tabular-nums">
+                  {formatPKR(customerDetail.customer.credit_balance)}
+                </p>
+              </div>
+            </div>
+
+            {/* Owner Follow-up & Note Panel */}
+            <div className="p-4 rounded-2xl bg-slate-50/90 border border-slate-200/90 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                  <Bookmark className="w-3.5 h-3.5 text-[#009A4D]" />
+                  Owner Follow-Up &amp; Reminder
+                </h3>
+                {metaSavedMsg && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full">
+                    <CheckCircle2 className="w-3 h-3" />
+                    {metaSavedMsg}
+                  </span>
                 )}
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {customerDetail?.customer && (
-                  <button
-                    onClick={handlePrintStatement}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                    Follow-Up Status
+                  </label>
+                  <select
+                    value={followUpStatus}
+                    onChange={(e) => setFollowUpStatus(e.target.value)}
+                    className="w-full min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-900 focus:outline-none focus:border-[#009A4D]"
                   >
-                    <Printer className="w-3.5 h-3.5" />
-                    <span>Print / PDF Statement</span>
-                  </button>
-                )}
+                    <option value="none">No Follow-Up Tag</option>
+                    <option value="promised_to_pay">Promised to Pay</option>
+                    <option value="follow_up_needed">Follow-Up Needed</option>
+                    <option value="disputed">Disputed / Review</option>
+                    <option value="vip">VIP Credit Account</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                    Promised Payment Date
+                  </label>
+                  <input
+                    type="date"
+                    value={promisedDate}
+                    onChange={(e) => setPromisedDate(e.target.value)}
+                    className="w-full min-h-[40px] px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#009A4D]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={ownerNote}
+                  onChange={(e) => setOwnerNote(e.target.value)}
+                  placeholder="Private owner follow-up note (never modifies POS accounting)…"
+                  className="flex-1 min-h-[40px] px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs text-slate-900 focus:outline-none focus:border-[#009A4D]"
+                />
                 <button
-                  onClick={() => setSelectedCustomerId(null)}
-                  className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                  type="button"
+                  onClick={handleSaveOwnerMeta}
+                  disabled={savingMeta}
+                  className="min-h-[40px] px-4 py-2 rounded-xl bg-[#009A4D] text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 shrink-0 transition-colors"
                 >
-                  <X className="w-5 h-5" />
+                  {savingMeta ? "Saving…" : "Save Note"}
                 </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
-              {loadingDetail && (
-                <div className="space-y-3">
-                  <div className="h-24 rounded-xl bg-slate-100 animate-pulse" />
-                  <div className="h-48 rounded-xl bg-slate-100 animate-pulse" />
+            {/* Running Ledger Statement */}
+            <div className="rounded-2xl border border-slate-200/90 overflow-hidden bg-white">
+              <div className="px-4 py-3 bg-slate-50/90 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
+                  Running Khata Ledger ({customerDetail.ledger?.length || 0})
+                </h3>
+                <div className="flex items-center gap-2 text-xs">
+                  <input
+                    type="date"
+                    value={stmtFrom}
+                    onChange={(e) => setStmtFrom(e.target.value)}
+                    className="flex-1 sm:flex-initial min-h-[34px] px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-[11px] font-medium"
+                  />
+                  <span className="text-slate-400 font-semibold">to</span>
+                  <input
+                    type="date"
+                    value={stmtTo}
+                    onChange={(e) => setStmtTo(e.target.value)}
+                    className="flex-1 sm:flex-initial min-h-[34px] px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-[11px] font-medium"
+                  />
                 </div>
-              )}
+              </div>
 
-              {customerDetail?.customer && !loadingDetail && (
-                <>
-                  {/* Balance Breakdown */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                      <span className="text-[10px] font-bold uppercase text-slate-400">
-                        Opening
-                      </span>
-                      <p className="text-sm font-bold text-slate-900 mt-0.5 tabular-nums">
-                        {formatPKR(customerDetail.customer.opening_balance)}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                      <span className="text-[10px] font-bold uppercase text-slate-400">
-                        Credit Sales
-                      </span>
-                      <p className="text-sm font-bold text-slate-900 mt-0.5 tabular-nums">
-                        {formatPKR(customerDetail.customer.total_credit_sales)}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                      <span className="text-[10px] font-bold uppercase text-slate-400">
-                        Payments & Returns
-                      </span>
-                      <p className="text-sm font-bold text-emerald-700 mt-0.5 tabular-nums">
-                        {formatPKR(
-                          (customerDetail.customer.total_payments || 0) +
-                            (customerDetail.customer.total_returns_deducted || 0)
-                        )}
-                      </p>
-                    </div>
-                    <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200">
-                      <span className="text-[10px] font-bold uppercase text-amber-800">
-                        Net Balance Due
-                      </span>
-                      <p className="text-base font-extrabold text-amber-800 mt-0.5 tabular-nums">
-                        {formatPKR(customerDetail.customer.credit_balance)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Owner-Only Follow-Up & Notes Panel */}
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <Bookmark className="w-3.5 h-3.5 text-[#009A4D]" />
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                          Owner Follow-Up & Credit Notes (Cloud-Only)
-                        </h3>
-                      </div>
-                      {metaSavedMsg && (
-                        <span className="text-xs font-semibold text-emerald-600">
-                          {metaSavedMsg}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                          Follow-Up Status
-                        </label>
-                        <select
-                          value={followUpStatus}
-                          onChange={(e) => setFollowUpStatus(e.target.value)}
-                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-800"
-                        >
-                          <option value="none">No Follow-Up Tag</option>
-                          <option value="promised_to_pay">Promised to Pay</option>
-                          <option value="follow_up_needed">Follow-Up Needed</option>
-                          <option value="disputed">Disputed / Review</option>
-                          <option value="vip">VIP Credit Account</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                          Promised Payment Date
-                        </label>
-                        <input
-                          type="date"
-                          value={promisedDate}
-                          onChange={(e) => setPromisedDate(e.target.value)}
-                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-800"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={ownerNote}
-                        onChange={(e) => setOwnerNote(e.target.value)}
-                        placeholder="Add owner follow-up note (does not alter POS accounting balance)…"
-                        className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-800"
-                      />
-                      <button
-                        onClick={handleSaveOwnerMeta}
-                        disabled={savingMeta}
-                        className="px-4 py-1.5 rounded-lg bg-[#009A4D] text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        {savingMeta ? "Saving…" : "Save"}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Running Ledger Statement */}
-                  <div className="rounded-xl border border-slate-200 overflow-hidden">
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                        Running Khata Ledger ({customerDetail.ledger?.length || 0})
-                      </h3>
-                      <div className="flex items-center gap-2 text-xs">
-                        <input
-                          type="date"
-                          value={stmtFrom}
-                          onChange={(e) => setStmtFrom(e.target.value)}
-                          className="px-2 py-1 rounded border border-slate-200 bg-white text-[11px]"
-                        />
-                        <span className="text-slate-400">to</span>
-                        <input
-                          type="date"
-                          value={stmtTo}
-                          onChange={(e) => setStmtTo(e.target.value)}
-                          className="px-2 py-1 rounded border border-slate-200 bg-white text-[11px]"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="divide-y divide-slate-100">
-                      {(customerDetail.ledger || []).map((entry: any) => (
-                        <div
-                          key={entry.id}
-                          onClick={() => {
-                            if (entry.invoice_id) setSelectedInvoiceId(entry.invoice_id);
-                          }}
-                          className={`px-4 py-3 flex items-center justify-between gap-3 text-xs ${
-                            entry.invoice_id ? "hover:bg-emerald-50/40 cursor-pointer" : ""
-                          }`}
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900 font-mono">
-                                {entry.reference}
-                              </span>
-                              <span className="text-[11px] text-slate-400">
-                                {formatDateTime(entry.date)}
-                              </span>
-                            </div>
-                            <p className="text-slate-600 mt-0.5">{entry.description}</p>
-                          </div>
-
-                          <div className="text-right shrink-0 space-y-0.5">
-                            {entry.debit > 0 && (
-                              <p className="font-bold text-amber-700 tabular-nums">
-                                + {formatPKR(entry.debit)}
-                              </p>
-                            )}
-                            {entry.credit > 0 && (
-                              <p className="font-bold text-emerald-700 tabular-nums">
-                                - {formatPKR(entry.credit)}
-                              </p>
-                            )}
-                            <p className="text-[11px] text-slate-500 tabular-nums">
-                              Bal: {formatPKR(entry.running_balance)}
-                            </p>
-                          </div>
+              {(customerDetail.ledger || []).length === 0 ? (
+                <p className="p-6 text-xs text-slate-400 text-center">
+                  No ledger entries matched this date range.
+                </p>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {(customerDetail.ledger || []).map((entry: any) => (
+                    <div
+                      key={entry.id}
+                      onClick={() => {
+                        if (entry.invoice_id) setSelectedInvoiceId(entry.invoice_id);
+                      }}
+                      className={`px-4 py-3 flex items-start justify-between gap-3 text-xs transition-colors ${
+                        entry.invoice_id ? "hover:bg-emerald-50/50 cursor-pointer" : ""
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-extrabold text-slate-900 font-mono">
+                            {entry.reference}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {formatDateTime(entry.date)}
+                          </span>
+                          {entry.invoice_id && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#009A4D] bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/70">
+                              <Receipt className="w-2.5 h-2.5" />
+                              View Receipt
+                            </span>
+                          )}
                         </div>
-                      ))}
+                        <p className="text-slate-600 mt-1">{entry.description}</p>
+                      </div>
+
+                      <div className="text-right shrink-0 space-y-0.5">
+                        {entry.debit > 0 && (
+                          <p className="font-extrabold text-amber-700 tabular-nums">
+                            + {formatPKR(entry.debit)}
+                          </p>
+                        )}
+                        {entry.credit > 0 && (
+                          <p className="font-extrabold text-emerald-700 tabular-nums">
+                            - {formatPKR(entry.credit)}
+                          </p>
+                        )}
+                        <p className="text-[11px] font-semibold text-slate-500 tabular-nums">
+                          Bal: {formatPKR(entry.running_balance)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </>
+                  ))}
+                </div>
               )}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </PortalSlideOver>
 
       {/* Linked Invoice Detail Drawer */}
       <InvoiceDetailDrawer
@@ -694,11 +824,8 @@ function KhataContent() {
 
 export default function PortalKhataPage() {
   return (
-    <Suspense
-      fallback={<div className="p-8 text-center text-xs text-slate-500">Loading Khata…</div>}
-    >
+    <Suspense fallback={<div className="p-8 text-center text-sm text-slate-500">Loading Customer Khata…</div>}>
       <KhataContent />
     </Suspense>
   );
 }
-
