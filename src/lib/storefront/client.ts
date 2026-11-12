@@ -310,6 +310,68 @@ export async function callStorefrontSyncApi<T = any>(
 }
 
 /**
+ * Evaluates whether a Storefront Worker record is actively allowed to sync & receive POS Online Orders.
+ */
+export function isStorefrontRecordOnlineOrdersActive(sf: Record<string, any> | null | undefined): boolean {
+  if (!sf) return false;
+  const status = String(sf.status || "").toLowerCase();
+  const websiteEnabled = Number(sf.website_enabled ?? 1) === 1;
+  const entitlement = String(sf.entitlement_status || "active").toLowerCase();
+  if (status !== "active" || !websiteEnabled) return false;
+  if (entitlement === "suspended" || entitlement === "expired" || entitlement === "none") {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Synchronizes `features.online_orders` (and bumps `license_version` when changed) on all POS
+ * licenses belonging to a pharmacy client/license whenever Super Admin provisions or toggles a storefront.
+ */
+export async function syncLicenseOnlineOrdersFeature(params: {
+  clientId?: string | null;
+  licenseId?: string | null;
+  enabled: boolean;
+}): Promise<number> {
+  const clientId = String(params.clientId || "").trim();
+  const licenseId = String(params.licenseId || "").trim();
+  if (!clientId && !licenseId) return 0;
+
+  const connectToDatabase = (await import("@/lib/db")).default;
+  const License = (await import("@/models/License")).default;
+  const Project = (await import("@/models/Project")).default;
+
+  await connectToDatabase();
+
+  const orClauses: Array<Record<string, any>> = [];
+  if (licenseId) orClauses.push({ id: licenseId });
+  if (clientId) {
+    orClauses.push({ client_id: clientId });
+    const projects = await Project.find({ client_id: clientId }).select({ id: 1 }).lean();
+    const projectIds = projects.map((p: any) => p.id).filter(Boolean);
+    if (projectIds.length > 0) {
+      orClauses.push({ project_id: { $in: projectIds } });
+    }
+  }
+  if (orClauses.length === 0) return 0;
+
+  const res = await License.updateMany(
+    {
+      $or: orClauses,
+      "features.online_orders": { $ne: params.enabled },
+    },
+    {
+      $set: {
+        "features.online_orders": params.enabled,
+        "features.storefront_enabled": params.enabled,
+      },
+      $inc: { license_version: 1 },
+    }
+  );
+  return Number((res as any)?.modifiedCount || 0);
+}
+
+/**
  * Strictly sanitizes a POS / OwnerPortalState product item into a public catalog delta item.
  * Never allows `cost_wac`, `cost_price`, `margin_pct`, `gross_profit_30d`, `last_purchase_cost`,
  * `last_supplier_name`, or controlled substances to be published.

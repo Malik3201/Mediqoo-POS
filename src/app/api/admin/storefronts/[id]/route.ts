@@ -8,8 +8,10 @@ import {
   callStorefrontSyncApi,
   getStorefrontPublicPreviewUrl,
   getStorefrontWorkerBaseUrl,
+  isStorefrontRecordOnlineOrdersActive,
   sanitizePortalProductForStorefront,
   signStorefrontSyncToken,
+  syncLicenseOnlineOrdersFeature,
   CURATED_APPROVED_STARTER_PRODUCTS,
   type StorefrontManagementActor,
 } from "@/lib/storefront/client";
@@ -90,6 +92,25 @@ export async function PATCH(
         body,
       }
     );
+    try {
+      let updatedSf = res.data?.storefront;
+      if (!updatedSf && res.ok) {
+        const detailsRes = await callStorefrontManageApi(
+          `/api/v1/manage/storefronts/${encodeURIComponent(id)}`,
+          { method: "GET", actor }
+        );
+        updatedSf = detailsRes.data?.storefront;
+      }
+      if (updatedSf) {
+        await syncLicenseOnlineOrdersFeature({
+          clientId: updatedSf.pharmacy_id,
+          licenseId: updatedSf.license_id,
+          enabled: isStorefrontRecordOnlineOrdersActive(updatedSf),
+        });
+      }
+    } catch {
+      // Non-blocking
+    }
     try {
       await dbConnect();
       await AuditLog.create({

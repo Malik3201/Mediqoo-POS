@@ -97,6 +97,7 @@ export async function POST(req: NextRequest) {
       client_id: string;
       project_id: string;
       status: string;
+      features?: Record<string, any>;
     }>();
 
     if (!license) {
@@ -118,6 +119,19 @@ export async function POST(req: NextRequest) {
           message: `POS license is currently ${license.status}.`,
         },
         { status: 403, headers: CORS }
+      );
+    }
+
+    if (license.features?.online_orders === false) {
+      return NextResponse.json(
+        {
+          ok: true,
+          connected: false,
+          status: "disabled_by_admin",
+          license_id: license.id,
+          message: "Online Orders feature is not enabled for this pharmacy license by Super Admin.",
+        },
+        { status: 200, headers: CORS }
       );
     }
 
@@ -268,12 +282,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (sf.status !== "active" || Number(sf.website_enabled) !== 1) {
+    if (
+      sf.status !== "active" ||
+      Number(sf.website_enabled) !== 1 ||
+      sf.entitlement_status === "suspended" ||
+      sf.entitlement_status === "expired" ||
+      sf.entitlement_status === "none"
+    ) {
       return NextResponse.json(
         {
           ok: true,
           connected: false,
-          status: sf.status || "disabled",
+          status: sf.entitlement_status === "suspended" ? "suspended" : sf.status || "disabled",
           pharmacy_id: verifiedClientId,
           pharmacy_name: sf.pharmacy_name || verifiedPharmacyName,
           license_id: license.id,

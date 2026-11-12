@@ -318,6 +318,31 @@ export default function LicensesPage() {
     }
   }
 
+  async function toggleOnlineOrders(lic: License) {
+    const currentVal =
+      lic.features?.online_orders === true ||
+      (lic.features?.online_orders === undefined && lic.features?.storefront_enabled === true);
+    try {
+      const res = await fetch(`/api/admin/licenses/${lic.id}/online-orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !currentVal })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to toggle POS Online Orders");
+
+      await queryClient.invalidateQueries({ queryKey: ["licenses"] });
+
+      toast.success(
+        data.changed
+          ? `POS Online Orders ${!currentVal ? "enabled" : "disabled"}`
+          : "POS Online Orders state already matches"
+      );
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  }
+
   async function remove(id: string) {
     if (!confirm("Delete this license permanently?")) return;
     try {
@@ -472,19 +497,20 @@ export default function LicensesPage() {
               <TableHead>Status</TableHead>
               <TableHead>Cloud</TableHead>
               <TableHead>Backup</TableHead>
+              <TableHead>Online Orders</TableHead>
               <TableHead className="w-[180px] text-right" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                   No licenses found. Issue one to get started.
                 </TableCell>
               </TableRow>
@@ -586,6 +612,19 @@ export default function LicensesPage() {
                           <ShieldCheck className="h-4 w-4" />
                         </Button>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs px-2"
+                        onClick={() => toggleOnlineOrders(r)}
+                      >
+                        {r.features?.online_orders === true ||
+                        (r.features?.online_orders === undefined && r.features?.storefront_enabled === true)
+                          ? "Allowed"
+                          : "Disabled"}
+                      </Button>
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">

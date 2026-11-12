@@ -10,7 +10,9 @@ import {
   callStorefrontManageApi,
   callStorefrontSyncApi,
   getStorefrontPublicPreviewUrl,
+  isStorefrontRecordOnlineOrdersActive,
   sanitizePortalProductForStorefront,
+  syncLicenseOnlineOrdersFeature,
   type StorefrontManagementActor,
 } from "@/lib/storefront/client";
 import { syncPosProjectLogoToStorefront } from "@/lib/storefront/pos-logo-sync";
@@ -328,6 +330,17 @@ export async function POST(req: NextRequest) {
   }
 
   const createdSf = createRes.data.storefront;
+
+  // Synchronize POS Online Orders license entitlement with newly provisioned storefront status
+  try {
+    await syncLicenseOnlineOrdersFeature({
+      clientId: createdSf.pharmacy_id,
+      licenseId: createdSf.license_id,
+      enabled: isStorefrontRecordOnlineOrdersActive(createdSf),
+    });
+  } catch {
+    // Non-blocking if license record is absent in dev
+  }
 
   // Automatically sync POS project logo onto newly provisioned website if available
   try {

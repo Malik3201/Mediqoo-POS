@@ -213,9 +213,66 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── Online Orders entitlement (strictly Super-Admin controlled) ──
+    let onlineOrdersEnabled = false;
+    const isOperational =
+      effective_status !== "blocked" &&
+      effective_status !== "suspended" &&
+      effective_status !== "revoked";
+
+    if (isOperational) {
+      if (typeof license.features?.online_orders === "boolean") {
+        onlineOrdersEnabled = license.features.online_orders === true;
+      } else {
+        // One-time backfill for existing pharmacies from authoritative Storefront Worker status
+        try {
+          const Project = (await import("@/models/Project")).default;
+          const {
+            callStorefrontManageApi,
+            getStorefrontConfigStatus,
+            isStorefrontRecordOnlineOrdersActive,
+          } = await import("@/lib/storefront/client");
+
+          let resolvedClientId = String(license.client_id || "").trim();
+          if (!resolvedClientId && license.project_id) {
+            const proj = await Project.findOne({ id: license.project_id }).select({ client_id: 1 }).lean<{ client_id?: string }>();
+            if (proj?.client_id) resolvedClientId = String(proj.client_id).trim();
+          }
+
+          if (resolvedClientId && getStorefrontConfigStatus().configured) {
+            const sfRes = await callStorefrontManageApi(
+              `/api/v1/manage/storefronts/by-pharmacy/${encodeURIComponent(resolvedClientId)}`,
+              {
+                method: "GET",
+                actor: {
+                  actorType: "portal_owner",
+                  actorId: `lic_status_${seat.id}`,
+                  actorEmail: "pos-license-status@aivrasol",
+                  scopedPharmacyId: resolvedClientId,
+                },
+              }
+            );
+            if (sfRes.ok) {
+              onlineOrdersEnabled = Boolean(
+                sfRes.data?.exists && isStorefrontRecordOnlineOrdersActive(sfRes.data?.storefront)
+              );
+              await License.updateOne(
+                { id: license.id, "features.online_orders": { $exists: false } },
+                { $set: { "features.online_orders": onlineOrdersEnabled } }
+              );
+            }
+          }
+        } catch {
+          // Non-blocking: default to false if Worker unreachable and feature not explicitly enabled
+          onlineOrdersEnabled = false;
+        }
+      }
+    }
+
     const payload = {
       cloud_dashboard_enabled: isCloudDashboardEnabled(license),
       cloud_backup_enabled: license.features?.cloud_backup === true,
+      online_orders_enabled: onlineOrdersEnabled,
       effective_status,
       expires_at: license.expires_at ? license.expires_at.toISOString() : null,
       grace_until: license.grace_until ? license.grace_until.toISOString() : null,
