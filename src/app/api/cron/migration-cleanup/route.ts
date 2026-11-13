@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runScheduledStorageMaintenance } from "@/app/api/cron/storage-maintenance/route";
+import { runScheduledStorageMaintenance } from "@/lib/storage/maintenance";
 
 export const maxDuration = 300;
 

@@ -241,9 +241,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === "update_settings") {
+    const payload = { ...(body.payload || body) };
+    if (payload.auto_sync_all_products && !payload.publishing_mode) {
+      payload.publishing_mode = "in_stock_approved";
+    }
     const res = await callStorefrontManageApi(
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/settings`,
-      { method: "PUT", actor, body: body.payload || body }
+      { method: "PUT", actor, body: payload }
     );
     return NextResponse.json(res.data, { status: res.status });
   }
@@ -263,7 +267,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(res.data, { status: res.status });
   }
 
-  if (action === "update_product_publishing") {
+  if (action === "update_product_publishing" || action === "batch_publish_products") {
     const res = await callStorefrontManageApi(
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/products/publishing`,
       { method: "PUT", actor, body: { items: body.items || [] } }

@@ -73,6 +73,7 @@ export default function PortalMyWebsitePage() {
   // Settings & Delivery Form State
   const [settingsForm, setSettingsForm] = useState({
     catalog_mode: "inventory_first",
+    auto_sync_all_products: true,
     hide_out_of_stock: false,
     show_stock_badges: true,
     allow_rx_inquiries: true,
@@ -219,6 +220,7 @@ export default function PortalMyWebsitePage() {
         const hrs = s.opening_hours || {};
         setSettingsForm({
           catalog_mode: s.catalog_mode || "inventory_first",
+          auto_sync_all_products: Boolean(s.auto_sync_all_products || s.publishing_mode === "in_stock_approved"),
           hide_out_of_stock: Number(s.hide_out_of_stock || 0) === 1,
           show_stock_badges: Number(s.show_stock_badges ?? 1) === 1,
           allow_rx_inquiries: Number(s.allow_rx_inquiries ?? 1) === 1,
@@ -1327,6 +1329,55 @@ export default function PortalMyWebsitePage() {
           {/* =============================================================== */}
           {activeTab === "products" && (
             <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-3.5 sm:p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={async () => {
+                      const nextVal = !settingsForm.auto_sync_all_products;
+                      setSettingsForm((s) => ({ ...s, auto_sync_all_products: nextVal }));
+                      await postWebsiteAction("update_settings", {
+                        payload: {
+                          ...settingsForm,
+                          auto_sync_all_products: nextVal,
+                          publishing_mode: nextVal ? "in_stock_approved" : "manual_only",
+                        },
+                      });
+                      notify(nextVal ? "Auto-Sync Enabled: POS will automatically publish all active medicines" : "Auto-Sync Disabled: Reverted to manual item approval");
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition ${
+                      settingsForm.auto_sync_all_products
+                        ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${settingsForm.auto_sync_all_products ? "text-emerald-100" : "text-slate-400"}`} />
+                    Auto-Sync POS Inventory: {settingsForm.auto_sync_all_products ? "ON" : "OFF"}
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={saving || products.length === 0}
+                    onClick={async () => {
+                      await postWebsiteAction("update_product_publishing", {
+                        items: products.map((p) => ({ pos_product_id: p.pos_product_id, publish_status: "published" })),
+                      });
+                      notify(`Published all ${products.length} medicines to website live catalog`);
+                      await loadWebsiteStatus();
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    Publish All Synced Medicines ({products.length})
+                  </button>
+                </div>
+
+                <div className="text-xs text-slate-500 font-medium">
+                  <strong className="text-emerald-700 font-bold">{products.filter((p) => p.publish_status === "published").length}</strong> of {products.length} published on website
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-slate-200/90 bg-white p-3.5 sm:p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
                 <div className="relative flex-1">
                   <Search className="h-4 w-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -3142,6 +3193,19 @@ export default function PortalMyWebsitePage() {
                       }
                     />
                     <span>Enable Post-Checkout WhatsApp Order Sharing</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={settingsForm.auto_sync_all_products}
+                      onChange={(e) =>
+                        setSettingsForm((s) => ({
+                          ...s,
+                          auto_sync_all_products: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span>Auto-Sync All POS Products to Website (Auto-publish active inventory)</span>
                   </label>
                 </div>
 

@@ -350,6 +350,78 @@ export default function PharmacyWebsitesAdminPage() {
     }
   };
 
+  const handleToggleAutoSyncPolicy = async () => {
+    if (!selectedStorefrontId || !detailsData) return;
+    setActionBusy(true);
+    setBannerNotice(null);
+    try {
+      const currentAutoSync = Boolean(
+        detailsData.settings?.auto_sync_all_products ||
+        detailsData.settings?.publishing_mode === "in_stock_approved"
+      );
+      const nextAutoSync = !currentAutoSync;
+      const res = await fetch(`/api/admin/storefronts/${encodeURIComponent(selectedStorefrontId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: "settings",
+          auto_sync_all_products: nextAutoSync ? 1 : 0,
+          publishing_mode: nextAutoSync ? "in_stock_approved" : "manual_only",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || data.error || "Failed to update catalog sync policy");
+      }
+      setBannerNotice({
+        type: "success",
+        text: nextAutoSync
+          ? "Enabled Auto-Sync: POS will automatically publish and synchronize all active inventory medicines to the website."
+          : "Disabled Auto-Sync: Website catalog publishing reverted to manual item approval.",
+      });
+      await loadStorefrontDetails(selectedStorefrontId);
+    } catch (err: any) {
+      setBannerNotice({ type: "error", text: err.message || "Failed to update auto-sync policy" });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handlePublishAllStorefrontProducts = async (storefrontId: string) => {
+    const products = detailsData?.products || [];
+    if (products.length === 0) return;
+    setActionBusy(true);
+    setBannerNotice(null);
+    try {
+      const items = products.map((p: any) => ({
+        pos_product_id: p.pos_product_id,
+        publish_status: "published",
+      }));
+      const res = await fetch(`/api/admin/storefronts/${encodeURIComponent(storefrontId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section: "publishing",
+          items,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || "Failed to publish all products");
+      }
+      setBannerNotice({
+        type: "success",
+        text: `Published all ${data.updated_count || items.length} synced medicines to the website live catalog.`,
+      });
+      await loadStorefrontDetails(storefrontId);
+      await fetchDashboardData();
+    } catch (err: any) {
+      setBannerNotice({ type: "error", text: err.message });
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleRenameSlug = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStorefrontId || !renameSlugValue.trim()) return;
@@ -1922,6 +1994,39 @@ export default function PharmacyWebsitesAdminPage() {
                     </div>
 
                     <div className="pt-3 border-t space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-semibold text-foreground">Allow Auto POS Catalog Sync</div>
+                          <p className="text-[11px] text-muted-foreground">
+                            Auto-publish all active POS inventory medicines to website without manual 1-by-1 clicks.
+                          </p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant={
+                            detailsData.settings?.auto_sync_all_products ||
+                            detailsData.settings?.publishing_mode === "in_stock_approved"
+                              ? "default"
+                              : "outline"
+                          }
+                          className={
+                            detailsData.settings?.auto_sync_all_products ||
+                            detailsData.settings?.publishing_mode === "in_stock_approved"
+                              ? "bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-7 shrink-0"
+                              : "text-xs h-7 shrink-0"
+                          }
+                          disabled={actionBusy}
+                          onClick={handleToggleAutoSyncPolicy}
+                        >
+                          {detailsData.settings?.auto_sync_all_products ||
+                          detailsData.settings?.publishing_mode === "in_stock_approved"
+                            ? "Auto-Sync: ON"
+                            : "Auto-Sync: OFF"}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t space-y-1.5">
                       <div className="font-medium">Recent Sync Events</div>
                       {(detailsData.sync_health?.recent_events || []).length === 0 ? (
                         <p className="text-muted-foreground">No sync deltas received yet.</p>
@@ -1990,14 +2095,24 @@ export default function PharmacyWebsitesAdminPage() {
                       margin, and supplier data are never stored in D1.
                     </CardDescription>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={actionBusy}
-                    onClick={() => handleSyncApprovedCatalog(detailsData.storefront.id)}
-                  >
-                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Sync Starter Catalog
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={actionBusy || (detailsData.products || []).length === 0}
+                      onClick={() => handlePublishAllStorefrontProducts(detailsData.storefront.id)}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-emerald-600" /> Publish All ({(detailsData.products || []).length})
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={actionBusy}
+                      onClick={() => handleSyncApprovedCatalog(detailsData.storefront.id)}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Sync Starter Catalog
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">

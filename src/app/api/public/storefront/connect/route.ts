@@ -271,6 +271,7 @@ export async function POST(req: NextRequest) {
     }
 
     const sf = sfRes.data.storefront;
+    const sfSettings = sfRes.data.settings;
     if (sf.pharmacy_id !== verifiedClientId) {
       return NextResponse.json(
         {
@@ -329,6 +330,11 @@ export async function POST(req: NextRequest) {
         sync_token: syncToken,
         published_products_count: Number(sf.published_products_count || 0),
         last_sync_at: sf.last_catalog_sync_at || null,
+        auto_sync_all_products: Boolean(
+          sfSettings?.auto_sync_all_products ||
+          sfSettings?.publishing_mode === "in_stock_approved"
+        ),
+        publishing_mode: sfSettings?.publishing_mode || "manual_only",
       },
       { status: 200, headers: CORS }
     );
