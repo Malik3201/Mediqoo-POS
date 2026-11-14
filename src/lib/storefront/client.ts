@@ -32,6 +32,8 @@ const DEV_FALLBACK_WORKER_URL = "http://localhost:8787";
 const DEV_FALLBACK_ADMIN_SECRET = "aivrasol-storefront-dev-admin-secret-2026";
 const DEV_FALLBACK_SYNC_SECRET = "aivrasol-storefront-dev-sync-secret-2026";
 
+const STAGING_FALLBACK_WORKER_URL = "https://aivrasol-storefront-staging.aivrasol-storefront.workers.dev";
+
 export function isProductionDeployment(): boolean {
   return process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
 }
@@ -60,7 +62,7 @@ export function getStorefrontConfigStatus(): StorefrontConfigStatus {
     if (!hasSyncSecret) missingEnvVars.push("STOREFRONT_SYNC_SECRET");
   }
 
-  const effectiveUrl = isProd ? rawUrl : rawUrl || DEV_FALLBACK_WORKER_URL;
+  const effectiveUrl = rawUrl || (isProd ? STAGING_FALLBACK_WORKER_URL : DEV_FALLBACK_WORKER_URL);
 
   return {
     configured: isProd ? missingEnvVars.length === 0 : Boolean(effectiveUrl),
@@ -118,17 +120,17 @@ export function getStorefrontPublicPreviewUrl(slug: string, primaryDomain?: stri
 }
 
 function getAdminSecret(): string {
-  if (isProductionDeployment()) {
-    return (process.env.STOREFRONT_ADMIN_SECRET || "").trim();
-  }
-  return (process.env.STOREFRONT_ADMIN_SECRET || "").trim() || DEV_FALLBACK_ADMIN_SECRET;
+  const secret = (process.env.STOREFRONT_ADMIN_SECRET || "").trim();
+  if (secret) return secret;
+  return DEV_FALLBACK_ADMIN_SECRET;
 }
 
 function getSyncSecret(): string {
-  if (isProductionDeployment()) {
-    return (process.env.STOREFRONT_SYNC_SECRET || "").trim();
-  }
-  return (process.env.STOREFRONT_SYNC_SECRET || "").trim() || DEV_FALLBACK_SYNC_SECRET;
+  const syncSecret = (process.env.STOREFRONT_SYNC_SECRET || "").trim();
+  if (syncSecret) return syncSecret;
+  const adminSecret = (process.env.STOREFRONT_ADMIN_SECRET || "").trim();
+  if (adminSecret) return adminSecret;
+  return DEV_FALLBACK_SYNC_SECRET;
 }
 
 export function signStorefrontManagementToken(

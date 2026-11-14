@@ -1096,6 +1096,8 @@ export default function CentralMedicineImagesPage() {
                           <img
                             src={med.preferred_image_url!}
                             alt={med.canonical_name}
+                            crossOrigin="anonymous"
+                            referrerPolicy="no-referrer"
                             className="max-h-full max-w-full object-contain p-2"
                             loading="lazy"
                             onError={(e) => {

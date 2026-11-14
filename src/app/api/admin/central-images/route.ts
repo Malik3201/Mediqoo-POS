@@ -9,8 +9,11 @@ import {
 function qualifyMediaUrl(url: string | null | undefined, workerBase: string): string | null {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("/")) return `${workerBase}${url}`;
-  return url;
+  const base = workerBase && workerBase.startsWith("http")
+    ? workerBase.replace(/\/+$/, "")
+    : "https://aivrasol-storefront-staging.aivrasol-storefront.workers.dev";
+  if (url.startsWith("/")) return `${base}${url}`;
+  return `${base}/${url}`;
 }
 
 export async function GET(req: NextRequest) {
