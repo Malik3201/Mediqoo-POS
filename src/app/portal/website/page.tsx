@@ -29,6 +29,11 @@ import {
   Copy,
   FileText,
   CreditCard,
+  Camera,
+  RotateCcw,
+  Share2,
+  Layers,
+  Image as ImageIcon,
 } from "lucide-react";
 import {
   optimizeImageForStorefront,
@@ -177,6 +182,14 @@ export default function PortalMyWebsitePage() {
     pairing_code: string;
     expires_at: string;
   } | null>(null);
+
+  // Central Medicine Image Library State
+  const [sharedLibraryModalOpen, setSharedLibraryModalOpen] = useState(false);
+  const [sharedLibQuery, setSharedLibQuery] = useState("");
+  const [sharedLibLoading, setSharedLibLoading] = useState(false);
+  const [sharedLibItems, setSharedLibItems] = useState<any[]>([]);
+  const [matchingCentralImages, setMatchingCentralImages] = useState(false);
+  const [submittingToLibrary, setSubmittingToLibrary] = useState(false);
 
   const notify = (msg: string) => {
     setActionToast(msg);
@@ -353,6 +366,173 @@ export default function PortalMyWebsitePage() {
       notify(err.message || "Image optimization failed");
     } finally {
       setUploadingImage(false);
+    }
+  }
+
+  async function handleUploadOwnerPhoto(file: File) {
+    if (!editingProduct) return;
+    setUploadingImage(true);
+    try {
+      const optimized = await optimizeImageForStorefront(file, "product");
+      const uploadRes = await postWebsiteAction("upload_media", {
+        payload: {
+          asset_purpose: "product",
+          original_filename: file.name,
+          mime_type: optimized.mimeType,
+          byte_size: optimized.byteSize,
+          width: optimized.width,
+          height: optimized.height,
+          sha256_hex: optimized.sha256Hex,
+          base64_data: optimized.base64Data,
+          entity_type: "product",
+          entity_id: editingProduct.id,
+        },
+      });
+
+      const mediaId = uploadRes?.media?.id;
+      const publicUrl = uploadRes?.media?.public_url || optimized.previewDataUrl;
+
+      if (publicUrl) {
+        await postWebsiteAction("assign_product_image", {
+          pos_product_id: editingProduct.pos_product_id || editingProduct.id,
+          action: "set_owner_override",
+          media_id: mediaId,
+          image_url: publicUrl,
+        });
+
+        setEditingProduct((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                primary_image_url: publicUrl,
+                selected_media_id: mediaId,
+                image_source: "owner_override",
+              }
+            : null
+        );
+        notify(`Uploaded pharmacy photo (${(optimized.byteSize / 1024).toFixed(1)} KB WebP)`);
+      }
+    } catch (err: any) {
+      notify(err.message || "Failed to upload photo");
+    } finally {
+      setUploadingImage(false);
+    }
+  }
+
+  async function handleRevertToShared() {
+    if (!editingProduct) return;
+    try {
+      const res = await postWebsiteAction("assign_product_image", {
+        pos_product_id: editingProduct.pos_product_id || editingProduct.id,
+        action: "revert_to_shared",
+      });
+      if (res?.ok) {
+        setEditingProduct((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                primary_image_url: res.image_url,
+                image_source: res.image_source,
+                selected_media_id: null,
+              }
+            : null
+        );
+        notify(
+          res.image_url
+            ? "Restored central verified library image"
+            : "Removed custom photo (using category placeholder)"
+        );
+      }
+    } catch (err: any) {
+      notify(err.message || "Failed to revert image");
+    }
+  }
+
+  async function handleSubmitToLibrary() {
+    if (!editingProduct) return;
+    if (!editingProduct.selected_media_id && !editingProduct.primary_image_url) {
+      notify("No custom media found to submit.");
+      return;
+    }
+    setSubmittingToLibrary(true);
+    try {
+      const res = await postWebsiteAction("assign_product_image", {
+        pos_product_id: editingProduct.pos_product_id || editingProduct.id,
+        action: "submit_for_library",
+        media_id: editingProduct.selected_media_id,
+      });
+      if (res?.ok) {
+        notify("Photo submitted to Central Library! Super Admin will review it for shared use.");
+      }
+    } catch (err: any) {
+      notify(err.message || "Failed to submit photo");
+    } finally {
+      setSubmittingToLibrary(false);
+    }
+  }
+
+  async function searchSharedLibrary(query = "") {
+    setSharedLibLoading(true);
+    try {
+      const res = await postWebsiteAction("browse_shared_library", { query });
+      if (res?.ok && Array.isArray(res.medicines)) {
+        setSharedLibItems(res.medicines);
+      } else {
+        setSharedLibItems([]);
+      }
+    } catch (err: any) {
+      notify(err.message || "Failed to search library");
+    } finally {
+      setSharedLibLoading(false);
+    }
+  }
+
+  async function handleSelectSharedMedicine(med: any) {
+    if (!editingProduct) return;
+    try {
+      const res = await postWebsiteAction("assign_product_image", {
+        pos_product_id: editingProduct.pos_product_id || editingProduct.id,
+        action: "select_shared",
+        media_id: med.preferred_media_id,
+        canonical_id: med.id,
+      });
+      if (res?.ok) {
+        setEditingProduct((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                primary_image_url: med.preferred_image_url,
+                image_source: "shared_library",
+                selected_media_id: med.preferred_media_id,
+                canonical_medicine_id: med.id,
+              }
+            : null
+        );
+        setSharedLibraryModalOpen(false);
+        notify(`Linked verified image for ${med.canonical_name}`);
+      }
+    } catch (err: any) {
+      notify(err.message || "Failed to link shared image");
+    }
+  }
+
+  async function handleBatchMatchCatalog() {
+    setMatchingCentralImages(true);
+    try {
+      const res = await postWebsiteAction("batch_match_catalog");
+      if (res?.ok) {
+        notify(
+          res.matched > 0
+            ? `Matched ${res.matched} products to Central Verified Library images!`
+            : "Catalog checked — products already up-to-date with central images."
+        );
+      } else {
+        notify(res?.message || "Matching completed");
+      }
+    } catch (err: any) {
+      notify(err.message || "Failed to batch match images");
+    } finally {
+      setMatchingCentralImages(false);
     }
   }
 
@@ -1371,6 +1551,16 @@ export default function PortalMyWebsitePage() {
                     <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
                     Publish All Synced Medicines ({products.length})
                   </button>
+
+                  <button
+                    type="button"
+                    disabled={saving || matchingCentralImages}
+                    onClick={handleBatchMatchCatalog}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 text-xs font-bold transition"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-sky-600" />
+                    {matchingCentralImages ? "Matching Central Images..." : "Auto-Match Central Images"}
+                  </button>
                 </div>
 
                 <div className="text-xs text-slate-500 font-medium">
@@ -1430,9 +1620,26 @@ export default function PortalMyWebsitePage() {
 
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-2">
-                              <p className="text-sm font-extrabold text-slate-900 leading-snug">
-                                {prod.name}
-                              </p>
+                              <div>
+                                <p className="text-sm font-extrabold text-slate-900 leading-snug">
+                                  {prod.name}
+                                </p>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                  {prod.image_source === "shared_library" ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                                      <Sparkles className="h-2.5 w-2.5" /> Shared Image
+                                    </span>
+                                  ) : prod.image_source === "owner_override" ? (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-bold">
+                                      <Camera className="h-2.5 w-2.5" /> Owner Photo
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-md bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-medium">
+                                      Placeholder
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                               <button
                                 type="button"
                                 disabled={saving}
@@ -1595,7 +1802,18 @@ export default function PortalMyWebsitePage() {
                                   </div>
                                 )}
                                 <div>
-                                  <div className="font-bold text-slate-900">{prod.name}</div>
+                                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                                    <span>{prod.name}</span>
+                                    {prod.image_source === "shared_library" ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-[10px]">
+                                        <Sparkles className="h-2.5 w-2.5" /> Shared
+                                      </span>
+                                    ) : prod.image_source === "owner_override" ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded bg-sky-50 text-sky-700 border border-sky-200 font-bold text-[10px]">
+                                        <Camera className="h-2.5 w-2.5" /> Owner
+                                      </span>
+                                    ) : null}
+                                  </div>
                                   <div className="text-[11px] text-slate-500">
                                     {prod.generic_name || prod.sku_code}
                                     {Number(prod.requires_prescription || 0) === 1 && (
@@ -1742,33 +1960,104 @@ export default function PortalMyWebsitePage() {
                       </button>
                     </div>
 
-                    {/* Product WebP Photo Upload */}
-                    <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
-                      <div className="text-xs">
-                        <div className="font-bold text-slate-800">Medicine Package Image</div>
-                        <div className="text-[11px] text-slate-500">
-                          Browser-optimized WebP (target 40–90 KB, sharp medicine label text)
+                    {/* Medicine Packaging Image & Central Library Management */}
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                            <ImageIcon className="h-4 w-4 text-emerald-600" />
+                            <span>Medicine Packaging Image</span>
+                          </div>
+                          <div className="text-[11px]">
+                            {editingProduct.image_source === "shared_library" ? (
+                              <span className="text-emerald-700 font-semibold inline-flex items-center gap-1">
+                                <Sparkles className="h-3 w-3" /> Using Central Verified Image (Shared across pharmacies)
+                              </span>
+                            ) : editingProduct.image_source === "owner_override" ? (
+                              <span className="text-sky-700 font-semibold inline-flex items-center gap-1">
+                                <Camera className="h-3 w-3" /> Using Your Pharmacy's Custom Photo (Private override)
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 font-medium">
+                                Using Professional Category Placeholder (No packaging photo linked)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Thumbnail preview */}
+                        <div className="shrink-0">
+                          {editingProduct.primary_image_url ? (
+                            <img
+                              src={resolvePortalMediaUrl(editingProduct.primary_image_url)}
+                              alt={editingProduct.name}
+                              className="w-14 h-14 rounded-xl object-contain border border-slate-200 bg-white p-1 shadow-xs"
+                            />
+                          ) : (
+                            <div className="w-14 h-14 rounded-xl bg-slate-200/80 text-slate-500 flex flex-col items-center justify-center font-bold text-[10px] border border-slate-300">
+                              <ImageIcon className="h-4 w-4 text-slate-400 mb-0.5" />
+                              <span>{String(editingProduct.dosage_form || "MED").slice(0, 3).toUpperCase()}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <label className="cursor-pointer inline-flex items-center gap-1.5 rounded-xl bg-slate-900 text-white px-3 py-1.5 text-xs font-bold">
-                        <Upload className="h-3.5 w-3.5" />
-                        <span>{uploadingImage ? "Uploading…" : "Upload Photo"}</span>
-                        <input
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp"
-                          className="hidden"
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            if (f) {
-                              void handleWebPImageUpload(f, "product", editingProduct.id, (url) => {
-                                setEditingProduct((prev: any) =>
-                                  prev ? { ...prev, primary_image_url: url } : null
-                                );
-                              });
-                            }
+
+                      {/* Action Buttons Grid */}
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        {/* Upload Own Photo */}
+                        <label className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 text-white px-3 py-2 text-xs font-bold hover:bg-slate-800 transition">
+                          <Upload className="h-3.5 w-3.5" />
+                          <span>{uploadingImage ? "Optimizing..." : "Upload Own Photo"}</span>
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp"
+                            className="hidden"
+                            disabled={uploadingImage}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) void handleUploadOwnerPhoto(f);
+                              e.currentTarget.value = "";
+                            }}
+                          />
+                        </label>
+
+                        {/* Browse Central Shared Library */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const query = editingProduct.generic_name || editingProduct.brand_name || editingProduct.name;
+                            setSharedLibQuery(query);
+                            void searchSharedLibrary(query);
+                            setSharedLibraryModalOpen(true);
                           }}
-                        />
-                      </label>
+                          className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 px-3 py-2 text-xs font-bold hover:bg-emerald-100 transition"
+                        >
+                          <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                          <span>Browse Central Library</span>
+                        </button>
+                      </div>
+
+                      {/* Contextual actions: Revert to Shared / Contribute to Central */}
+                      {editingProduct.image_source === "owner_override" && (
+                        <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
+                          <button
+                            type="button"
+                            onClick={handleRevertToShared}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
+                          >
+                            <RotateCcw className="h-3 w-3" /> Revert to Central Shared Image
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={submittingToLibrary}
+                            onClick={handleSubmitToLibrary}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800"
+                          >
+                            <Share2 className="h-3 w-3" /> {submittingToLibrary ? "Submitting..." : "Submit Photo to Central Library"}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -1826,6 +2115,126 @@ export default function PortalMyWebsitePage() {
                         className="px-4 py-2 rounded-xl bg-[#009A4D] text-white text-xs font-bold"
                       >
                         Save Product Changes
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Browse Central Library Modal */}
+              {sharedLibraryModalOpen && (
+                <div
+                  className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4"
+                  onClick={() => setSharedLibraryModalOpen(false)}
+                >
+                  <div
+                    className="bg-white rounded-2xl max-w-2xl w-full max-h-[85dvh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-emerald-600" />
+                          Central Verified Medicine Library
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Select a verified packaging image to use for{" "}
+                          <strong className="text-slate-700">{editingProduct?.name}</strong>
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSharedLibraryModalOpen(false)}
+                        className="text-slate-400 hover:text-slate-700 font-bold p-1 text-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Search Input */}
+                    <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="h-4 w-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={sharedLibQuery}
+                          onChange={(e) => setSharedLibQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void searchSharedLibrary(sharedLibQuery);
+                          }}
+                          placeholder="Search by brand name, generic salt, strength..."
+                          className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#009A4D]"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void searchSharedLibrary(sharedLibQuery)}
+                        className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+                      >
+                        Search
+                      </button>
+                    </div>
+
+                    {/* Medicines Grid */}
+                    <div className="p-4 overflow-y-auto flex-1 portal-scroll divide-y divide-slate-100">
+                      {sharedLibLoading ? (
+                        <div className="py-12 text-center text-xs text-slate-500">
+                          <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-emerald-600" />
+                          Searching Central Library...
+                        </div>
+                      ) : sharedLibItems.length === 0 ? (
+                        <div className="py-12 text-center text-xs text-slate-500">
+                          No verified medicines with images found matching "{sharedLibQuery}".
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {sharedLibItems.map((med: any) => (
+                            <div
+                              key={med.id}
+                              className="p-3 rounded-xl border border-slate-200 bg-white hover:border-emerald-300 hover:shadow-xs transition flex items-center gap-3"
+                            >
+                              {med.preferred_image_url ? (
+                                <img
+                                  src={resolvePortalMediaUrl(med.preferred_image_url)}
+                                  alt={med.canonical_name}
+                                  className="w-14 h-14 rounded-lg object-contain border border-slate-100 bg-slate-50 p-1 shrink-0"
+                                />
+                              ) : (
+                                <div className="w-14 h-14 rounded-lg bg-slate-100 text-slate-400 flex items-center justify-center font-bold text-xs shrink-0">
+                                  MED
+                                </div>
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-xs text-slate-900 truncate">
+                                  {med.canonical_name}
+                                </div>
+                                <div className="text-[10px] text-slate-500 truncate">
+                                  {med.generic_name} {med.strength && `· ${med.strength}`}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  {med.dosage_form} {med.pack_size ? `· Pack of ${med.pack_size}` : ""}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSelectSharedMedicine(med)}
+                                  className="mt-2 px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[10px] hover:bg-emerald-700"
+                                >
+                                  Use This Image
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-3 border-t border-slate-100 bg-slate-50 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setSharedLibraryModalOpen(false)}
+                        className="px-4 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-100"
+                      >
+                        Close
                       </button>
                     </div>
                   </div>

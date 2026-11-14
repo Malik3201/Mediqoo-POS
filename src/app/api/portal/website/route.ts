@@ -283,6 +283,32 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(res.data, { status: res.status });
   }
 
+  if (action === "assign_product_image") {
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/products/${encodeURIComponent(body.pos_product_id || body.product_id)}/assign-image`,
+      { method: "POST", actor, body: body.payload || body }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "browse_shared_library") {
+    const q = body.query ? String(body.query).trim() : "";
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/central-library/medicines?has_image=1&limit=30&q=${encodeURIComponent(q)}`,
+      { actor }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "batch_match_catalog") {
+    const res = await callStorefrontManageApi("/api/v1/manage/central-library/batch-match", {
+      method: "POST",
+      actor,
+      body: { storefront_id: sfId, batch_size: body.batch_size || 100, offset: body.offset || 0 },
+    });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
   if (action === "upload_media") {
     const res = await callStorefrontManageApi(
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/media`,

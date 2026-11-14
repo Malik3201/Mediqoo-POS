@@ -24,6 +24,7 @@ import {
   MapPin,
   Cloud,
   Globe,
+  Images,
 } from "lucide-react";
 
 import {
@@ -42,6 +43,7 @@ import {
 const primary = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Pharmacy Websites", url: "/pharmacy-websites", icon: Globe },
+  { title: "Central Medicine Images", url: "/central-images", icon: Images },
   { title: "POS Live Map", url: "/pos-map", icon: MapPin },
   { title: "Clients", url: "/clients", icon: Building2 },
   { title: "Projects", url: "/projects", icon: FolderKanban },
