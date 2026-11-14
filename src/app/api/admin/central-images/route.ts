@@ -2,8 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/ai/admin-auth";
 import {
   callStorefrontManageApi,
+  getStorefrontWorkerBaseUrl,
   type StorefrontManagementActor,
 } from "@/lib/storefront/client";
+
+function qualifyMediaUrl(url: string | null | undefined, workerBase: string): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("/")) return `${workerBase}${url}`;
+  return url;
+}
 
 export async function GET(req: NextRequest) {
   const auth = await requireSuperAdmin(req);
@@ -31,6 +39,14 @@ export async function GET(req: NextRequest) {
     const res = await callStorefrontManageApi(`/api/v1/manage/central-library/medicines?${qs}`, {
       actor,
     });
+    const workerBase = getStorefrontWorkerBaseUrl();
+    if (res.data && typeof res.data === "object" && Array.isArray((res.data as any).medicines)) {
+      const fixed = (res.data as any).medicines.map((m: any) => ({
+        ...m,
+        preferred_image_url: qualifyMediaUrl(m.preferred_image_url, workerBase),
+      }));
+      return NextResponse.json({ ...res.data, medicines: fixed }, { status: res.status });
+    }
     return NextResponse.json(res.data, { status: res.status });
   }
 
@@ -40,6 +56,14 @@ export async function GET(req: NextRequest) {
       `/api/v1/manage/central-library/submissions?status=${encodeURIComponent(status)}`,
       { actor }
     );
+    const workerBase = getStorefrontWorkerBaseUrl();
+    if (res.data && typeof res.data === "object" && Array.isArray((res.data as any).submissions)) {
+      const fixed = (res.data as any).submissions.map((s: any) => ({
+        ...s,
+        media_url: qualifyMediaUrl(s.media_url, workerBase),
+      }));
+      return NextResponse.json({ ...res.data, submissions: fixed }, { status: res.status });
+    }
     return NextResponse.json(res.data, { status: res.status });
   }
 
@@ -75,6 +99,16 @@ export async function POST(req: NextRequest) {
       actor,
       body: body.payload || body,
     });
+    const workerBase = getStorefrontWorkerBaseUrl();
+    if (res.data && typeof res.data === "object" && (res.data as any).public_url) {
+      return NextResponse.json(
+        {
+          ...res.data,
+          public_url: qualifyMediaUrl((res.data as any).public_url, workerBase),
+        },
+        { status: res.status }
+      );
+    }
     return NextResponse.json(res.data, { status: res.status });
   }
 

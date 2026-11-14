@@ -641,15 +641,24 @@ export default function CentralMedicineImagesPage() {
                             alt={med.canonical_name}
                             className="max-h-full max-w-full object-contain p-2"
                             loading="lazy"
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              target.style.display = "none";
+                              const fallback = target.nextElementSibling;
+                              if (fallback) (fallback as HTMLElement).classList.remove("hidden");
+                            }}
                           />
-                        ) : (
-                          <div className="text-center p-3 text-slate-400 space-y-1">
-                            <Images className="h-6 w-6 mx-auto text-slate-300" />
-                            <span className="text-[10px] font-bold block uppercase tracking-wider">
-                              Category Placeholder
-                            </span>
-                          </div>
-                        )}
+                        ) : null}
+                        <div
+                          className={`text-center p-3 text-slate-400 space-y-1 ${
+                            hasImage ? "hidden" : "block"
+                          }`}
+                        >
+                          <Images className="h-6 w-6 mx-auto text-slate-300" />
+                          <span className="text-[10px] font-bold block uppercase tracking-wider">
+                            Category Placeholder
+                          </span>
+                        </div>
 
                         <span
                           className={`absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold ${
