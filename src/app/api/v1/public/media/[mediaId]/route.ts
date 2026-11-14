@@ -5,9 +5,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { mediaId: string } }
+  context: { params: Promise<{ mediaId: string }> | { mediaId: string } }
 ) {
-  const mediaId = params.mediaId;
+  const resolvedParams = await Promise.resolve(context.params);
+  const mediaId = resolvedParams?.mediaId;
   if (!mediaId) {
     return new NextResponse("Not Found", { status: 404 });
   }
