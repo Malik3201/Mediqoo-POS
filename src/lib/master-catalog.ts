@@ -121,3 +121,4 @@ export function searchMasterCatalog(query: string, limit = 20): MasterCatalogIte
 
   return results;
 }
+

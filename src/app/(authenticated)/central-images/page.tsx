@@ -178,6 +178,10 @@ export default function CentralMedicineImagesPage() {
   const [discoveryTotalCount, setDiscoveryTotalCount] = useState(0);
   const [discoveryTotalPages, setDiscoveryTotalPages] = useState(1);
   const [importingMaster, setImportingMaster] = useState(false);
+  const [autoStreamingMaster, setAutoStreamingMaster] = useState(false);
+  const [streamingProgress, setStreamingProgress] = useState<{ current: number; total: number } | null>(null);
+  const stopStreamingRef = useRef(false);
+  const [togglingQueueStatus, setTogglingQueueStatus] = useState(false);
   const [togglingStrict, setTogglingStrict] = useState(false);
   const [retryingFailed, setRetryingFailed] = useState(false);
   const [reviewingQueueId, setReviewingQueueId] = useState<string | null>(null);
@@ -661,6 +665,81 @@ export default function CentralMedicineImagesPage() {
       notify("Network error importing master batch");
     } finally {
       setImportingMaster(false);
+    }
+  }
+
+  async function handleToggleQueuePause() {
+    if (!discoveryOverview) return;
+    setTogglingQueueStatus(true);
+    const isPaused = discoveryOverview.collector_status === "paused";
+    const nextStatus = isPaused ? "running" : "paused";
+    try {
+      const res = await fetch("/api/admin/central-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "discovery_settings",
+          settings: {
+            collector_status: nextStatus,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        notify(nextStatus === "paused" ? "Discovery queue paused" : "Discovery queue resumed and active");
+        setDiscoveryOverview({ ...discoveryOverview, collector_status: nextStatus });
+      } else {
+        notify(data.error || "Failed to update queue status");
+      }
+    } catch {
+      notify("Network error updating queue status");
+    } finally {
+      setTogglingQueueStatus(false);
+    }
+  }
+
+  async function handleStreamAllMasterMedicines() {
+    if (autoStreamingMaster) {
+      stopStreamingRef.current = true;
+      setAutoStreamingMaster(false);
+      notify("Stopped Master Catalog stream");
+      return;
+    }
+
+    setAutoStreamingMaster(true);
+    stopStreamingRef.current = false;
+    let offset = discoveryOverview?.total_imported || 0;
+    const batchSize = 100;
+
+    try {
+      while (!stopStreamingRef.current) {
+        const res = await fetch("/api/admin/master-catalog", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "import_batch",
+            offset,
+            limit: batchSize,
+          }),
+        });
+        const data = await res.json();
+        if (!data.ok || !data.hasMore || data.imported === 0) {
+          offset += data.imported || 0;
+          break;
+        }
+        offset = data.nextOffset;
+        setStreamingProgress({ current: offset, total: data.totalCatalog });
+        setDiscoveryOverview((prev) => (prev ? { ...prev, total_imported: offset } : null));
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      notify(`Master Catalog population complete! Total ${offset} items queued.`);
+      void loadDiscoveryOverview();
+      void loadDiscoveryQueue(1);
+    } catch {
+      notify("Streaming network error");
+    } finally {
+      setAutoStreamingMaster(false);
+      setStreamingProgress(null);
     }
   }
 
@@ -1232,6 +1311,22 @@ export default function CentralMedicineImagesPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {/* Queue Pause / Resume Toggle */}
+              <button
+                type="button"
+                disabled={togglingQueueStatus}
+                onClick={handleToggleQueuePause}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold inline-flex items-center gap-1.5 transition ${
+                  discoveryOverview?.collector_status === "paused"
+                    ? "border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:border-amber-700 dark:text-amber-300"
+                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-600 dark:text-slate-300"
+                }`}
+                title="Pause or Resume automated image discovery queue"
+              >
+                <Clock className="h-3.5 w-3.5" />
+                Queue: {discoveryOverview?.collector_status === "paused" ? "PAUSED" : "ACTIVE"}
+              </button>
+
               {/* Strict Auto-Approve Toggle */}
               <button
                 type="button"
@@ -1252,10 +1347,32 @@ export default function CentralMedicineImagesPage() {
                 Strict Auto-Approve: {discoveryOverview?.auto_approve_strict ? "ON" : "OFF"}
               </button>
 
+              {/* Auto-Populate Entire Master Catalog */}
+              <button
+                type="button"
+                onClick={handleStreamAllMasterMedicines}
+                className={`px-3 py-1.5 rounded-xl text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition ${
+                  autoStreamingMaster ? "bg-rose-600 hover:bg-rose-700" : "bg-emerald-700 hover:bg-emerald-800"
+                }`}
+                title="Automatically populate the entire 41,441 Master Medicine Catalog into Cloudflare D1 queue in bounded chunks"
+              >
+                {autoStreamingMaster ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Stop Stream ({streamingProgress ? `${streamingProgress.current}/${streamingProgress.total}` : "..."})
+                  </>
+                ) : (
+                  <>
+                    <Database className="h-3.5 w-3.5 text-white" />
+                    Auto-Populate All 41k Meds
+                  </>
+                )}
+              </button>
+
               {/* Import Next 50 Master Medicines */}
               <button
                 type="button"
-                disabled={importingMaster}
+                disabled={importingMaster || autoStreamingMaster}
                 onClick={handleImportNextMasterBatch}
                 className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition disabled:opacity-50"
               >
@@ -1266,8 +1383,8 @@ export default function CentralMedicineImagesPage() {
                   </>
                 ) : (
                   <>
-                    <Database className="h-3.5 w-3.5 text-emerald-400" />
-                    Import Next 50 Master Meds
+                    <Plus className="h-3.5 w-3.5 text-emerald-400" />
+                    Import Next 50
                   </>
                 )}
               </button>
