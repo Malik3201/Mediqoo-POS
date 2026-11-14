@@ -104,6 +104,7 @@ export async function proxy(req: NextRequest) {
   // Protect admin routes — everything except public routes (and secret-authenticated internal webhooks)
   const isPublicRoute =
     pathname.startsWith("/api/public") ||
+    pathname.startsWith("/api/v1/public") ||
     pathname.startsWith("/api/internal/storefront") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/updates") ||
