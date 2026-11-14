@@ -67,6 +67,33 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(res.data, { status: res.status });
   }
 
+  if (view === "discovery_overview") {
+    const res = await callStorefrontManageApi("/api/v1/manage/central-library/discovery/overview", {
+      actor,
+    });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (view === "discovery_queue") {
+    const qs = url.searchParams.toString();
+    const res = await callStorefrontManageApi(`/api/v1/manage/central-library/discovery/queue?${qs}`, {
+      actor,
+    });
+    const workerBase = getStorefrontWorkerBaseUrl();
+    if (res.data && typeof res.data === "object" && Array.isArray((res.data as any).items)) {
+      const fixed = (res.data as any).items.map((it: any) => ({
+        ...it,
+        approved_image_url: qualifyMediaUrl(it.approved_image_url, workerBase),
+        candidate_results: (it.candidate_results || []).map((cand: any) => ({
+          ...cand,
+          image_url: qualifyMediaUrl(cand.image_url, workerBase),
+        })),
+      }));
+      return NextResponse.json({ ...res.data, items: fixed }, { status: res.status });
+    }
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
   return NextResponse.json({ ok: false, error: "unknown_view" }, { status: 400 });
 }
 
@@ -153,6 +180,59 @@ export async function POST(req: NextRequest) {
         offset: body.offset,
         storefront_id: body.storefront_id,
       },
+    });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "discovery_import") {
+    const res = await callStorefrontManageApi("/api/v1/manage/central-library/discovery/import", {
+      method: "POST",
+      actor,
+      body: { items: body.items || [] },
+    });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "discovery_settings") {
+    const res = await callStorefrontManageApi("/api/v1/manage/central-library/discovery/settings", {
+      method: "POST",
+      actor,
+      body: body.settings || body,
+    });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "discovery_retry_failed") {
+    const res = await callStorefrontManageApi("/api/v1/manage/central-library/discovery/retry-failed", {
+      method: "POST",
+      actor,
+      body: {},
+    });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "discovery_approve_candidate") {
+    const queueId = body.queue_id;
+    if (!queueId) {
+      return NextResponse.json({ ok: false, error: "missing_queue_id" }, { status: 400 });
+    }
+    const res = await callStorefrontManageApi("/api/v1/manage/central-library/discovery/approve-candidate", {
+      method: "POST",
+      actor,
+      body: { queue_id: queueId, candidate: body.candidate || body },
+    });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "discovery_reject_candidate") {
+    const queueId = body.queue_id;
+    if (!queueId) {
+      return NextResponse.json({ ok: false, error: "missing_queue_id" }, { status: 400 });
+    }
+    const res = await callStorefrontManageApi("/api/v1/manage/central-library/discovery/reject-candidate", {
+      method: "POST",
+      actor,
+      body: { queue_id: queueId, reason: body.reason },
     });
     return NextResponse.json(res.data, { status: res.status });
   }
