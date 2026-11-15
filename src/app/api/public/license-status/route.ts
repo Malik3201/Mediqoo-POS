@@ -186,7 +186,8 @@ export async function POST(req: NextRequest) {
     let billingCycleStart: string | null = null;
     let billingCycleEnd: string | null = null;
 
-    if (license.billing?.model === "per_invoice" && license.billing?.enabled) {
+    const { isRecurringBillingEnabled } = await import("@/lib/billing");
+    if (license.billing?.model === "per_invoice" && isRecurringBillingEnabled(license.billing)) {
       try {
         const BillingUsage = (await import("@/models/BillingUsage")).default;
         const LicenseBillingPeriod = (await import("@/models/LicenseBillingPeriod")).default;

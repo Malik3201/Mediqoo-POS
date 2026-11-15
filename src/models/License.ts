@@ -20,6 +20,22 @@ export interface ILicense extends Document {
   grace_until?: Date;
   billing?: {
     enabled: boolean;
+    /** Whether recurring subscription/usage billing is active. Undefined on legacy enabled docs defaults to true. */
+    recurring_enabled?: boolean;
+    /** Initial / one-time commercial settlement mode */
+    setup_type?: "none" | "installation" | "lifetime";
+    /** One-time installation & onboarding charges */
+    installation_charges?: number;
+    /** One-time lifetime license sale amount */
+    lifetime_amount?: number;
+    /** Amount received against installation or lifetime setup fee */
+    setup_paid_amount?: number;
+    setup_payment_status?: "paid" | "partially_paid" | "unpaid";
+    setup_payment_method?: string;
+    setup_payment_reference?: string;
+    setup_paid_at?: Date | null;
+    setup_voucher_id?: string | null;
+    setup_notes?: string;
     /** 'fixed' = current subscription model; 'per_invoice' = pay per finalized invoice */
     model?: "fixed" | "per_invoice";
     amount?: number;
@@ -70,6 +86,17 @@ const LicenseSchema = new Schema<ILicense>(
     grace_until: { type: Date },
     billing: {
       enabled: { type: Boolean, default: false },
+      recurring_enabled: { type: Boolean, default: true },
+      setup_type: { type: String, enum: ["none", "installation", "lifetime"], default: "none" },
+      installation_charges: { type: Number, default: 0 },
+      lifetime_amount: { type: Number, default: 0 },
+      setup_paid_amount: { type: Number, default: 0 },
+      setup_payment_status: { type: String, enum: ["paid", "partially_paid", "unpaid"], default: "unpaid" },
+      setup_payment_method: { type: String },
+      setup_payment_reference: { type: String },
+      setup_paid_at: { type: Date, default: null },
+      setup_voucher_id: { type: String, default: null },
+      setup_notes: { type: String },
       model: { type: String, enum: ["fixed", "per_invoice"], default: "fixed" },
       amount: { type: Number },
       rate_per_invoice: { type: Number },
@@ -157,13 +184,20 @@ async function recalculateGraceForUpdate(thisCtx: any) {
       
       let graceDays = 0;
       if (setObj.billing !== undefined) {
-         graceDays = setObj.billing.enabled ? (setObj.billing.grace_days || 0) : 0;
-      } else if (setObj["billing.grace_days"] !== undefined || setObj["billing.enabled"] !== undefined) {
+         const isRec = Boolean(setObj.billing.enabled) && setObj.billing.recurring_enabled !== false;
+         graceDays = isRec ? (setObj.billing.grace_days || 0) : 0;
+      } else if (
+         setObj["billing.grace_days"] !== undefined ||
+         setObj["billing.enabled"] !== undefined ||
+         setObj["billing.recurring_enabled"] !== undefined
+      ) {
          const enabled = setObj["billing.enabled"] !== undefined ? setObj["billing.enabled"] : doc.billing?.enabled;
+         const recEnabled = setObj["billing.recurring_enabled"] !== undefined ? setObj["billing.recurring_enabled"] : doc.billing?.recurring_enabled;
          const days = setObj["billing.grace_days"] !== undefined ? setObj["billing.grace_days"] : doc.billing?.grace_days;
-         graceDays = enabled ? (days || 0) : 0;
+         graceDays = (Boolean(enabled) && recEnabled !== false) ? (days || 0) : 0;
       } else {
-         graceDays = doc.billing?.enabled ? (doc.billing.grace_days || 0) : 0;
+         const isRec = Boolean(doc.billing?.enabled) && doc.billing?.recurring_enabled !== false;
+         graceDays = isRec ? (doc.billing?.grace_days || 0) : 0;
       }
 
       const newGraceUntil = calculateGraceUntil(expiresAt, graceDays);
@@ -188,7 +222,8 @@ LicenseSchema.pre("updateOne", async function () {
 
 LicenseSchema.pre("save", function () {
   if (this.isNew || this.isModified("expires_at") || this.isModified("billing")) {
-    const graceDays = this.billing?.enabled ? (this.billing.grace_days || 0) : 0;
+    const isRec = Boolean(this.billing?.enabled) && this.billing?.recurring_enabled !== false;
+    const graceDays = isRec ? (this.billing?.grace_days || 0) : 0;
     this.grace_until = calculateGraceUntil(this.expires_at, graceDays) as any;
   }
 

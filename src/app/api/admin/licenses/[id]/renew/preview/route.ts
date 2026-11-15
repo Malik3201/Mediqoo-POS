@@ -6,7 +6,7 @@ import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import BillingUsage from "@/models/BillingUsage";
 import LicensePayment from "@/models/LicensePayment";
 import BillingAdjustment from "@/models/BillingAdjustment";
-import { calculateRenewalDates, deriveOutstanding, resolveBillingModel } from "@/lib/billing";
+import { calculateRenewalDates, deriveOutstanding, resolveBillingModel, isSetupPayment } from "@/lib/billing";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
@@ -48,7 +48,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (billingModel === "per_invoice") {
       // Fetch authoritative usage and payments across ALL periods
       const usages = await BillingUsage.find({ license_id: id }).lean();
-      const payments = await LicensePayment.find({ license_id: id }).lean();
+      const rawPayments = await LicensePayment.find({ license_id: id }).lean();
+      const payments = rawPayments.filter((p: any) => !isSetupPayment(p));
       const adjustments = await BillingAdjustment.find({ license_id: id }).lean();
 
       const usage_amount = usages.reduce((sum, u) => sum + u.amount, 0);
@@ -83,7 +84,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         amount_due += bpOutstanding;
         if (bpOutstanding > 0) payableCount++;
       }
-      const payments = await LicensePayment.find({ license_id: id }).lean();
+      const rawPayments = await LicensePayment.find({ license_id: id }).lean();
+      const payments = rawPayments.filter((p: any) => !isSetupPayment(p));
       extra_details = {
         payment_amount: payments.reduce((sum, p) => sum + p.amount_paid, 0)
       };

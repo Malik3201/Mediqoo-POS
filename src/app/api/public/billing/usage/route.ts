@@ -4,7 +4,7 @@ import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import BillingUsage from "@/models/BillingUsage";
-import { resolveBillingModel } from "@/lib/billing";
+import { resolveBillingModel, isRecurringBillingEnabled } from "@/lib/billing";
 import { meterFinalizedInvoiceUsage } from "@/lib/metering";
 
 const CORS = {
@@ -102,9 +102,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!license.billing?.enabled) {
+    if (!isRecurringBillingEnabled(license.billing)) {
       return NextResponse.json(
-        { error: "billing_disabled", detail: "Billing is not enabled for this license" },
+        { error: "billing_disabled", detail: "Recurring billing is not enabled for this license" },
         { status: 400, headers: CORS }
       );
     }

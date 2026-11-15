@@ -13,6 +13,9 @@ export type BillingStatus =
   | "Due Tomorrow"
   | "Due Soon"
   | "Paid"
+  | "Settled (Lifetime)"
+  | "Installation Paid"
+  | "Installation Due"
   | "Overdue"
   | "Partially Paid"
   | "Waived"
@@ -61,6 +64,26 @@ export function deriveBillingStatus(
   totalOutstanding?: number
 ): BillingStatus {
   if (!license?.billing?.enabled) return "Billing Disabled";
+
+  // One-time Installation / Lifetime setup without recurring subscription
+  if (license.billing.recurring_enabled === false) {
+    const setupType = license.billing.setup_type || "none";
+    const charge =
+      setupType === "lifetime"
+        ? Number(license.billing.lifetime_amount || 0)
+        : Number(license.billing.installation_charges || 0);
+    const paid = Number(license.billing.setup_paid_amount ?? charge);
+
+    if (setupType === "lifetime") {
+      if (charge <= 0 || paid >= charge) return "Settled (Lifetime)";
+      return paid > 0 ? "Partially Paid" : "Unpaid";
+    }
+    if (setupType === "installation") {
+      if (charge <= 0 || paid >= charge) return "Installation Paid";
+      return paid > 0 ? "Partially Paid" : "Installation Due";
+    }
+    return "Paid";
+  }
 
   // Check if debt exists
   const effectiveOutstanding = totalOutstanding !== undefined 

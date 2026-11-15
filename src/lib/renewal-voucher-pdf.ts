@@ -8,6 +8,14 @@ import "pdfkit/standard-fonts/CourierBold";
 import fs from "fs";
 import path from "path";
 import { VOUCHER_LOGO_BASE64 } from "./voucher-logo-data";
+import {
+  formatRecurringPlanSummary,
+  getVoucherHeaderMeta,
+  hasAcceptanceTerms,
+  VOUCHER_CONFIDENTIALITY_TERM,
+  VOUCHER_SATISFACTION_TERM,
+  VOUCHER_TERMS_TITLE,
+} from "./voucher-presentation";
 
 const ABDULREHMAN_SIGNATURE_PATHS = {
   mainStroke:
@@ -133,6 +141,9 @@ export async function generateRenewalVoucherPdfBuffer(
   const contentWidth = pageWidth - margin * 2;
   const currency =
     voucher.financial_snapshot?.currency || voucher.currency || "PKR";
+  const headerMeta = getVoucherHeaderMeta(voucher);
+  const includeTerms = hasAcceptanceTerms(voucher);
+  const setup = voucher.setup_snapshot || null;
 
   const logoBuffer = getAivraSolLogoBuffer();
 
@@ -162,8 +173,8 @@ export async function generateRenewalVoucherPdfBuffer(
   doc
     .fillColor("#0F172A")
     .font("Helvetica-Bold")
-    .fontSize(13)
-    .text("AivraSol Subscription & License Renewal Voucher", margin, 26, {
+    .fontSize(12.5)
+    .text(headerMeta.title, margin, 25, {
       align: "right",
       width: contentWidth,
     });
@@ -171,7 +182,7 @@ export async function generateRenewalVoucherPdfBuffer(
     .fillColor("#64748B")
     .font("Helvetica")
     .fontSize(8.5)
-    .text("Official Payment & License Extension Confirmation", margin, 43, {
+    .text(headerMeta.subtitle, margin, 42, {
       align: "right",
       width: contentWidth,
     });
@@ -182,7 +193,7 @@ export async function generateRenewalVoucherPdfBuffer(
     .fillColor("#0F172A")
     .font("Helvetica-Bold")
     .fontSize(9.5)
-    .text(`Voucher #: ${voucherNo}`, margin, 60, {
+    .text(`Voucher #: ${voucherNo}`, margin, 58, {
       align: "right",
       width: contentWidth,
     });
@@ -190,7 +201,7 @@ export async function generateRenewalVoucherPdfBuffer(
     .fillColor("#64748B")
     .font("Helvetica")
     .fontSize(8.5)
-    .text(`Issued: ${fmtDateTime(voucher.issued_at)}`, margin, 74, {
+    .text(`Issued: ${fmtDateTime(voucher.issued_at)}`, margin, 72, {
       align: "right",
       width: contentWidth,
     });
@@ -199,15 +210,15 @@ export async function generateRenewalVoucherPdfBuffer(
   const st = statusDisplay(voucher.status);
   const badgeWidth = 145;
   const badgeX = pageWidth - margin - badgeWidth;
-  doc.roundedRect(badgeX, 90, badgeWidth, 18, 4).fill(st.bg);
+  doc.roundedRect(badgeX, 88, badgeWidth, 18, 4).fill(st.bg);
   doc
     .fillColor(st.fg)
     .font("Helvetica-Bold")
     .fontSize(8)
-    .text(st.label, badgeX, 95, { width: badgeWidth, align: "center" });
+    .text(st.label, badgeX, 93, { width: badgeWidth, align: "center" });
 
   // Divider
-  let y = 118;
+  let y = 114;
   doc
     .moveTo(margin, y)
     .lineTo(pageWidth - margin, y)
@@ -215,18 +226,18 @@ export async function generateRenewalVoucherPdfBuffer(
     .lineWidth(1)
     .stroke();
 
-  y += 12;
+  y += 10;
 
   // Two-column Issuer vs License Holder box (ultra-light fill so full-page watermark stays clear)
   const colWidth = (contentWidth - 16) / 2;
   doc.save();
   doc.fillOpacity(0.18);
-  doc.roundedRect(margin, y, colWidth, 84, 6).fill("#F8FAFC");
-  doc.roundedRect(margin + colWidth + 16, y, colWidth, 84, 6).fill("#F8FAFC");
+  doc.roundedRect(margin, y, colWidth, 78, 6).fill("#F8FAFC");
+  doc.roundedRect(margin + colWidth + 16, y, colWidth, 78, 6).fill("#F8FAFC");
   doc.restore();
-  doc.roundedRect(margin, y, colWidth, 84, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
+  doc.roundedRect(margin, y, colWidth, 78, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
   doc
-    .roundedRect(margin + colWidth + 16, y, colWidth, 84, 6)
+    .roundedRect(margin + colWidth + 16, y, colWidth, 78, 6)
     .strokeColor("#E2E8F0")
     .lineWidth(0.75)
     .stroke();
@@ -236,34 +247,34 @@ export async function generateRenewalVoucherPdfBuffer(
     .fillColor("#009A4D")
     .font("Helvetica-Bold")
     .fontSize(8)
-    .text("ISSUED BY (PROVIDER)", margin + 12, y + 10);
+    .text("ISSUED BY (PROVIDER)", margin + 12, y + 9);
   doc
     .fillColor("#0F172A")
     .font("Helvetica-Bold")
-    .fontSize(10)
+    .fontSize(9.5)
     .text(
       voucher.seller_snapshot?.name || "AivraSol Technologies (Mediqoo)",
       margin + 12,
-      y + 24
+      y + 22
     );
   doc
     .fillColor("#475569")
     .font("Helvetica")
-    .fontSize(8.5)
+    .fontSize(8.2)
     .text(
       `Email: ${voucher.seller_snapshot?.email || "support@aivrasol.com"}`,
       margin + 12,
-      y + 40
+      y + 37
     )
     .text(
       `Website: ${voucher.seller_snapshot?.website || "www.aivrasol.com"}`,
       margin + 12,
-      y + 53
+      y + 49
     )
     .text(
       `Location: ${voucher.seller_snapshot?.address || "Pakistan"}`,
       margin + 12,
-      y + 66
+      y + 61
     );
 
   // Pharmacy / License Holder
@@ -272,20 +283,20 @@ export async function generateRenewalVoucherPdfBuffer(
     .fillColor("#009A4D")
     .font("Helvetica-Bold")
     .fontSize(8)
-    .text("PHARMACY / LICENSE HOLDER", rightX, y + 10);
+    .text("PHARMACY / LICENSE HOLDER", rightX, y + 9);
   doc
     .fillColor("#0F172A")
     .font("Helvetica-Bold")
-    .fontSize(10)
-    .text(voucher.client_snapshot?.name || "Pharmacy Client", rightX, y + 24);
+    .fontSize(9.5)
+    .text(voucher.client_snapshot?.name || "Pharmacy Client", rightX, y + 22);
   doc
     .fillColor("#475569")
     .font("Helvetica")
-    .fontSize(8.5)
+    .fontSize(8.2)
     .text(
       `Owner / Contact: ${voucher.client_snapshot?.contact_name || "—"}`,
       rightX,
-      y + 40
+      y + 37
     )
     .text(
       `Phone / Email: ${
@@ -294,25 +305,26 @@ export async function generateRenewalVoucherPdfBuffer(
           .join(" • ") || "—"
       }`,
       rightX,
-      y + 53
+      y + 49,
+      { width: colWidth - 20 }
     )
     .text(
       `Tenant ID: ${voucher.client_snapshot?.id || voucher.client_id || "—"}`,
       rightX,
-      y + 66
+      y + 61
     );
 
-  y += 98;
+  y += 88;
 
   // Section: Subscription & License Details
   doc
     .fillColor("#0F172A")
     .font("Helvetica-Bold")
-    .fontSize(10)
+    .fontSize(9.5)
     .text("SUBSCRIPTION & LICENSE ENTITLEMENT DETAILS", margin, y);
-  y += 15;
+  y += 13;
 
-  doc.roundedRect(margin, y, contentWidth, 88, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
+  doc.roundedRect(margin, y, contentWidth, 78, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
 
   const lic = voucher.license_snapshot || {};
   const per = voucher.period_snapshot || {};
@@ -327,73 +339,88 @@ export async function generateRenewalVoucherPdfBuffer(
     doc
       .fillColor("#64748B")
       .font("Helvetica")
-      .fontSize(8.5)
+      .fontSize(8.2)
       .text(label1, margin + 12, rowY);
     doc
       .fillColor("#0F172A")
       .font("Helvetica-Bold")
-      .fontSize(8.5)
-      .text(val1, margin + 115, rowY);
+      .fontSize(8.2)
+      .text(val1, margin + 108, rowY, { width: colWidth - 102 });
 
     doc
       .fillColor("#64748B")
       .font("Helvetica")
-      .fontSize(8.5)
+      .fontSize(8.2)
       .text(label2, margin + colWidth + 16, rowY);
     doc
       .fillColor("#0F172A")
       .font("Helvetica-Bold")
-      .fontSize(8.5)
-      .text(val2, margin + colWidth + 125, rowY);
+      .fontSize(8.2)
+      .text(val2, margin + colWidth + 118, rowY, { width: colWidth - 110 });
   };
+
+  const effectiveExpiry = per.new_expiry || voucher.new_expiry;
+  const expiryDisplay = per.is_lifetime || (setup?.setup_type === "lifetime" && !effectiveExpiry)
+    ? "Lifetime / Never"
+    : effectiveExpiry
+    ? fmtDate(effectiveExpiry)
+    : "Open / No Expiry";
+
+  const nextPaymentDisplay =
+    setup?.setup_type === "lifetime" && !setup?.recurring_enabled
+      ? "None (Lifetime Settled)"
+      : setup?.recurring_enabled === false
+      ? "None (One-Time Setup)"
+      : setup?.next_payment_date
+      ? fmtDate(setup.next_payment_date)
+      : per.is_lifetime
+      ? "Lifetime / Never"
+      : effectiveExpiry
+      ? fmtDate(effectiveExpiry)
+      : "Per Billing Cycle";
 
   drawGridPair(
     "Product:",
     lic.product_name || "AivraSol Pharmacy POS",
-    "Previous Expiry:",
-    per.previous_expiry ? fmtDate(per.previous_expiry) : "Initial / None",
-    y + 11
+    "License Expiry:",
+    expiryDisplay,
+    y + 9
   );
   drawGridPair(
     "License Key:",
     lic.license_key_masked || lic.license_key || "—",
-    "New Expiry:",
-    per.is_lifetime
-      ? "Lifetime / Never"
-      : per.new_expiry
-      ? fmtDate(per.new_expiry)
-      : fmtDate(voucher.new_expiry),
-    y + 29
+    "Next Payment Date:",
+    nextPaymentDisplay,
+    y + 25
   );
   drawGridPair(
     "Billing Plan:",
-    lic.plan_label ||
-      (lic.billing_model === "per_invoice"
-        ? "Pay Per Invoice"
-        : "Fixed Subscription"),
-    "Extension Duration:",
+    formatRecurringPlanSummary(voucher),
+    headerMeta.isActivation ? "Activation Mode:" : "Extension Duration:",
     per.extension_duration_label || "Standard Cycle",
-    y + 47
+    y + 41
   );
   drawGridPair(
     "Allowed Terminals:",
     `${lic.allowed_seats || 1} POS Seat(s)`,
-    "Status After Action:",
+    "License Status:",
     lic.status_after_renewal || "Active",
-    y + 65
+    y + 57
   );
 
-  y += 102;
+  y += 88;
 
   // Section: Financial Breakdown
   doc
     .fillColor("#0F172A")
     .font("Helvetica-Bold")
-    .fontSize(10)
+    .fontSize(9.5)
     .text("FINANCIAL BREAKDOWN", margin, y);
-  y += 15;
+  y += 13;
 
   const fin = voucher.financial_snapshot || {
+    installation_charge: 0,
+    lifetime_charge: 0,
     plan_charge: voucher.subtotal || 0,
     usage_invoice_count: 0,
     usage_rate: 0,
@@ -410,7 +437,7 @@ export async function generateRenewalVoucherPdfBuffer(
   // Table Header (light translucent bar with emerald accent line so full-page watermark flows through)
   doc.save();
   doc.fillOpacity(0.28);
-  doc.rect(margin, y, contentWidth, 21).fill("#F1F5F9");
+  doc.rect(margin, y, contentWidth, 19).fill("#F1F5F9");
   doc.restore();
   doc
     .moveTo(margin, y)
@@ -419,22 +446,23 @@ export async function generateRenewalVoucherPdfBuffer(
     .lineWidth(0.75)
     .stroke();
   doc
-    .moveTo(margin, y + 21)
-    .lineTo(pageWidth - margin, y + 21)
+    .moveTo(margin, y + 19)
+    .lineTo(pageWidth - margin, y + 19)
     .strokeColor("#009A4D")
     .lineWidth(1.5)
     .stroke();
   doc
     .fillColor("#0F172A")
     .font("Helvetica-Bold")
-    .fontSize(8.5)
-    .text("DESCRIPTION", margin + 12, y + 6.5)
-    .text("AMOUNT", margin, y + 6.5, {
+    .fontSize(8.2)
+    .text("DESCRIPTION", margin + 12, y + 5.5)
+    .text("AMOUNT", margin, y + 5.5, {
       align: "right",
       width: contentWidth - 12,
     });
-  y += 21;
+  y += 19;
 
+  const rowH = includeTerms ? 17.5 : 20;
   const drawFinRow = (
     desc: string,
     amt: string,
@@ -445,28 +473,62 @@ export async function generateRenewalVoucherPdfBuffer(
     if (highlightBg) {
       doc.save();
       doc.fillOpacity(0.24);
-      doc.rect(margin, y, contentWidth, 21).fill(highlightBg);
+      doc.rect(margin, y, contentWidth, rowH).fill(highlightBg);
       doc.restore();
     }
     doc
       .fillColor(textColor)
       .font(bold ? "Helvetica-Bold" : "Helvetica")
-      .fontSize(9)
-      .text(desc, margin + 12, y + 6)
-      .text(amt, margin, y + 6, {
+      .fontSize(8.5)
+      .text(desc, margin + 12, y + (rowH - 9) / 2)
+      .text(amt, margin, y + (rowH - 9) / 2, {
         align: "right",
         width: contentWidth - 12,
       });
     doc
-      .moveTo(margin, y + 21)
-      .lineTo(pageWidth - margin, y + 21)
+      .moveTo(margin, y + rowH)
+      .lineTo(pageWidth - margin, y + rowH)
       .strokeColor("#E2E8F0")
       .lineWidth(0.5)
       .stroke();
-    y += 21;
+    y += rowH;
   };
 
-  if (lic.billing_model === "per_invoice") {
+  const installCharge = Number(fin.installation_charge || 0);
+  const lifetimeCharge = Number(fin.lifetime_charge || 0);
+
+  if (installCharge > 0) {
+    drawFinRow(
+      "POS Software Installation, Demonstration & Setup Charges",
+      fmtMoney(currency, installCharge)
+    );
+  }
+  if (lifetimeCharge > 0) {
+    drawFinRow(
+      "AivraSol POS Lifetime License Settlement",
+      fmtMoney(currency, lifetimeCharge)
+    );
+  }
+
+  if (setup?.recurring_enabled) {
+    const recLabel =
+      setup.recurring_model === "per_invoice"
+        ? `Recurring Schedule: Pay Per Invoice (${fmtMoney(currency, setup.recurring_rate_per_invoice || 0)}/invoice)`
+        : `Recurring Schedule: Fixed ${setup.recurring_cycle === "yearly" ? "Yearly" : "Monthly"} (${fmtMoney(currency, setup.recurring_amount || 0)}/${setup.recurring_cycle === "yearly" ? "yr" : "mo"} · Next due ${nextPaymentDisplay})`;
+    if (headerMeta.isActivation && Number(fin.plan_charge || 0) === 0) {
+      drawFinRow(
+        recLabel,
+        setup.recurring_model === "per_invoice"
+          ? `${fmtMoney(currency, setup.recurring_rate_per_invoice || 0)} / inv`
+          : `${fmtMoney(currency, setup.recurring_amount || 0)} / ${setup.recurring_cycle === "yearly" ? "yr" : "mo"}`
+      );
+    } else if (Number(fin.plan_charge || 0) > 0) {
+      drawFinRow(
+        `Subscription Plan Charge (${lic.plan_label || "Standard Cycle"})`,
+        fmtMoney(currency, fin.plan_charge || 0)
+      );
+    }
+  } else if (!setup && lic.billing_model === "per_invoice") {
     drawFinRow(
       `Metered POS Invoice Usage (${fin.usage_invoice_count || 0} invoices @ ${fmtMoney(
         currency,
@@ -474,7 +536,7 @@ export async function generateRenewalVoucherPdfBuffer(
       )}/invoice)`,
       fmtMoney(currency, fin.invoice_overage_charge || fin.subtotal || 0)
     );
-  } else {
+  } else if (!setup && (Number(fin.plan_charge || 0) > 0 || (installCharge === 0 && lifetimeCharge === 0))) {
     drawFinRow(
       `Subscription Plan Charge (${lic.plan_label || "Standard Cycle"})`,
       fmtMoney(currency, fin.plan_charge || 0)
@@ -488,7 +550,7 @@ export async function generateRenewalVoucherPdfBuffer(
     );
   }
 
-  drawFinRow("Subtotal", fmtMoney(currency, fin.subtotal || 0));
+  drawFinRow("Subtotal", fmtMoney(currency, fin.subtotal ?? voucher.subtotal ?? 0));
 
   if (Number(fin.discount || 0) > 0) {
     drawFinRow("Discount / Waiver", `- ${fmtMoney(currency, fin.discount)}`);
@@ -515,54 +577,93 @@ export async function generateRenewalVoucherPdfBuffer(
     fmtMoney(currency, fin.remaining_balance ?? voucher.balance ?? 0),
     true,
     Number(fin.remaining_balance ?? voucher.balance ?? 0) > 0
-      ? "#FEF2F2"
+      ? "#FEF2E2"
       : "#F8FAFC",
     Number(fin.remaining_balance ?? voucher.balance ?? 0) > 0
       ? "#DC2626"
       : "#0F172A"
   );
 
-  y += 14;
+  y += 10;
 
   // Section: Payment & Processing Details
   doc
     .fillColor("#0F172A")
     .font("Helvetica-Bold")
-    .fontSize(10)
+    .fontSize(9.5)
     .text("PAYMENT & SETTLEMENT RECORD", margin, y);
-  y += 14;
+  y += 12;
 
   const pay = voucher.payment_snapshot || {};
   doc.save();
   doc.fillOpacity(0.18);
-  doc.roundedRect(margin, y, contentWidth, 68, 6).fill("#F8FAFC");
+  doc.roundedRect(margin, y, contentWidth, 60, 6).fill("#F8FAFC");
   doc.restore();
-  doc.roundedRect(margin, y, contentWidth, 68, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
+  doc.roundedRect(margin, y, contentWidth, 60, 6).strokeColor("#E2E8F0").lineWidth(0.75).stroke();
 
   drawGridPair(
     "Payment Method:",
     pay.payment_method || voucher.payment_method || "—",
     "Payment Date:",
     pay.paid_at ? fmtDateTime(pay.paid_at) : "No Payment Recorded",
-    y + 11
+    y + 9
   );
   drawGridPair(
     "Reference / Tx ID:",
     pay.transaction_reference || voucher.payment_reference || "—",
     "Processed By:",
     pay.processed_by || "Super Admin",
-    y + 29
+    y + 25
   );
   drawGridPair(
     "Remarks / Notes:",
     (pay.notes || "—").slice(0, 50),
     "Verification Hash:",
     voucher.verification_hash || "—",
-    y + 47
+    y + 41
   );
 
+  y += 68;
+
+  // Optional Section: Respectful Satisfaction, Non-Refundable & Pricing Confidentiality Notice
+  if (includeTerms) {
+    doc.save();
+    doc.fillOpacity(0.45);
+    doc.roundedRect(margin, y, contentWidth, 74, 6).fill("#F8FAFC");
+    doc.restore();
+    doc
+      .roundedRect(margin, y, contentWidth, 74, 6)
+      .strokeColor("#CBD5E1")
+      .lineWidth(0.85)
+      .stroke();
+
+    doc
+      .fillColor("#0F172A")
+      .font("Helvetica-Bold")
+      .fontSize(7.8)
+      .text(VOUCHER_TERMS_TITLE.toUpperCase(), margin + 10, y + 7);
+    doc
+      .fillColor("#334155")
+      .font("Helvetica")
+      .fontSize(7.1)
+      .text(VOUCHER_SATISFACTION_TERM, margin + 10, y + 19, {
+        width: contentWidth - 20,
+        lineGap: 1,
+      });
+    doc
+      .fillColor("#334155")
+      .font("Helvetica")
+      .fontSize(7.1)
+      .text(VOUCHER_CONFIDENTIALITY_TERM, margin + 10, y + 45, {
+        width: contentWidth - 20,
+        lineGap: 1,
+      });
+
+    y += 82;
+  }
+
   // Digital Verification & Handwritten Verified Signature Block
-  const sigBlockY = 695;
+  const sigBlockY = Math.max(y + 4, 695);
   doc
     .fillColor("#009A4D")
     .font("Helvetica-Bold")

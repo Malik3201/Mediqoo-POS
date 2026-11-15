@@ -2,6 +2,7 @@ import {
   resolveBillingModel,
   resolveBillingPeriod,
   isWithinLegitimateUseWindow,
+  isRecurringBillingEnabled,
 } from "./billing";
 import LicenseBillingPeriod from "../models/LicenseBillingPeriod";
 import BillingUsage from "../models/BillingUsage";
@@ -36,8 +37,8 @@ export async function meterFinalizedInvoiceUsage({
   terminalNumber,
 }: MeteringArgs): Promise<MeteringResult> {
   try {
-    // 1. Verify billing is enabled and model is per_invoice
-    if (!license.billing?.enabled) {
+    // 1. Verify recurring billing is enabled and model is per_invoice
+    if (!isRecurringBillingEnabled(license.billing)) {
       return { status: "skipped", reason: "billing_disabled" };
     }
 

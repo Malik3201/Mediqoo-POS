@@ -527,6 +527,181 @@ export async function sendPaymentReceipt(paymentId: string) {
   }
 }
 
+/**
+ * Sends the official AivraSol A4 PDF Voucher (Installation / Lifetime / Renewal)
+ * directly to the pharmacy client's email and records delivery status.
+ */
+export async function sendVoucherEmail(
+  voucherIdentifier: string,
+  options?: { recipientEmail?: string }
+): Promise<{ sent: boolean; email?: string; reason?: string; error?: string }> {
+  const LicenseRenewalInvoice = (await import("@/models/LicenseRenewalInvoice")).default;
+  const LicensePayment = (await import("@/models/LicensePayment")).default;
+  const Client = (await import("@/models/Client")).default;
+  const { resolveOrHydrateVoucher } = await import("@/lib/renewal-voucher");
+  const { generateRenewalVoucherPdfBuffer } = await import("@/lib/renewal-voucher-pdf");
+  const {
+    getVoucherHeaderMeta,
+    hasAcceptanceTerms,
+    formatRecurringPlanSummary,
+    VOUCHER_SATISFACTION_TERM,
+    VOUCHER_CONFIDENTIALITY_TERM,
+  } = await import("@/lib/voucher-presentation");
+
+  const voucher = await resolveOrHydrateVoucher(voucherIdentifier);
+  if (!voucher) {
+    return { sent: false, reason: "voucher_not_found" };
+  }
+
+  let recipientEmail =
+    options?.recipientEmail?.trim() ||
+    voucher.client_snapshot?.email?.trim() ||
+    "";
+
+  if (!recipientEmail && voucher.client_id) {
+    const clientDoc: any = await Client.findOne({ id: voucher.client_id }).lean();
+    recipientEmail = clientDoc?.contact_email?.trim() || "";
+  }
+
+  const persistStatus = async (status: "sent" | "failed" | "skipped", errMsg?: string) => {
+    const update: any = {
+      $set: {
+        email_status: status,
+        ...(status === "sent" ? { email_sent_at: new Date(), email_last_error: null } : {}),
+        ...(errMsg ? { email_last_error: errMsg.slice(0, 250) } : {}),
+      },
+      ...(status !== "skipped" ? { $inc: { email_attempt_count: 1 } } : {}),
+    };
+    if (voucher._id) {
+      await LicenseRenewalInvoice.updateOne({ _id: voucher._id }, update);
+    } else if (voucher.id) {
+      await LicenseRenewalInvoice.updateOne({ id: voucher.id }, update);
+    }
+    if (voucher.payment_id && status !== "skipped") {
+      await LicensePayment.updateOne(
+        { id: voucher.payment_id },
+        {
+          $set: {
+            email_status: status === "sent" ? "sent" : "failed",
+            ...(status === "sent" ? { email_sent_at: new Date() } : {}),
+            ...(errMsg ? { email_error: errMsg.slice(0, 200) } : {}),
+          },
+        }
+      );
+    }
+  };
+
+  if (!recipientEmail) {
+    await persistStatus("skipped", "No client email address on file");
+    return { sent: false, reason: "no_client_email" };
+  }
+
+  try {
+    const pdfBuffer = await generateRenewalVoucherPdfBuffer(voucher);
+    const voucherNo = voucher.voucher_number || voucher.invoice_number || voucher.id;
+    const headerMeta = getVoucherHeaderMeta(voucher);
+    const currency = voucher.financial_snapshot?.currency || voucher.currency || "PKR";
+    const fin = voucher.financial_snapshot || {};
+    const setup = voucher.setup_snapshot || {};
+    const clientName = voucher.client_snapshot?.name || "Pharmacy Client";
+    const contactName = voucher.client_snapshot?.contact_name || clientName;
+
+    const totalPayable = Number(fin.total_payable ?? voucher.total_due ?? 0);
+    const amountPaid = Number(fin.amount_paid ?? voucher.amount_paid ?? 0);
+    const balance = Number(fin.remaining_balance ?? voucher.balance ?? 0);
+
+    const fmtDateNice = (d: any) => {
+      if (!d) return "—";
+      try {
+        return new Date(d).toLocaleDateString("en-GB", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
+      } catch {
+        return "—";
+      }
+    };
+
+    const nextPayDisplay = setup.setup_type === "lifetime" && !setup.recurring_enabled
+      ? "Lifetime Settled — No Recurring Payments"
+      : setup.recurring_enabled === false
+      ? "Not Applicable (One-Time Setup Only)"
+      : setup.next_payment_date
+      ? fmtDateNice(setup.next_payment_date)
+      : voucher.period_snapshot?.is_lifetime
+      ? "Lifetime / Never"
+      : fmtDateNice(voucher.period_snapshot?.new_expiry || voucher.new_expiry);
+
+    const rowsHtml: string[] = [];
+    if (Number(fin.installation_charge || 0) > 0) {
+      rowsHtml.push(
+        `<p><strong>Installation Charges:</strong> ${escapeEmailHtml(currency)} ${formatEmailPkr(fin.installation_charge)}</p>`
+      );
+    }
+    if (Number(fin.lifetime_charge || 0) > 0) {
+      rowsHtml.push(
+        `<p><strong>Lifetime License Settlement:</strong> ${escapeEmailHtml(currency)} ${formatEmailPkr(fin.lifetime_charge)}</p>`
+      );
+    }
+    if (setup.recurring_enabled) {
+      rowsHtml.push(
+        `<p><strong>Recurring Plan:</strong> ${escapeEmailHtml(formatRecurringPlanSummary(voucher))}</p>`
+      );
+    }
+    rowsHtml.push(`<p><strong>Total Payable:</strong> ${escapeEmailHtml(currency)} ${formatEmailPkr(totalPayable)}</p>`);
+    rowsHtml.push(`<p style="color:#009A4D;"><strong>Amount Paid:</strong> ${escapeEmailHtml(currency)} ${formatEmailPkr(amountPaid)}</p>`);
+    if (balance > 0) {
+      rowsHtml.push(`<p style="color:#DC2626;"><strong>Remaining Balance:</strong> ${escapeEmailHtml(currency)} ${formatEmailPkr(balance)}</p>`);
+    }
+    rowsHtml.push(`<p><strong>Next Payment Date:</strong> ${escapeEmailHtml(nextPayDisplay)}</p>`);
+
+    const termsHtml = hasAcceptanceTerms(voucher)
+      ? `<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:14px;margin:20px 0;font-size:12.5px;color:#475569;">
+           <p style="margin:0 0 6px;font-weight:700;color:#0f172a;">Client Acknowledgment &amp; Pricing Confidentiality</p>
+           <p style="margin:0 0 6px;">${escapeEmailHtml(VOUCHER_SATISFACTION_TERM)}</p>
+           <p style="margin:0;">${escapeEmailHtml(VOUCHER_CONFIDENTIALITY_TERM)}</p>
+         </div>`
+      : "";
+
+    const subject = `${headerMeta.title} — ${voucherNo}`;
+    const content = `
+      <h1>Hello ${escapeEmailHtml(contactName)},</h1>
+      <p>Please find attached your official <strong>${escapeEmailHtml(headerMeta.title)}</strong> issued for <strong>${escapeEmailHtml(clientName)}</strong>.</p>
+      <div style="background-color:#f8fafc;padding:18px;border-radius:8px;border-left:4px solid #009A4D;margin:20px 0;font-size:14px;">
+        <p style="margin-top:0;"><strong>Voucher #:</strong> ${escapeEmailHtml(voucherNo)}</p>
+        ${rowsHtml.join("\n")}
+      </div>
+      ${termsHtml}
+      <p>The signed official PDF voucher is attached to this email for your permanent records.</p>
+      <p>Best regards,<br><strong>AivraSol Technologies Support</strong></p>
+    `;
+
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: FROM_OBJECT,
+      to: recipientEmail,
+      subject,
+      html: baseTemplate(content),
+      attachments: [
+        {
+          filename: `AivraSol-Voucher-${voucherNo}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+
+    await persistStatus("sent");
+    return { sent: true, email: recipientEmail };
+  } catch (err: any) {
+    const errMsg = err?.message || "Failed to email voucher";
+    await persistStatus("failed", errMsg);
+    console.error("Failed to send voucher email:", err);
+    return { sent: false, email: recipientEmail, error: errMsg };
+  }
+}
+
 function escapeEmailHtml(val: unknown): string {
   return String(val ?? "")
     .replace(/&/g, "&amp;")

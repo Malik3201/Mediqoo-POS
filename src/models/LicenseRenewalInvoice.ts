@@ -10,7 +10,15 @@ export interface ILicenseRenewalInvoice extends Document {
   client_id: string;
   license_id: string;
   payment_id?: string | null;
-  action: "payment_and_renew" | "extend_only" | "payment_only" | "renew";
+  action:
+    | "payment_and_renew"
+    | "extend_only"
+    | "payment_only"
+    | "renew"
+    | "installation_activation"
+    | "lifetime_activation"
+    | "billing_activation";
+  voucher_category?: "renewal" | "activation";
   issued_at: Date;
   periods_settled: number;
   billing_periods: string[];
@@ -48,11 +56,23 @@ export interface ILicenseRenewalInvoice extends Document {
     license_key_masked: string;
     product_name: string;
     project_name?: string;
-    billing_model: "fixed" | "per_invoice";
+    billing_model: "fixed" | "per_invoice" | "none";
     plan_label: string;
     billing_cycle: string;
     allowed_seats: number;
     status_after_renewal: string;
+  };
+  setup_snapshot?: {
+    setup_type: "none" | "installation" | "lifetime";
+    installation_charges: number;
+    lifetime_amount: number;
+    recurring_enabled: boolean;
+    recurring_model?: "fixed" | "per_invoice" | null;
+    recurring_cycle?: "monthly" | "yearly" | string | null;
+    recurring_amount?: number;
+    recurring_rate_per_invoice?: number;
+    next_payment_date?: Date | null;
+    include_acceptance_terms?: boolean;
   };
   period_snapshot: {
     previous_expiry?: Date | null;
@@ -66,6 +86,8 @@ export interface ILicenseRenewalInvoice extends Document {
   };
   financial_snapshot: {
     currency: string;
+    installation_charge?: number;
+    lifetime_charge?: number;
     plan_charge: number;
     usage_invoice_count: number;
     usage_rate: number;
@@ -108,8 +130,21 @@ const LicenseRenewalInvoiceSchema = new Schema<ILicenseRenewalInvoice>(
     payment_id: { type: String, default: null, index: true },
     action: {
       type: String,
-      enum: ["payment_and_renew", "extend_only", "payment_only", "renew"],
+      enum: [
+        "payment_and_renew",
+        "extend_only",
+        "payment_only",
+        "renew",
+        "installation_activation",
+        "lifetime_activation",
+        "billing_activation",
+      ],
       default: "payment_and_renew",
+    },
+    voucher_category: {
+      type: String,
+      enum: ["renewal", "activation"],
+      default: "renewal",
     },
     issued_at: { type: Date, default: Date.now, index: true },
     periods_settled: { type: Number, required: true, default: 1 },
@@ -148,11 +183,26 @@ const LicenseRenewalInvoiceSchema = new Schema<ILicenseRenewalInvoice>(
       license_key_masked: { type: String },
       product_name: { type: String, default: "AivraSol Pharmacy POS" },
       project_name: { type: String },
-      billing_model: { type: String, enum: ["fixed", "per_invoice"], default: "fixed" },
+      billing_model: { type: String, enum: ["fixed", "per_invoice", "none"], default: "fixed" },
       plan_label: { type: String },
       billing_cycle: { type: String, default: "monthly" },
       allowed_seats: { type: Number, default: 1 },
       status_after_renewal: { type: String, default: "Active" },
+    },
+    setup_snapshot: {
+      type: new Schema({
+        setup_type: { type: String, enum: ["none", "installation", "lifetime"], default: "none" },
+        installation_charges: { type: Number, default: 0 },
+        lifetime_amount: { type: Number, default: 0 },
+        recurring_enabled: { type: Boolean, default: true },
+        recurring_model: { type: String, default: null },
+        recurring_cycle: { type: String, default: null },
+        recurring_amount: { type: Number, default: 0 },
+        recurring_rate_per_invoice: { type: Number, default: 0 },
+        next_payment_date: { type: Date, default: null },
+        include_acceptance_terms: { type: Boolean, default: false },
+      }, { _id: false }),
+      default: null,
     },
     period_snapshot: {
       previous_expiry: { type: Date, default: null },
@@ -166,6 +216,8 @@ const LicenseRenewalInvoiceSchema = new Schema<ILicenseRenewalInvoice>(
     },
     financial_snapshot: {
       currency: { type: String, default: "PKR" },
+      installation_charge: { type: Number, default: 0 },
+      lifetime_charge: { type: Number, default: 0 },
       plan_charge: { type: Number, default: 0 },
       usage_invoice_count: { type: Number, default: 0 },
       usage_rate: { type: Number, default: 0 },

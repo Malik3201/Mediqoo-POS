@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import {
   Printer,
   Download,
@@ -18,8 +19,18 @@ import {
   Building2,
   KeyRound,
   CreditCard,
+  Mail,
+  Loader2,
   X,
 } from "lucide-react";
+import {
+  VOUCHER_TERMS_TITLE,
+  VOUCHER_SATISFACTION_TERM,
+  VOUCHER_CONFIDENTIALITY_TERM,
+  getVoucherHeaderMeta,
+  hasAcceptanceTerms,
+  formatRecurringPlanSummary,
+} from "@/lib/voucher-presentation";
 
 interface RenewalVoucherModalProps {
   open: boolean;
@@ -73,6 +84,61 @@ function fmtMoney(currency: string, val: any): string {
   })}`;
 }
 
+function buildVoucherDisplay(voucher: any) {
+  const currency =
+    voucher?.financial_snapshot?.currency || voucher?.currency || "PKR";
+  const lic = voucher?.license_snapshot || {};
+  const per = voucher?.period_snapshot || {};
+  const fin = voucher?.financial_snapshot || {};
+  const pay = voucher?.payment_snapshot || {};
+  const setup = voucher?.setup_snapshot || null;
+  const headerMeta = getVoucherHeaderMeta(voucher);
+  const showTerms = hasAcceptanceTerms(voucher);
+  const planSummary = formatRecurringPlanSummary(voucher);
+
+  const installCharge = Number(
+    fin.installation_charge ?? setup?.installation_charges ?? 0
+  );
+  const lifetimeCharge = Number(
+    fin.lifetime_charge ?? setup?.lifetime_amount ?? 0
+  );
+  const planCharge = Number(fin.plan_charge ?? 0);
+  const usageCharge = Number(fin.invoice_overage_charge ?? 0);
+
+  const recurringEnabled = setup
+    ? Boolean(setup.recurring_enabled)
+    : !headerMeta.isActivation;
+  const nextPayDateRaw =
+    setup?.next_payment_date ||
+    (recurringEnabled && !per.is_lifetime
+      ? per.new_expiry || voucher?.new_expiry
+      : null);
+
+  const nextPaymentLabel = !recurringEnabled
+    ? "None (No Recurring Schedule)"
+    : nextPayDateRaw
+    ? fmtDate(nextPayDateRaw)
+    : "Per License Expiry";
+
+  return {
+    currency,
+    lic,
+    per,
+    fin,
+    pay,
+    setup,
+    headerMeta,
+    showTerms,
+    planSummary,
+    installCharge,
+    lifetimeCharge,
+    planCharge,
+    usageCharge,
+    recurringEnabled,
+    nextPaymentLabel,
+  };
+}
+
 function getStatusBadgeInfo(status?: string) {
   switch (status) {
     case "paid":
@@ -119,6 +185,7 @@ export function RenewalVoucherModal({
 }: RenewalVoucherModalProps) {
   const [voucher, setVoucher] = useState<any | null>(initialVoucher || null);
   const [loading, setLoading] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -171,20 +238,94 @@ export function RenewalVoucherModal({
     );
   };
 
+  const handleSendEmail = async () => {
+    if (!voucher) return;
+    const id = voucher.id || voucher.voucher_number || voucher.invoice_number;
+    setSendingEmail(true);
+    try {
+      const res = await fetch(
+        `/api/admin/vouchers/${encodeURIComponent(id)}/email`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "Failed to email voucher to client.");
+        return;
+      }
+      toast.success(
+        `Official PDF voucher emailed to ${data.email || "client"}`
+      );
+      setVoucher((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              email_status: "sent",
+              email_sent_at: new Date().toISOString(),
+            }
+          : prev
+      );
+    } catch (err: any) {
+      toast.error(err?.message || "Network error sending email");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   const handlePrint = () => {
     if (!voucher) return;
-    const currency =
-      voucher.financial_snapshot?.currency || voucher.currency || "PKR";
-    const lic = voucher.license_snapshot || {};
-    const per = voucher.period_snapshot || {};
-    const fin = voucher.financial_snapshot || {};
-    const pay = voucher.payment_snapshot || {};
+    const {
+      currency,
+      lic,
+      per,
+      fin,
+      pay,
+      headerMeta,
+      showTerms,
+      planSummary,
+      installCharge,
+      lifetimeCharge,
+      planCharge,
+      usageCharge,
+      recurringEnabled,
+      nextPaymentLabel,
+    } = buildVoucherDisplay(voucher);
     const st = getStatusBadgeInfo(voucher.status);
     const voucherNo =
       voucher.voucher_number || voucher.invoice_number || voucher.id;
 
     const printWindow = window.open("", "_blank", "width=900,height=950");
     if (!printWindow) return;
+
+    const financialRowsHtml = [
+      installCharge > 0
+        ? `<tr><td>Software Installation &amp; Onboarding Charges</td><td class="right">${fmtMoney(currency, installCharge)}</td></tr>`
+        : "",
+      lifetimeCharge > 0
+        ? `<tr><td>Lifetime Software License Settlement (Perpetual Use)</td><td class="right">${fmtMoney(currency, lifetimeCharge)}</td></tr>`
+        : "",
+      lic.billing_model === "per_invoice" && (usageCharge > 0 || !headerMeta.isActivation)
+        ? `<tr><td>Metered POS Invoice Usage (${fin.usage_invoice_count || 0} invoices @ ${fmtMoney(currency, fin.usage_rate || 0)}/invoice)</td><td class="right">${fmtMoney(currency, fin.invoice_overage_charge ?? (!installCharge && !lifetimeCharge ? fin.subtotal : 0) ?? 0)}</td></tr>`
+        : planCharge > 0 || (!installCharge && !lifetimeCharge && (!headerMeta.isActivation || !recurringEnabled))
+        ? `<tr><td>Subscription / Plan Charge (${lic.plan_label || planSummary || "Standard Cycle"})</td><td class="right">${fmtMoney(currency, planCharge || (!installCharge && !lifetimeCharge ? (fin.subtotal ?? 0) : 0))}</td></tr>`
+        : "",
+      recurringEnabled && headerMeta.isActivation
+        ? `<tr><td>Configured Recurring Billing (${planSummary} • Next Due: ${nextPaymentLabel})</td><td class="right" style="color:#475569;">Scheduled</td></tr>`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("");
+
+    const termsBlockHtml = showTerms
+      ? `<div style="margin-top: 12px; padding: 9px 12px; border: 1px solid #cbd5e1; border-left: 3px solid #009A4D; border-radius: 6px; background: #f8fafc;">
+          <div style="font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #0f172a; margin-bottom: 4px;">${VOUCHER_TERMS_TITLE}</div>
+          <div style="font-size: 9px; line-height: 1.4; color: #334155; margin-bottom: 3px;">${VOUCHER_SATISFACTION_TERM}</div>
+          <div style="font-size: 9px; line-height: 1.4; color: #334155;">${VOUCHER_CONFIDENTIALITY_TERM}</div>
+        </div>`
+      : "";
 
     const html = `<!DOCTYPE html>
 <html>
@@ -237,8 +378,8 @@ export function RenewalVoucherModal({
           <img src="/logo-aivrasol-voucher.png" alt="AivraSol" style="height: 96px; width: auto; object-fit: contain; margin: -12px 0 -12px -14px; background: #ffffff;" />
         </div>
         <div style="text-align: right;">
-          <div class="doc-title">AivraSol Subscription &amp; License Renewal Voucher</div>
-          <div class="doc-sub">Official Payment &amp; License Extension Confirmation</div>
+          <div class="doc-title">${headerMeta.title}</div>
+          <div class="doc-sub">${headerMeta.subtitle}</div>
           <div style="margin-top: 6px; font-size: 12px;"><strong>Voucher #:</strong> ${voucherNo}</div>
           <div style="font-size: 11px; color: #64748b;">Issued: ${fmtDateTime(voucher.issued_at)}</div>
           <div class="badge">${st.label}</div>
@@ -266,15 +407,15 @@ export function RenewalVoucherModal({
       <div class="section-title">Subscription &amp; License Details</div>
       <div class="kv-grid">
         <div class="kv-row"><span class="kv-key">Product:</span><span class="kv-val">${lic.product_name || "AivraSol Pharmacy POS"}</span></div>
-        <div class="kv-row"><span class="kv-key">Previous Expiry:</span><span class="kv-val">${per.previous_expiry ? fmtDate(per.previous_expiry) : "Initial / None"}</span></div>
+        <div class="kv-row"><span class="kv-key">${headerMeta.isActivation ? "License Expiry:" : "Previous Expiry:"}</span><span class="kv-val">${headerMeta.isActivation ? (per.is_lifetime ? "Lifetime / Never" : fmtDate(per.new_expiry || voucher.new_expiry)) : per.previous_expiry ? fmtDate(per.previous_expiry) : "Initial / None"}</span></div>
         <div class="kv-row"><span class="kv-key">License Key:</span><span class="kv-val" style="font-family: monospace;">${lic.license_key_masked || lic.license_key || "—"}</span></div>
-        <div class="kv-row"><span class="kv-key">New Authoritative Expiry:</span><span class="kv-val" style="color: #009A4D;">${per.is_lifetime ? "Lifetime / Never" : fmtDate(per.new_expiry || voucher.new_expiry)}</span></div>
-        <div class="kv-row"><span class="kv-key">Plan / Billing Model:</span><span class="kv-val">${lic.plan_label || (lic.billing_model === "per_invoice" ? "Pay Per Invoice" : "Fixed Subscription")}</span></div>
-        <div class="kv-row"><span class="kv-key">Renewal Period:</span><span class="kv-val">${fmtDate(per.renewal_start)} → ${per.is_lifetime ? "Lifetime" : fmtDate(per.renewal_end || per.new_expiry)}</span></div>
+        <div class="kv-row"><span class="kv-key">${headerMeta.isActivation ? "Next Payment Date:" : "New Authoritative Expiry:"}</span><span class="kv-val" style="color: #009A4D;">${headerMeta.isActivation ? nextPaymentLabel : per.is_lifetime ? "Lifetime / Never" : fmtDate(per.new_expiry || voucher.new_expiry)}</span></div>
+        <div class="kv-row"><span class="kv-key">Plan / Billing Model:</span><span class="kv-val">${planSummary}</span></div>
+        <div class="kv-row"><span class="kv-key">${headerMeta.isActivation ? "Recurring Schedule:" : "Renewal Period:"}</span><span class="kv-val">${headerMeta.isActivation ? (recurringEnabled ? "Enabled" : "Not Required") : `${fmtDate(per.renewal_start)} → ${per.is_lifetime ? "Lifetime" : fmtDate(per.renewal_end || per.new_expiry)}`}</span></div>
         <div class="kv-row"><span class="kv-key">Allowed Terminals:</span><span class="kv-val">${lic.allowed_seats || 1} POS Seat(s)</span></div>
-        <div class="kv-row"><span class="kv-key">Extension Duration:</span><span class="kv-val">${per.extension_duration_label || "Standard Cycle"}</span></div>
+        <div class="kv-row"><span class="kv-key">${headerMeta.isActivation ? "Activation Scope:" : "Extension Duration:"}</span><span class="kv-val">${per.extension_duration_label || "Standard Cycle"}</span></div>
         <div class="kv-row"><span class="kv-key">Deployment:</span><span class="kv-val">${lic.project_name || "AivraSol Pharmacy POS"}</span></div>
-        <div class="kv-row"><span class="kv-key">Status After Renewal:</span><span class="kv-val" style="color: #009A4D;">${lic.status_after_renewal || "Active"}</span></div>
+        <div class="kv-row"><span class="kv-key">${headerMeta.isActivation ? "License Status:" : "Status After Renewal:"}</span><span class="kv-val" style="color: #009A4D;">${lic.status_after_renewal || "Active"}</span></div>
       </div>
 
       <div class="section-title">Financial Breakdown</div>
@@ -286,11 +427,7 @@ export function RenewalVoucherModal({
           </tr>
         </thead>
         <tbody>
-          ${
-            lic.billing_model === "per_invoice"
-              ? `<tr><td>Metered POS Invoice Usage (${fin.usage_invoice_count || 0} invoices @ ${fmtMoney(currency, fin.usage_rate || 0)}/invoice)</td><td class="right">${fmtMoney(currency, fin.invoice_overage_charge ?? fin.subtotal ?? 0)}</td></tr>`
-              : `<tr><td>Subscription / Plan Charge (${lic.plan_label || "Standard Cycle"})</td><td class="right">${fmtMoney(currency, fin.plan_charge ?? fin.subtotal ?? 0)}</td></tr>`
-          }
+          ${financialRowsHtml}
           ${
             Number(fin.arrears_included || 0) > 0
               ? `<tr><td>Arrears / Previous Balance Included</td><td class="right">${fmtMoney(currency, fin.arrears_included)}</td></tr>`
@@ -321,6 +458,8 @@ export function RenewalVoucherModal({
         <div class="kv-row"><span class="kv-key">Processed By:</span><span class="kv-val">${pay.processed_by || "Super Admin"}</span></div>
         <div class="kv-row" style="grid-column: span 2;"><span class="kv-key">Remarks / Notes:</span><span class="kv-val">${pay.notes || "—"}</span></div>
       </div>
+
+      ${termsBlockHtml}
 
       <div class="sig-row">
         <div style="font-size: 10.5px; color: #475569;">
@@ -357,12 +496,21 @@ export function RenewalVoucherModal({
     printWindow.document.close();
   };
 
-  const currency =
-    voucher?.financial_snapshot?.currency || voucher?.currency || "PKR";
-  const lic = voucher?.license_snapshot || {};
-  const per = voucher?.period_snapshot || {};
-  const fin = voucher?.financial_snapshot || {};
-  const pay = voucher?.payment_snapshot || {};
+  const display = voucher ? buildVoucherDisplay(voucher) : null;
+  const currency = display?.currency || "PKR";
+  const lic = display?.lic || {};
+  const per = display?.per || {};
+  const fin = display?.fin || {};
+  const pay = display?.pay || {};
+  const headerMeta = display?.headerMeta || getVoucherHeaderMeta(voucher);
+  const showTerms = display?.showTerms || false;
+  const planSummary = display?.planSummary || "";
+  const installCharge = display?.installCharge || 0;
+  const lifetimeCharge = display?.lifetimeCharge || 0;
+  const planCharge = display?.planCharge || 0;
+  const usageCharge = display?.usageCharge || 0;
+  const recurringEnabled = display?.recurringEnabled ?? false;
+  const nextPaymentLabel = display?.nextPaymentLabel || "—";
   const st = getStatusBadgeInfo(voucher?.status);
   const voucherNo =
     voucher?.voucher_number || voucher?.invoice_number || voucher?.id;
@@ -371,14 +519,28 @@ export function RenewalVoucherModal({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
         <DialogHeader className="px-6 py-3.5 border-b bg-slate-900 text-white shrink-0">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <DialogTitle className="text-base font-semibold flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-emerald-400" />
-              <span>AivraSol Subscription &amp; License Renewal Voucher</span>
+              <ShieldCheck className="h-5 w-5 text-emerald-400 shrink-0" />
+              <span className="truncate">{headerMeta.title}</span>
             </DialogTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {voucher && (
                 <>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 text-xs gap-1.5"
+                    disabled={sendingEmail}
+                    onClick={handleSendEmail}
+                  >
+                    {sendingEmail ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Mail className="h-3.5 w-3.5" />
+                    )}
+                    {voucher.email_status === "sent" ? "Resend Email" : "Email Client"}
+                  </Button>
                   <Button
                     size="sm"
                     variant="secondary"
@@ -386,7 +548,7 @@ export function RenewalVoucherModal({
                     onClick={handlePrint}
                   >
                     <Printer className="h-3.5 w-3.5" />
-                    Print Voucher
+                    Print
                   </Button>
                   <Button
                     size="sm"
@@ -452,10 +614,10 @@ export function RenewalVoucherModal({
 
                   <div className="sm:text-right space-y-1">
                     <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                      AivraSol Subscription &amp; License Renewal Voucher
+                      {headerMeta.title}
                     </div>
                     <div className="text-xs text-slate-500">
-                      Official Payment &amp; License Extension Confirmation
+                      {headerMeta.subtitle}
                     </div>
                     <div className="pt-1 flex sm:justify-end items-center gap-2 flex-wrap">
                       <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded">
@@ -467,6 +629,14 @@ export function RenewalVoucherModal({
                       >
                         {st.label}
                       </Badge>
+                      {voucher.email_status === "sent" && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] font-semibold bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-300"
+                        >
+                          Emailed
+                        </Badge>
+                      )}
                     </div>
                     <div className="text-[11px] text-slate-500">
                       Issued: {fmtDateTime(voucher.issued_at)}
@@ -556,9 +726,15 @@ export function RenewalVoucherModal({
                       </span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800/60">
-                      <span className="text-slate-500">Previous Expiry:</span>
+                      <span className="text-slate-500">
+                        {headerMeta.isActivation ? "License Expiry:" : "Previous Expiry:"}
+                      </span>
                       <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {per.previous_expiry
+                        {headerMeta.isActivation
+                          ? per.is_lifetime
+                            ? "Lifetime / Never"
+                            : fmtDate(per.new_expiry || voucher.new_expiry)
+                          : per.previous_expiry
                           ? fmtDate(per.previous_expiry)
                           : "Initial / None"}
                       </span>
@@ -570,9 +746,13 @@ export function RenewalVoucherModal({
                       </span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800/60">
-                      <span className="text-slate-500">New Expiry Date:</span>
+                      <span className="text-slate-500">
+                        {headerMeta.isActivation ? "Next Payment Date:" : "New Expiry Date:"}
+                      </span>
                       <span className="font-bold text-[#009A4D]">
-                        {per.is_lifetime
+                        {headerMeta.isActivation
+                          ? nextPaymentLabel
+                          : per.is_lifetime
                           ? "Lifetime / Never"
                           : fmtDate(per.new_expiry || voucher.new_expiry)}
                       </span>
@@ -580,19 +760,23 @@ export function RenewalVoucherModal({
                     <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800/60">
                       <span className="text-slate-500">Plan / Billing Model:</span>
                       <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {lic.plan_label ||
-                          (lic.billing_model === "per_invoice"
-                            ? "Pay Per Invoice"
-                            : "Fixed Subscription")}
+                        {planSummary}
                       </span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800/60">
-                      <span className="text-slate-500">Renewal Window:</span>
+                      <span className="text-slate-500">
+                        {headerMeta.isActivation ? "Recurring Schedule:" : "Renewal Window:"}
+                      </span>
                       <span className="font-semibold text-slate-900 dark:text-slate-100">
-                        {fmtDate(per.renewal_start)} →{" "}
-                        {per.is_lifetime
-                          ? "Lifetime"
-                          : fmtDate(per.renewal_end || per.new_expiry)}
+                        {headerMeta.isActivation
+                          ? recurringEnabled
+                            ? "Enabled"
+                            : "Not Required"
+                          : `${fmtDate(per.renewal_start)} → ${
+                              per.is_lifetime
+                                ? "Lifetime"
+                                : fmtDate(per.renewal_end || per.new_expiry)
+                            }`}
                       </span>
                     </div>
                     <div className="flex justify-between py-1">
@@ -602,7 +786,9 @@ export function RenewalVoucherModal({
                       </span>
                     </div>
                     <div className="flex justify-between py-1">
-                      <span className="text-slate-500">Extension Duration:</span>
+                      <span className="text-slate-500">
+                        {headerMeta.isActivation ? "Activation Scope:" : "Extension Duration:"}
+                      </span>
                       <span className="font-semibold text-slate-900 dark:text-slate-100">
                         {per.extension_duration_label || "Standard Cycle"} (
                         <span className="text-emerald-600">
@@ -633,7 +819,28 @@ export function RenewalVoucherModal({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                        {lic.billing_model === "per_invoice" ? (
+                        {installCharge > 0 && (
+                          <tr>
+                            <td className="py-2.5 px-4 text-slate-700 dark:text-slate-300">
+                              Software Installation &amp; Onboarding Charges
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-medium">
+                              {fmtMoney(currency, installCharge)}
+                            </td>
+                          </tr>
+                        )}
+                        {lifetimeCharge > 0 && (
+                          <tr>
+                            <td className="py-2.5 px-4 text-slate-700 dark:text-slate-300">
+                              Lifetime Software License Settlement (Perpetual Use)
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-medium">
+                              {fmtMoney(currency, lifetimeCharge)}
+                            </td>
+                          </tr>
+                        )}
+                        {lic.billing_model === "per_invoice" &&
+                        (usageCharge > 0 || !headerMeta.isActivation) ? (
                           <tr>
                             <td className="py-2.5 px-4 text-slate-700 dark:text-slate-300">
                               Metered POS Invoice Usage (
@@ -643,21 +850,47 @@ export function RenewalVoucherModal({
                             <td className="py-2.5 px-4 text-right font-medium">
                               {fmtMoney(
                                 currency,
-                                fin.invoice_overage_charge ?? fin.subtotal ?? 0
+                                fin.invoice_overage_charge ??
+                                  (!installCharge && !lifetimeCharge
+                                    ? fin.subtotal
+                                    : 0) ??
+                                  0
                               )}
                             </td>
                           </tr>
                         ) : (
-                          <tr>
-                            <td className="py-2.5 px-4 text-slate-700 dark:text-slate-300">
-                              Subscription / Plan Charge (
-                              {lic.plan_label || "Standard Cycle"})
+                          (planCharge > 0 ||
+                            (!installCharge &&
+                              !lifetimeCharge &&
+                              (!headerMeta.isActivation || !recurringEnabled))) && (
+                            <tr>
+                              <td className="py-2.5 px-4 text-slate-700 dark:text-slate-300">
+                                Subscription / Plan Charge (
+                                {lic.plan_label || planSummary || "Standard Cycle"})
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-medium">
+                                {fmtMoney(
+                                  currency,
+                                  planCharge ||
+                                    (!installCharge && !lifetimeCharge
+                                      ? fin.subtotal ?? 0
+                                      : 0)
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        )}
+                        {recurringEnabled && headerMeta.isActivation && (
+                          <tr className="bg-slate-50/40 dark:bg-slate-800/20">
+                            <td className="py-2 px-4 text-slate-600 dark:text-slate-300">
+                              Configured Recurring Schedule ({planSummary} • Next Due:{" "}
+                              <span className="font-semibold text-[#009A4D]">
+                                {nextPaymentLabel}
+                              </span>
+                              )
                             </td>
-                            <td className="py-2.5 px-4 text-right font-medium">
-                              {fmtMoney(
-                                currency,
-                                fin.plan_charge ?? fin.subtotal ?? 0
-                              )}
+                            <td className="py-2 px-4 text-right text-slate-500 font-medium">
+                              Scheduled
                             </td>
                           </tr>
                         )}
@@ -778,6 +1011,20 @@ export function RenewalVoucherModal({
                     </div>
                   )}
                 </div>
+
+                {showTerms && (
+                  <div className="rounded-lg border border-slate-200 dark:border-slate-800 border-l-4 border-l-[#009A4D] bg-slate-50/75 dark:bg-slate-800/30 p-3.5 space-y-1.5">
+                    <div className="text-[10.5px] font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                      {VOUCHER_TERMS_TITLE}
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                      {VOUCHER_SATISFACTION_TERM}
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                      {VOUCHER_CONFIDENTIALITY_TERM}
+                    </p>
+                  </div>
+                )}
 
                 {/* 6. Digital Verification & Handwritten Signature Block */}
                 <div className="pt-2 flex flex-col sm:flex-row sm:items-end justify-between gap-4">

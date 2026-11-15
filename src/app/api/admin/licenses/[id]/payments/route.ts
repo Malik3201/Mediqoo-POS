@@ -13,8 +13,9 @@ import {
   deriveOutstanding,
   resolveBillingModel,
   getCurrentBillingPeriod,
+  isSetupPayment,
 } from "@/lib/billing";
-import { sendPaymentReceipt } from "@/lib/email";
+import { sendPaymentReceipt, sendVoucherEmail } from "@/lib/email";
 import { createOrGetRenewalVoucher } from "@/lib/renewal-voucher";
 
 /**
@@ -188,9 +189,10 @@ export async function POST(
 
     if (billingModel === "per_invoice") {
       const usages = await BillingUsage.find({ license_id: id }).session(session);
-      const payments = await LicensePayment.find({ license_id: id }).session(
+      const rawPayments = await LicensePayment.find({ license_id: id }).session(
         session
       );
+      const payments = rawPayments.filter((p) => !isSetupPayment(p));
       const adjustments = await BillingAdjustment.find({
         license_id: id,
       }).session(session);
@@ -375,15 +377,16 @@ export async function POST(
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  // Trigger Email & PDF Generation asynchronously
+  // Trigger Full Official Voucher PDF Email in background (falls back to receipt if needed)
   try {
-    sendPaymentReceipt(paymentRecord._id?.toString() || paymentRecord.id).catch(
-      (err) => {
-        console.error("Failed to send payment receipt in background:", err);
-      }
-    );
+    const emailPromise = voucherRecord?.id
+      ? sendVoucherEmail(voucherRecord.id)
+      : sendPaymentReceipt(paymentRecord._id?.toString() || paymentRecord.id);
+    emailPromise.catch((err) => {
+      console.error("Failed to send payment voucher email in background:", err);
+    });
   } catch (err) {
-    console.error("Failed to trigger sendPaymentReceipt:", err);
+    console.error("Failed to trigger voucher email:", err);
   }
 
   return NextResponse.json({

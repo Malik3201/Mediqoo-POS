@@ -2,6 +2,51 @@ import { addMonths, addYears, startOfDay, endOfDay } from "date-fns";
 
 export type BillingCycle = "monthly" | "yearly";
 export type BillingModel = "fixed" | "per_invoice";
+export type BillingSetupType = "none" | "installation" | "lifetime";
+
+const SETUP_PAYMENT_ACTIONS = new Set([
+  "installation_activation",
+  "lifetime_activation",
+  "billing_activation",
+]);
+
+/**
+ * True when recurring subscription/usage billing is enabled for the license.
+ * Legacy docs where billing.enabled=true and recurring_enabled is undefined return true.
+ */
+export function isRecurringBillingEnabled(billing: any): boolean {
+  return Boolean(billing?.enabled) && billing?.recurring_enabled !== false;
+}
+
+/**
+ * True when a LicensePayment represents a one-time installation or lifetime setup fee
+ * rather than a recurring subscription / per-invoice period settlement.
+ */
+export function isSetupPayment(payment: { action?: string | null; billing_period_id?: string | null }): boolean {
+  return (
+    payment?.billing_period_id === "one_time_setup" ||
+    (typeof payment?.action === "string" && SETUP_PAYMENT_ACTIONS.has(payment.action))
+  );
+}
+
+/**
+ * Computes the next recurring payment due date by looking at the license expiry date.
+ * Returns null if recurring billing is disabled.
+ */
+export function calculateNextPaymentDate(license: {
+  expires_at?: Date | string | null;
+  billing?: any;
+}): Date | null {
+  if (!isRecurringBillingEnabled(license?.billing)) {
+    return null;
+  }
+  if (license?.expires_at) {
+    const exp = new Date(license.expires_at);
+    if (!isNaN(exp.getTime())) return exp;
+  }
+  const cycle = license?.billing?.cycle === "yearly" ? "yearly" : "monthly";
+  return cycle === "yearly" ? addYears(new Date(), 1) : addMonths(new Date(), 1);
+}
 
 /** 
  * Canonical threshold for metering support.
@@ -458,7 +503,8 @@ export async function getLicenseBillingSummary(
   // Load all periods and payments
   const allPeriods = await LicenseBillingPeriod.find({ license_id: licenseId })
     .sort({ period_start: 1 }).lean();
-  const allPayments = await LicensePayment.find({ license_id: licenseId }).lean();
+  const rawPayments = await LicensePayment.find({ license_id: licenseId }).lean();
+  const recurringPayments = (rawPayments as any[]).filter((p: any) => !isSetupPayment(p));
 
   // Determine current period by TIME
   const currentPeriod = getCurrentBillingPeriod(allPeriods, now);
@@ -502,14 +548,14 @@ export async function getLicenseBillingSummary(
     .reduce((sum: number, a: any) => sum + a.amount, 0);
 
   // ── Payments applied to accrued balance ──
-  // Only count payments whose billing_period_id is an accrued (past/current) period.
-  // Payments misallocated to future periods are NOT subtracted from accrued outstanding.
-  const paymentsAppliedToAccrued = (allPayments as any[])
+  // Only count recurring payments whose billing_period_id is an accrued (past/current) period.
+  // One-time installation/lifetime setup payments and future-period allocations are excluded.
+  const paymentsAppliedToAccrued = recurringPayments
     .filter((p: any) => accruedPeriodIds.includes(p.billing_period_id))
     .reduce((sum: number, p: any) => sum + (p.amount_paid || 0), 0);
 
   // Payments misallocated to future periods (informational)
-  const paymentsMisallocatedToFuture = (allPayments as any[])
+  const paymentsMisallocatedToFuture = recurringPayments
     .filter((p: any) => futurePeriodIds.includes(p.billing_period_id))
     .reduce((sum: number, p: any) => sum + (p.amount_paid || 0), 0);
 
@@ -520,7 +566,7 @@ export async function getLicenseBillingSummary(
 
   // ── Derive effective status for each accrued period ──
   const paymentsByPeriod: Record<string, number> = {};
-  (allPayments as any[]).forEach((p: any) => {
+  recurringPayments.forEach((p: any) => {
     paymentsByPeriod[p.billing_period_id] = (paymentsByPeriod[p.billing_period_id] || 0) + (p.amount_paid || 0);
   });
 
@@ -558,8 +604,8 @@ export async function getLicenseBillingSummary(
     usageByPeriod,
     paymentsByPeriod,
 
-    // Full payment history
-    paymentHistory: allPayments,
+    // Full payment history (includes setup + recurring receipts)
+    paymentHistory: rawPayments,
   };
 }
 

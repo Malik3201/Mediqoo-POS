@@ -20,10 +20,11 @@ export async function GET(req: Request) {
   await connectToDatabase();
   const now = startOfDay(new Date());
   
-  // Find all active, billing-enabled licenses
+  // Find all active, recurring-billing-enabled licenses
   const licenses = await License.find({
     status: "active",
-    "billing.enabled": true
+    "billing.enabled": true,
+    "billing.recurring_enabled": { $ne: false },
   }).lean();
 
   let sentCount = 0;

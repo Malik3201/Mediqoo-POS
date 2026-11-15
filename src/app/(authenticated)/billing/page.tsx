@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useCallback } from "react";
-import { CreditCard, DollarSign, AlertCircle, CheckCircle2, FileText, Clock, Plus, Download, Calendar, Receipt } from "lucide-react";
+import { CreditCard, DollarSign, AlertCircle, CheckCircle2, FileText, Clock, Plus, Download, Calendar, Receipt, Mail, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery } from "@/hooks/use-data";
 import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
@@ -45,6 +45,32 @@ export default function BillingPage() {
   const { data: licenses = [], isLoading: loadingLicenses, refetch: refetchLicenses } = useDataQuery("licenses", { populate: "clients,projects" });
   const { data: billingPeriods = [], isLoading: loadingPeriods, refetch: refetchPeriods } = useDataQuery("license_billing_periods");
   const { data: payments = [], isLoading: loadingPayments, refetch: refetchPayments } = useDataQuery("license_payments");
+  const { data: vouchers = [], refetch: refetchVouchers } = useDataQuery("license_renewal_invoices");
+
+  const [busyLicenseVoucherId, setBusyLicenseVoucherId] = useState<string | null>(null);
+  const [busyPaymentVoucherId, setBusyPaymentVoucherId] = useState<string | null>(null);
+  const [busyEmailId, setBusyEmailId] = useState<string | null>(null);
+
+  const { voucherByPaymentId, voucherById, latestVoucherByLicense } = useMemo(() => {
+    const byPay = new Map<string, any>();
+    const byId = new Map<string, any>();
+    const byLic = new Map<string, any>();
+    for (const v of vouchers as any[]) {
+      if (v.id) byId.set(v.id, v);
+      if (v.payment_id) byPay.set(v.payment_id, v);
+      if (v.license_id) {
+        const cur = byLic.get(v.license_id);
+        if (!cur) {
+          byLic.set(v.license_id, v);
+        } else {
+          const vTime = new Date(v.issued_at || v.created_at || 0).getTime();
+          const cTime = new Date(cur.issued_at || cur.created_at || 0).getTime();
+          if (vTime > cTime) byLic.set(v.license_id, v);
+        }
+      }
+    }
+    return { voucherByPaymentId: byPay, voucherById: byId, latestVoucherByLicense: byLic };
+  }, [vouchers]);
 
   const [paymentTarget, setPaymentTarget] = useState<any | null>(null);
   const [renewalPreview, setRenewalPreview] = useState<any | null>(null);
@@ -89,7 +115,20 @@ export default function BillingPage() {
     const today = startOfDay(new Date());
 
     return licenses.filter((l: any) => l.billing?.enabled).map((l: any) => {
-      const periodsForLicense = billingPeriods.filter((bp: any) => bp.license_id === l.id);
+      const isRecurring = l.billing?.recurring_enabled !== false;
+      const setupType = l.billing?.setup_type || "none";
+      const setupFee =
+        setupType === "lifetime"
+          ? Number(l.billing?.lifetime_amount || 0)
+          : setupType === "installation"
+          ? Number(l.billing?.installation_charges || 0)
+          : 0;
+      const setupPaid = Number(l.billing?.setup_paid_amount || 0);
+      const setupOutstanding = setupType !== "none" ? Math.max(0, setupFee - setupPaid) : 0;
+
+      const periodsForLicense = isRecurring
+        ? billingPeriods.filter((bp: any) => bp.license_id === l.id)
+        : [];
       
       // Sort ASCENDING (oldest first)
       periodsForLicense.sort((a: any, b: any) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime());
@@ -127,6 +166,10 @@ export default function BillingPage() {
         totalUnpaidInvoiceCount += (bp.invoice_count || 0);
       });
 
+      if (!isRecurring) {
+        totalUnpaidAmountDue = setupOutstanding;
+      }
+
       const billingStatus = deriveBillingStatus(l, currentPeriod, previousPeriodsExist, totalUnpaidAmountDue);
 
       // Calculate calendar days difference from authoritative license.expires_at
@@ -140,6 +183,11 @@ export default function BillingPage() {
 
       return {
         license: l,
+        isRecurring,
+        setupType,
+        setupFee,
+        setupPaid,
+        setupOutstanding,
         currentPeriod,
         unpaidPeriods,
         operationalStatus,
@@ -180,6 +228,9 @@ export default function BillingPage() {
     });
 
     activeBillingData.forEach((item: any) => {
+      if (!item.isRecurring && item.setupOutstanding > 0) {
+        outstanding += item.setupOutstanding;
+      }
       // Payment status counts
       if (item.billingStatus === "Due Soon" || item.billingStatus === "Due Today" || item.billingStatus === "Due Tomorrow") {
         dueSoonCount++;
@@ -248,6 +299,9 @@ export default function BillingPage() {
     return activeBillingData
       .filter((item: any) => {
         const hasDebt = (item.totalUnpaidAmountDue || 0) > 0;
+        if (!item.isRecurring) {
+          return hasDebt && (item.billingStatus === "Installation Due" || item.billingStatus === "Lifetime Due");
+        }
         return hasDebt && (item.billingStatus === "Overdue" || item.billingStatus === "Due Today" || item.billingStatus === "Due Tomorrow");
       })
       .map((item: any) => {
@@ -256,7 +310,10 @@ export default function BillingPage() {
         let title = "";
         let desc = "";
 
-        if (isOverdue) {
+        if (!item.isRecurring) {
+          title = `${item.license.projects?.name || item.license.clients?.name} — ${item.billingStatus}`;
+          desc = `${amountStr} setup balance remaining.`;
+        } else if (isOverdue) {
           title = `${item.license.projects?.name || item.license.clients?.name} — Payment Overdue`;
           desc = `${amountStr} payment is overdue.`;
         } else if (item.billingStatus === "Due Today") {
@@ -292,11 +349,26 @@ export default function BillingPage() {
 
       if (!matchesSearch) return false;
 
-      if (statusFilter === "Per Invoice" && item.license.billing?.model !== "per_invoice") return false;
-      if (statusFilter === "Fixed" && item.license.billing?.model === "per_invoice") return false;
+      if (statusFilter === "Per Invoice" && (!item.isRecurring || item.license.billing?.model !== "per_invoice")) return false;
+      if (statusFilter === "Fixed" && (!item.isRecurring || item.license.billing?.model === "per_invoice")) return false;
+      if (statusFilter === "Installation" && item.setupType !== "installation") return false;
+      if (statusFilter === "Lifetime" && item.setupType !== "lifetime") return false;
 
-      if (statusFilter === "All" || statusFilter === "Per Invoice" || statusFilter === "Fixed") return true;
-      if (statusFilter === "Paid" && item.billingStatus === "Paid") return true;
+      if (
+        statusFilter === "All" ||
+        statusFilter === "Per Invoice" ||
+        statusFilter === "Fixed" ||
+        statusFilter === "Installation" ||
+        statusFilter === "Lifetime"
+      )
+        return true;
+      if (
+        statusFilter === "Paid" &&
+        (item.billingStatus === "Paid" ||
+          item.billingStatus === "Installation Paid" ||
+          item.billingStatus === "Settled (Lifetime)")
+      )
+        return true;
       if (statusFilter === "Current" && item.billingStatus === "Current") return true;
       if (statusFilter === "Due Soon" && (item.billingStatus === "Due Soon" || item.billingStatus === "Due Today" || item.billingStatus === "Due Tomorrow")) return true;
       if (statusFilter === "Overdue" && item.billingStatus === "Overdue") return true;
@@ -376,14 +448,27 @@ export default function BillingPage() {
       .filter((p) => Number(p.amount_paid || 0) > 0)
       .map((p) => {
         const lic = licenseById.get(p.license_id);
+        const resolvedVoucher =
+          voucherByPaymentId.get(p.id) ||
+          (p.voucher_id ? voucherById.get(p.voucher_id) : null) ||
+          null;
         const paidAt = p.paid_at ? new Date(p.paid_at) : new Date(p.created_at || Date.now());
+        const billingModelLabel =
+          p.action === "lifetime_activation"
+            ? "Lifetime Sale"
+            : p.action === "installation_activation" || p.billing_period_id === "one_time_setup"
+            ? "Installation"
+            : lic?.billing?.model === "per_invoice"
+            ? "Per Invoice"
+            : "Fixed";
         return {
           ...p,
+          resolvedVoucher,
           paidAtDate: paidAt,
           clientName: lic?.clients?.name || "Pharmacy Client",
           contactName: lic?.clients?.contact_name || "",
           projectName: lic?.projects?.name || "AivraSol Pharmacy POS",
-          billingModel: lic?.billing?.model === "per_invoice" ? "Per Invoice" : "Fixed",
+          billingModel: billingModelLabel,
           resolvedClientId: p.client_id || lic?.client_id || "",
           currency: p.currency || lic?.billing?.currency || "PKR",
         };
@@ -408,6 +493,8 @@ export default function BillingPage() {
   }, [
     payments,
     licenseById,
+    voucherByPaymentId,
+    voucherById,
     paymentDatePreset,
     paymentFromDate,
     paymentToDate,
@@ -447,6 +534,104 @@ export default function BillingPage() {
   };
 
   const loading = loadingLicenses || loadingPeriods || loadingPayments;
+
+  const handleOpenOrCreateLicenseVoucher = useCallback(
+    async (lic: any) => {
+      const existing =
+        (lic?.billing?.setup_voucher_id && voucherById.get(lic.billing.setup_voucher_id)) ||
+        latestVoucherByLicense.get(lic?.id);
+      if (existing) {
+        setActiveVoucherDoc(existing);
+        setActiveVoucherId(existing.id);
+        return;
+      }
+      setBusyLicenseVoucherId(lic.id);
+      try {
+        const res = await fetch(`/api/admin/licenses/${lic.id}/voucher`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ send_email: false }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.voucher) {
+          throw new Error(data.error || "Failed to generate voucher");
+        }
+        toast.success("Official voucher generated");
+        setActiveVoucherDoc(data.voucher);
+        setActiveVoucherId(data.voucher.id);
+        await Promise.all([refetchLicenses(), refetchVouchers()]);
+      } catch (err: any) {
+        toast.error(err?.message || "Failed to generate voucher");
+      } finally {
+        setBusyLicenseVoucherId(null);
+      }
+    },
+    [latestVoucherByLicense, voucherById, refetchLicenses, refetchVouchers]
+  );
+
+  const handleOpenOrGeneratePaymentVoucher = useCallback(
+    async (paymentRow: any) => {
+      const existing =
+        paymentRow.resolvedVoucher ||
+        voucherByPaymentId.get(paymentRow.id) ||
+        (paymentRow.voucher_id ? voucherById.get(paymentRow.voucher_id) : null);
+
+      if (existing) {
+        setActiveVoucherDoc(existing);
+        setActiveVoucherId(existing.id);
+        return;
+      }
+
+      setBusyPaymentVoucherId(paymentRow.id);
+      try {
+        const res = await fetch(`/api/admin/payments/${paymentRow.id}/voucher`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ include_acceptance_terms: true, send_email: false }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.voucher) {
+          throw new Error(data.error || "Failed to create voucher from payment");
+        }
+        toast.success("Voucher created and saved for this record");
+        setActiveVoucherDoc(data.voucher);
+        setActiveVoucherId(data.voucher.id);
+        await Promise.all([refetchVouchers(), refetchPayments()]);
+      } catch (err: any) {
+        toast.error(err?.message || "Failed to generate voucher");
+      } finally {
+        setBusyPaymentVoucherId(null);
+      }
+    },
+    [voucherByPaymentId, voucherById, refetchVouchers, refetchPayments]
+  );
+
+  const handleEmailVoucherOrPayment = useCallback(
+    async (paymentId: string, existingVoucherId?: string | null) => {
+      setBusyEmailId(paymentId);
+      try {
+        const url = existingVoucherId
+          ? `/api/admin/vouchers/${encodeURIComponent(existingVoucherId)}/email`
+          : `/api/admin/payments/${encodeURIComponent(paymentId)}/resend`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || "Email dispatch failed");
+        }
+        toast.success(`Official PDF voucher emailed${data.email ? ` to ${data.email}` : ""}`);
+        await Promise.all([refetchVouchers(), refetchPayments()]);
+      } catch (err: any) {
+        toast.error(err?.message || "Failed to email client");
+      } finally {
+        setBusyEmailId(null);
+      }
+    },
+    [refetchVouchers, refetchPayments]
+  );
 
   const fetchPreview = useCallback(async (licenseId: string, months?: number, customDate?: string, lifetime?: boolean) => {
     try {
@@ -808,6 +993,8 @@ export default function BillingPage() {
             <SelectItem value="All">All Licenses</SelectItem>
             <SelectItem value="Fixed">Fixed</SelectItem>
             <SelectItem value="Per Invoice">Per Invoice</SelectItem>
+            <SelectItem value="Installation">Installation Only</SelectItem>
+            <SelectItem value="Lifetime">Lifetime Sold</SelectItem>
             <SelectItem value="Paid">Paid</SelectItem>
             <SelectItem value="Current">Current / Accruing</SelectItem>
             <SelectItem value="Due Soon">Due Soon</SelectItem>
@@ -850,8 +1037,9 @@ export default function BillingPage() {
               </TableRow>
             ) : (
               filteredData.map((item: any) => {
-                const isPerInvoice = item.license.billing?.model === "per_invoice";
+                const isPerInvoice = item.isRecurring && item.license.billing?.model === "per_invoice";
                 const periodOutstanding = item.totalUnpaidAmountDue || 0;
+                const currency = item.license.billing?.currency || "PKR";
                 return (
                 <TableRow key={item.license.id}>
                   <TableCell className="font-medium">{item.license.projects?.name}</TableCell>
@@ -862,31 +1050,58 @@ export default function BillingPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={isPerInvoice ? "secondary" : "outline"} className="text-xs">
-                      {isPerInvoice ? "Per Invoice" : "Fixed"}
-                    </Badge>
+                    {!item.isRecurring ? (
+                      <Badge variant="outline" className="text-xs border-emerald-300 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 dark:text-emerald-300">
+                        {item.setupType === "lifetime" ? "Lifetime Sold" : "Installation Only"}
+                      </Badge>
+                    ) : (
+                      <div className="flex flex-col gap-0.5">
+                        <Badge variant={isPerInvoice ? "secondary" : "outline"} className="text-xs w-fit">
+                          {isPerInvoice ? "Per Invoice" : "Fixed"}
+                        </Badge>
+                        {item.setupType !== "none" && item.setupFee > 0 && (
+                          <span className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                            + {item.setupType === "lifetime" ? "Lifetime" : "Install"}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {item.license.billing?.pending_changes && (
                       <div className="flex items-center gap-1 text-amber-600 text-[10px] mt-0.5"><Clock className="h-2.5 w-2.5" /> Pending</div>
                     )}
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs">
-                      {isPerInvoice
-                        ? `${item.license.billing?.currency} ${item.license.billing?.rate_per_invoice ?? 1}/inv`
-                        : `${item.license.billing?.currency} ${item.license.billing?.amount?.toLocaleString()}`
-                      }
-                    </span>
+                    <div className="flex flex-col text-xs">
+                      {!item.isRecurring ? (
+                        <span className="font-medium">
+                          {currency} {item.setupFee.toLocaleString()} (Setup)
+                        </span>
+                      ) : isPerInvoice ? (
+                        <span>
+                          {currency} {item.license.billing?.rate_per_invoice ?? 1}/inv
+                        </span>
+                      ) : (
+                        <span>
+                          {currency} {item.license.billing?.amount?.toLocaleString()}/{item.license.billing?.cycle === "yearly" ? "yr" : "mo"}
+                        </span>
+                      )}
+                      {item.isRecurring && item.setupFee > 0 && (
+                        <span className="text-[10px] text-muted-foreground">
+                          Setup: {currency} {item.setupFee.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <span className="text-xs">{isPerInvoice ? (item.totalUnpaidInvoiceCount ?? "0") : "—"}</span>
                   </TableCell>
                   <TableCell>
-                    <span className="text-xs">{isPerInvoice ? `${item.license.billing?.currency} ${(item.totalUnpaidUsageCharges ?? 0).toLocaleString()}` : "—"}</span>
+                    <span className="text-xs">{isPerInvoice ? `${currency} ${(item.totalUnpaidUsageCharges ?? 0).toLocaleString()}` : "—"}</span>
                   </TableCell>
                   <TableCell>
-                    {item.currentPeriod ? (
+                    {!item.isRecurring || item.currentPeriod ? (
                       <span className={`text-xs font-semibold ${periodOutstanding > 0 ? "text-destructive" : "text-green-600"}`}>
-                        {item.license.billing?.currency} {Math.max(0, periodOutstanding).toLocaleString()}
+                        {currency} {Math.max(0, periodOutstanding).toLocaleString()}
                       </span>
                     ) : (
                       <span className="text-xs text-muted-foreground">—</span>
@@ -912,9 +1127,9 @@ export default function BillingPage() {
                   <TableCell>
                     {item.license.billing?.enabled ? (
                       <Badge variant="outline" className={
-                        item.billingStatus === "Paid" ? "border-emerald-300 text-emerald-700 bg-emerald-50 text-[10px]" :
-                        item.billingStatus === "Overdue" ? "border-red-300 text-red-700 bg-red-50 text-[10px]" :
-                        item.billingStatus === "Due Tomorrow" || item.billingStatus === "Due Today" || item.billingStatus === "Due Soon" ? "border-amber-300 text-amber-700 bg-amber-50 text-[10px]" :
+                        item.billingStatus === "Paid" || item.billingStatus === "Installation Paid" || item.billingStatus === "Settled (Lifetime)" ? "border-emerald-300 text-emerald-700 bg-emerald-50 text-[10px]" :
+                        item.billingStatus === "Overdue" || item.billingStatus === "Installation Due" || item.billingStatus === "Lifetime Due" ? "border-red-300 text-red-700 bg-red-50 text-[10px]" :
+                        item.billingStatus === "Due Tomorrow" || item.billingStatus === "Due Today" || item.billingStatus === "Due Soon" || item.billingStatus === "Installation Partial" ? "border-amber-300 text-amber-700 bg-amber-50 text-[10px]" :
                         item.billingStatus === "Current" ? "border-blue-300 text-blue-700 bg-blue-50 text-[10px]" :
                         "text-[10px]"
                       }>
@@ -925,7 +1140,7 @@ export default function BillingPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1.5">
                       {isPerInvoice && (
                         <Button
                           size="sm"
@@ -939,17 +1154,34 @@ export default function BillingPage() {
                       <Button
                         size="sm"
                         variant="outline"
+                        className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                        disabled={busyLicenseVoucherId === item.license.id}
+                        onClick={() => handleOpenOrCreateLicenseVoucher(item.license)}
+                        title="Open or 1-Click Generate Official Voucher"
+                      >
+                        {busyLicenseVoucherId === item.license.id ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <FileText className="h-3 w-3 mr-1" />
+                        )}
+                        Voucher
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
                         onClick={() => openHistory(item)}
                       >
                         History
                       </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => openPayment(item)}
-                        variant={item.operationalStatus === "Renewal Required" || item.billingStatus === "Overdue" ? "destructive" : "default"}
-                      >
-                        Action
-                      </Button>
+                      {item.isRecurring && item.currentPeriod && (
+                        <Button
+                          size="sm"
+                          onClick={() => openPayment(item)}
+                          variant={item.operationalStatus === "Renewal Required" || item.billingStatus === "Overdue" ? "destructive" : "default"}
+                        >
+                          Action
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1152,10 +1384,7 @@ export default function BillingPage() {
                   <TableRow
                     key={p.id}
                     className="cursor-pointer hover:bg-muted/40"
-                    onClick={() => {
-                      setActiveVoucherDoc(null);
-                      setActiveVoucherId(p.voucher_id || p.id);
-                    }}
+                    onClick={() => handleOpenOrGeneratePaymentVoucher(p)}
                   >
                     <TableCell className="text-xs whitespace-nowrap">
                       <div className="font-medium">
@@ -1166,7 +1395,7 @@ export default function BillingPage() {
                       </div>
                     </TableCell>
                     <TableCell className="font-mono text-xs font-semibold text-primary">
-                      {p.receipt_number || `AV-RNW-${String(p.id).slice(0, 8).toUpperCase()}`}
+                      {p.resolvedVoucher?.voucher_number || p.receipt_number || `AV-RNW-${String(p.id).slice(0, 8).toUpperCase()}`}
                     </TableCell>
                     <TableCell>
                       <div className="text-xs font-semibold">{p.clientName}</div>
@@ -1200,13 +1429,15 @@ export default function BillingPage() {
                           size="sm"
                           variant="outline"
                           className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                          onClick={() => {
-                            setActiveVoucherDoc(null);
-                            setActiveVoucherId(p.voucher_id || p.id);
-                          }}
+                          disabled={busyPaymentVoucherId === p.id}
+                          onClick={() => handleOpenOrGeneratePaymentVoucher(p)}
                         >
-                          <FileText className="h-3 w-3" />
-                          Voucher
+                          {busyPaymentVoucherId === p.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <FileText className="h-3 w-3" />
+                          )}
+                          {p.resolvedVoucher ? "Voucher" : "1-Click Voucher"}
                         </Button>
                         <Button
                           size="sm"
@@ -1214,13 +1445,33 @@ export default function BillingPage() {
                           className="h-7 text-xs gap-1"
                           onClick={() =>
                             window.open(
-                              `/api/admin/vouchers/${encodeURIComponent(p.voucher_id || p.id)}?format=pdf`,
+                              `/api/admin/vouchers/${encodeURIComponent(p.resolvedVoucher?.id || p.voucher_id || p.id)}?format=pdf`,
                               "_blank"
                             )
                           }
                         >
                           <Download className="h-3 w-3" />
                           PDF
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs gap-1"
+                          title="Send / Resend Official PDF Voucher to Client Email"
+                          disabled={busyEmailId === p.id}
+                          onClick={() =>
+                            handleEmailVoucherOrPayment(
+                              p.id,
+                              p.resolvedVoucher?.id || p.voucher_id || null
+                            )
+                          }
+                        >
+                          {busyEmailId === p.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Mail className="h-3 w-3" />
+                          )}
+                          Email
                         </Button>
                       </div>
                     </TableCell>
@@ -1688,10 +1939,15 @@ export default function BillingPage() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {historyData.map((h: any) => (
+                        {historyData.map((h: any) => {
+                          const linkedVoucher =
+                            voucherByPaymentId.get(h.id) ||
+                            (h.voucher_id ? voucherById.get(h.voucher_id) : null) ||
+                            null;
+                          return (
                           <TableRow key={h.id}>
                             <TableCell>{new Date(h.paid_at).toLocaleDateString()}</TableCell>
-                            <TableCell>{h.receipt_number || "N/A"}</TableCell>
+                            <TableCell>{linkedVoucher?.voucher_number || h.receipt_number || "N/A"}</TableCell>
                             <TableCell>{h.currency} {h.amount_paid}</TableCell>
                             <TableCell>{h.payment_method || "N/A"}</TableCell>
                             <TableCell>{h.currency} {h.outstanding_after || 0}</TableCell>
@@ -1706,12 +1962,19 @@ export default function BillingPage() {
                                   variant="outline"
                                   size="sm"
                                   className="h-7 text-xs"
-                                  onClick={() => {
-                                    setActiveVoucherDoc(null);
-                                    setActiveVoucherId(h.voucher_id || h.id);
-                                  }}
+                                  disabled={busyPaymentVoucherId === h.id}
+                                  onClick={() =>
+                                    handleOpenOrGeneratePaymentVoucher({
+                                      ...h,
+                                      resolvedVoucher: linkedVoucher,
+                                    })
+                                  }
                                 >
-                                  View Voucher
+                                  {busyPaymentVoucherId === h.id
+                                    ? "Creating…"
+                                    : linkedVoucher
+                                    ? "View Voucher"
+                                    : "1-Click Voucher"}
                                 </Button>
                                 <Button
                                   variant="ghost"
@@ -1719,7 +1982,7 @@ export default function BillingPage() {
                                   className="h-7 text-xs"
                                   onClick={() =>
                                     window.open(
-                                      `/api/admin/vouchers/${encodeURIComponent(h.voucher_id || h.id)}?format=pdf`,
+                                      `/api/admin/vouchers/${encodeURIComponent(linkedVoucher?.id || h.voucher_id || h.id)}?format=pdf`,
                                       "_blank"
                                     )
                                   }
@@ -1731,19 +1994,22 @@ export default function BillingPage() {
                                     variant="ghost"
                                     size="sm"
                                     className="h-7 text-xs"
-                                    onClick={() => {
-                                      fetch(`/api/admin/payments/${h.id}/resend`, { method: "POST" })
-                                        .then(() => toast.success("Receipt queued for resend"))
-                                        .catch(() => toast.error("Failed to resend receipt"));
-                                    }}
+                                    disabled={busyEmailId === h.id}
+                                    onClick={() =>
+                                      handleEmailVoucherOrPayment(
+                                        h.id,
+                                        linkedVoucher?.id || h.voucher_id || null
+                                      )
+                                    }
                                   >
-                                    Resend
+                                    {busyEmailId === h.id ? "Sending…" : "Email"}
                                   </Button>
                                 )}
                               </div>
                             </TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -1829,6 +2095,7 @@ export default function BillingPage() {
         onClose={() => {
           setActiveVoucherId(null);
           setActiveVoucherDoc(null);
+          refetchVouchers();
         }}
         voucherId={activeVoucherId}
         initialVoucher={activeVoucherDoc}

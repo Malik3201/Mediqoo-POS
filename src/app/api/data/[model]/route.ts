@@ -20,6 +20,7 @@ import HistoricalTopProduct from "@/models/HistoricalTopProduct";
 import HistoricalRecentSale from "@/models/HistoricalRecentSale";
 import LicenseBillingPeriod from "@/models/LicenseBillingPeriod";
 import LicensePayment from "@/models/LicensePayment";
+import LicenseRenewalInvoice from "@/models/LicenseRenewalInvoice";
 import RenewalNotification from "@/models/RenewalNotification";
 import BillingUsage from "@/models/BillingUsage";
 import BillingAdjustment from "@/models/BillingAdjustment";
@@ -44,6 +45,7 @@ const modelsMap: Record<string, any> = {
   "historical_recent_sales": HistoricalRecentSale,
   "license_billing_periods": LicenseBillingPeriod,
   "license_payments": LicensePayment,
+  "license_renewal_invoices": LicenseRenewalInvoice,
   "renewal_notifications": RenewalNotification,
   "billing_usage": BillingUsage,
   "billing_adjustments": BillingAdjustment,
