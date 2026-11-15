@@ -138,7 +138,12 @@ export async function generatePackage(data: { project_id: string; license_id?: s
     const manifestBytes = toBytes(JSON.stringify(manifest));
 
     const fallbackKey = process.env.PACKAGE_ENCRYPTION_KEY || "fallback_encryption_key_1234567890";
-    const signSeed = process.env.PACKAGE_SIGNING_SEED || "fallback_signing_seed_1234567890";
+    // Prefer dedicated PACKAGE_SIGNING_SEED, then authoritative LICENSE_STATUS_SIGNING_SEED
+    // so new .aivra packages verify against the pinned backend issuer public key.
+    const signSeed =
+      process.env.PACKAGE_SIGNING_SEED ||
+      process.env.LICENSE_STATUS_SIGNING_SEED ||
+      "fallback_signing_seed_1234567890";
     
     const encKey = license?.license_key ?? fallbackKey;
     if (!encKey) throw new Error("No encryption key available");
