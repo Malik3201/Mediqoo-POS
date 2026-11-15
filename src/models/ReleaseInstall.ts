@@ -8,6 +8,12 @@ export interface IReleaseInstall extends Document {
   license_key?: string;
   machine_id?: string;
   version: string;
+  app_type?: string;
+  platform?: string;
+  channel?: string;
+  release_type?: string;
+  native_version_code?: number;
+  web_version?: string;
   status: string;
   error?: string;
   created_at: Date;
@@ -21,6 +27,12 @@ const ReleaseInstallSchema = new Schema<IReleaseInstall>(
     license_key: { type: String },
     machine_id: { type: String },
     version: { type: String, required: true },
+    app_type: { type: String },
+    platform: { type: String },
+    channel: { type: String },
+    release_type: { type: String },
+    native_version_code: { type: Number },
+    web_version: { type: String },
     status: { type: String, required: true },
     error: { type: String },
   },
@@ -39,4 +51,5 @@ const ReleaseInstallSchema = new Schema<IReleaseInstall>(
 
 ReleaseInstallSchema.set("toObject", { virtuals: true });
 
-export default mongoose.models.ReleaseInstall || mongoose.model<IReleaseInstall>("ReleaseInstall", ReleaseInstallSchema);
+export default mongoose.models.ReleaseInstall ||
+  mongoose.model<IReleaseInstall>("ReleaseInstall", ReleaseInstallSchema);

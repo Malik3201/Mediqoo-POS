@@ -62,6 +62,7 @@ const PATCH_PROTECTED_FIELDS: Record<string, string[]> = {
   // Billing records are immutable — no PATCH allowed
   billing_usage:       ["id", "license_id", "client_id", "invoice_uuid", "billing_period_id", "rate_snapshot", "amount", "occurred_at", "received_at", "unit_count", "billing_cycle_start", "billing_cycle_end", "terminal_id", "terminal_number", "invoice_number_snapshot", "created_at"],
   billing_adjustments: ["id", "license_id", "client_id", "billing_period_id", "type", "amount", "currency", "reason", "recorded_by", "reverses_adjustment_id", "created_at"],
+  releases:            ["id", "manifest_json", "manifest_signature", "manifest_key_id", "signature_status", "object_key", "sha256", "installer_size", "app_type", "platform", "release_seq"],
 };
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ model: string }> }) {
@@ -159,6 +160,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mod
   
   try {
     const body = await req.json();
+    if (model === "releases" && (body?.app_type === "android-pos" || body?.platform === "android")) {
+      return NextResponse.json(
+        { error: "Android POS releases must be created through /api/admin/releases so R2 integrity and Ed25519 signing are enforced." },
+        { status: 400 }
+      );
+    }
     const newData = await Model.create(body);
     return NextResponse.json(newData);
   } catch (error: any) {

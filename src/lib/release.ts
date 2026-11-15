@@ -1,5 +1,26 @@
 import Release from "@/models/Release";
 
+/** Shared MongoDB filter matching legacy + explicit Windows POS releases only. */
+export const WINDOWS_POS_SCOPE_FILTER = {
+  $and: [
+    {
+      $or: [
+        { app_type: "windows-pos" },
+        { app_type: { $exists: false } },
+        { app_type: null },
+      ],
+    },
+    {
+      $or: [
+        { platform: "windows" },
+        { platform: { $exists: false } },
+        { platform: null },
+      ],
+    },
+    { disabled: { $ne: true } },
+  ],
+};
+
 /** Compare semantic versions "1.2.3". Returns 1 if a>b, -1 if a<b, 0 equal. */
 export function cmpVer(a: string, b: string): number {
   const pa = a.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
@@ -14,14 +35,15 @@ export function cmpVer(a: string, b: string): number {
   return 0;
 }
 
-/** 
- * Returns the latest applicable "hot" release for an installed version and optionally target client id.
+/**
+ * Returns the latest applicable Windows POS "hot" release for an installed version
+ * and optionally target client id. Android releases are strictly excluded.
  */
 export async function getLatestPublishedHotRelease(currentVersion: string, clientId?: string) {
-  // Query all published hot releases, sorted by newest first
-  const releases = await Release.find({ 
-    status: "published", 
-    release_type: "hot" 
+  const releases = await Release.find({
+    status: "published",
+    release_type: "hot",
+    ...WINDOWS_POS_SCOPE_FILTER,
   })
     .sort({ published_at: -1 })
     .lean();
@@ -29,7 +51,6 @@ export async function getLatestPublishedHotRelease(currentVersion: string, clien
   // Sort strictly by semantic version just in case published_at order differs
   releases.sort((a: any, b: any) => cmpVer(b.version, a.version));
 
-  // Find the highest version applicable
   const applicable = releases.find((r: any) => {
     if (r.rollout_type === "specific") {
       const targets: string[] = r.target_client_ids ?? [];
@@ -42,12 +63,12 @@ export async function getLatestPublishedHotRelease(currentVersion: string, clien
 }
 
 /**
- * Shared serializer to preserve backward compatibility for old 1.4.0 POS clients 
- * while serving the new 1.4.1+ POS clients.
+ * Shared serializer to preserve backward compatibility for old 1.4.0 Windows POS clients
+ * while serving newer Windows POS clients.
  */
-export function serializeHotUpdateResponse(release: any, installedVersion: string) {
+export function serializeHotUpdateResponse(release: any, _installedVersion: string) {
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3001";
-  
+
   const rawUrl = release.storage_path || release.asar_url || "";
   const downloadUrl = rawUrl.startsWith("http")
     ? rawUrl
@@ -77,6 +98,6 @@ export function serializeHotUpdateResponse(release: any, installedVersion: strin
       download_url: downloadUrl,
       downloadUrl: downloadUrl,
       published_at: release.published_at,
-    }
+    },
   };
 }

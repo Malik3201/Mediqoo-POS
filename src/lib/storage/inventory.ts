@@ -551,7 +551,9 @@ export function classifyStorageInventory(input: {
   const releasesWithR2 = new Set<string>();
   for (const r of input.releases) {
     const k =
+      r.object_key ||
       extractR2KeyFromUrl(r.storage_path) ||
+      extractR2KeyFromUrl(r.bundle_url) ||
       extractR2KeyFromUrl(r.asar_url) ||
       extractR2KeyFromUrl(r.full_package_url);
     if (k) {
@@ -560,20 +562,22 @@ export function classifyStorageInventory(input: {
     }
   }
 
-  // Group published releases that exist in R2 by release_type ('hot' / 'full'), sorted newest version first
+  // Group published releases that exist in R2 by product + release_type so Android & Windows do not evict each other
   const activePublishedByType = new Map<string, any[]>();
   for (const r of input.releases) {
-    if (r.status !== "published" || !releasesWithR2.has(r.id)) continue;
+    if (r.status !== "published" || r.disabled || !releasesWithR2.has(r.id)) continue;
+    const appType = r.app_type || "windows-pos";
     const rType = r.release_type || "hot";
-    if (!activePublishedByType.has(rType)) activePublishedByType.set(rType, []);
-    activePublishedByType.get(rType)!.push(r);
+    const bucketKey = `${appType}:${rType}`;
+    if (!activePublishedByType.has(bucketKey)) activePublishedByType.set(bucketKey, []);
+    activePublishedByType.get(bucketKey)!.push(r);
   }
   const releaseRankById = new Map<string, number>();
-  for (const [rType, list] of activePublishedByType.entries()) {
+  for (const [bucketKey, list] of activePublishedByType.entries()) {
     list.sort((a, b) => cmpVer(b.version, a.version));
     list.forEach((r, idx) => releaseRankById.set(r.id, idx + 1));
     if (list[0]) {
-      categories.software_releases.meta.current_versions.push(`${rType}: v${list[0].version}`);
+      categories.software_releases.meta.current_versions.push(`${bucketKey}: v${list[0].version}`);
     }
   }
 

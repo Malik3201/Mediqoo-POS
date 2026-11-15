@@ -1,5 +1,6 @@
 import connectToDatabase from "@/lib/db";
 import Release from "@/models/Release";
+import { WINDOWS_POS_SCOPE_FILTER } from "@/lib/release";
 import { Download, Smartphone } from "lucide-react";
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +16,8 @@ export default async function DownloadPage() {
   const latestRelease = await Release.findOne({ 
     is_prerelease: { $ne: true },
     status: "published",
-    release_type: "full"
+    release_type: "full",
+    ...WINDOWS_POS_SCOPE_FILTER,
   }).sort({ published_at: -1 }).lean();
 
   const formattedDate = latestRelease?.published_at 

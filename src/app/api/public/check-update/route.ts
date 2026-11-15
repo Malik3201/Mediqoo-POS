@@ -72,20 +72,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ update: null }, { headers: CORS });
     }
 
-    // Next.js static asset URL instead of signed S3 URL
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3001";
-    
-    // If storage_path is already a full absolute URL (e.g. from Cloudflare R2), use it directly
-    const downloadUrl = applicable.storage_path.startsWith("http")
-      ? applicable.storage_path
-      : `${baseUrl}${applicable.storage_path}`;
-
     // Log check
     await ReleaseInstall.create({
       release_id: applicable.id,
       license_id: lic.id,
       license_key: lic.license_key,
       version: applicable.version,
+      app_type: "windows-pos",
+      platform: "windows",
+      release_type: "hot",
       machine_id: body.machine_id ?? null,
       status: "checked",
     });

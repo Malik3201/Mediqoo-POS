@@ -36,6 +36,8 @@ export async function deleteReleaseFile(storagePath: string) {
       const sharedCount = await Release.countDocuments({
         $or: [
           { storage_path: storagePath },
+          { bundle_url: storagePath },
+          { object_key: r2Key },
           { asar_url: storagePath },
           { full_package_url: storagePath },
           { storage_path: { $regex: r2Key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$" } },
