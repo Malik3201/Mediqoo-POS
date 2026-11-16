@@ -62,6 +62,20 @@ export interface ILicense extends Document {
     updated_at: Date;
     updated_by?: string;
   };
+  /**
+   * Super-Admin authorized Go-Live permission configuration for this specific license.
+   * Default status is "not_enabled". When enabled, the POS activated under this license displays the Clean Start wizard.
+   */
+  go_live?: {
+    status: "not_enabled" | "enabled" | "completed";
+    enabled_at?: Date | null;
+    enabled_by?: string | null;
+    completed_at?: Date | null;
+    completed_by?: string | null;
+    revoked_at?: Date | null;
+    revoked_by?: string | null;
+    notes?: string | null;
+  };
   created_at: Date;
   updated_at: Date;
 }
@@ -124,6 +138,19 @@ const LicenseSchema = new Schema<ILicense>(
         updated_by: { type: String },
       }, { _id: false }),
       default: null,
+    },
+    go_live: {
+      type: new Schema({
+        status: { type: String, enum: ["not_enabled", "enabled", "completed"], default: "not_enabled" },
+        enabled_at: { type: Date, default: null },
+        enabled_by: { type: String, default: null },
+        completed_at: { type: Date, default: null },
+        completed_by: { type: String, default: null },
+        revoked_at: { type: Date, default: null },
+        revoked_by: { type: String, default: null },
+        notes: { type: String, default: null },
+      }, { _id: false }),
+      default: () => ({ status: "not_enabled" }),
     },
   },
   {

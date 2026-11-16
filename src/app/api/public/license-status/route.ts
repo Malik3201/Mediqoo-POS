@@ -289,6 +289,17 @@ export async function POST(req: NextRequest) {
       billing_outstanding: billingOutstanding,
       billing_cycle_start: billingCycleStart,
       billing_cycle_end: billingCycleEnd,
+      go_live: {
+        completed_at: license.go_live?.completed_at ? new Date(license.go_live.completed_at).toISOString() : null,
+        completed_by: license.go_live?.completed_by || null,
+        enabled_at: license.go_live?.enabled_at ? new Date(license.go_live.enabled_at).toISOString() : null,
+        enabled_by: license.go_live?.enabled_by || null,
+        notes: license.go_live?.notes || null,
+        revoked_at: license.go_live?.revoked_at ? new Date(license.go_live.revoked_at).toISOString() : null,
+        revoked_by: license.go_live?.revoked_by || null,
+        status: license.go_live?.status || "not_enabled",
+      },
+      go_live_status: license.go_live?.status || "not_enabled",
     };
 
     const signedResponse = await signPayload(payload);
