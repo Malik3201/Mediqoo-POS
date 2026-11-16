@@ -29,6 +29,20 @@ export interface IClient extends Document {
    * POS event timestamps remain absolute UTC.
    */
   timezone: string;
+  /**
+   * Super-Admin authorized Go-Live permission configuration for this pharmacy/client.
+   * Default status is "not_enabled". When enabled, POS displays the Clean Start wizard.
+   */
+  goLive?: {
+    status: "not_enabled" | "enabled" | "in_progress" | "completed" | "revoked";
+    enabled_at?: Date | null;
+    enabled_by?: string | null;
+    completed_at?: Date | null;
+    completed_by?: string | null;
+    revoked_at?: Date | null;
+    revoked_by?: string | null;
+    notes?: string | null;
+  };
   created_by?: string;
   created_at: Date;
   updated_at: Date;
@@ -57,6 +71,16 @@ const ClientSchema = new Schema<IClient>(
       updated_at: { type: Date },
     },
     timezone: { type: String, default: "Asia/Karachi" },
+    goLive: {
+      status: { type: String, default: "not_enabled" },
+      enabled_at: { type: Date },
+      enabled_by: { type: String },
+      completed_at: { type: Date },
+      completed_by: { type: String },
+      revoked_at: { type: Date },
+      revoked_by: { type: String },
+      notes: { type: String },
+    },
     created_by: { type: String },
   },
   {

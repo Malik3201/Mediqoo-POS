@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Pencil, Trash2, Building2, Users, RefreshCw, UserX, UserCheck, Copy, KeyRound, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, Building2, Users, RefreshCw, UserX, UserCheck, Copy, KeyRound, Check, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 
@@ -43,6 +43,16 @@ type Client = {
   notes: string | null;
   status: string;
   timezone: string;
+  goLive?: {
+    status: "not_enabled" | "enabled" | "in_progress" | "completed" | "revoked";
+    enabled_at?: string | null;
+    enabled_by?: string | null;
+    completed_at?: string | null;
+    completed_by?: string | null;
+    revoked_at?: string | null;
+    revoked_by?: string | null;
+    notes?: string | null;
+  };
   created_at: string;
 };
 
@@ -75,6 +85,37 @@ export default function ClientsPage() {
   const [editing, setEditing] = useState<Client | null>(null);
   const [form, setForm] = useState(empty);
   const [portalClient, setPortalClient] = useState<Client | null>(null);
+  const [goLiveClient, setGoLiveClient] = useState<Client | null>(null);
+  const [isUpdatingGoLive, setIsUpdatingGoLive] = useState(false);
+
+  async function updateGoLiveStatus(clientId: string, nextStatus: "enabled" | "revoked" | "not_enabled") {
+    setIsUpdatingGoLive(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const patch = {
+        goLive: {
+          status: nextStatus,
+          ...(nextStatus === "enabled"
+            ? { enabled_at: nowIso, enabled_by: "Super Administrator" }
+            : {}),
+          ...(nextStatus === "revoked"
+            ? { revoked_at: nowIso, revoked_by: "Super Administrator" }
+            : {}),
+        },
+      };
+      await mutateAsync({ method: "PATCH", id: clientId, data: patch });
+      toast.success(
+        nextStatus === "enabled"
+          ? "Go-Live Setup Enabled for Pharmacy"
+          : "Go-Live Setup Revoked"
+      );
+      setGoLiveClient((prev) => (prev ? { ...prev, goLive: { ...prev.goLive, status: nextStatus } } : null));
+    } catch (err: any) {
+      toast.error("Failed to update Go-Live status", err?.message || String(err));
+    } finally {
+      setIsUpdatingGoLive(false);
+    }
+  }
 
   function openNew() {
     setEditing(null);
@@ -162,19 +203,20 @@ export default function ClientsPage() {
               <TableHead>Email</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="w-[100px]" />
+              <TableHead>Go-Live Setup</TableHead>
+              <TableHead className="w-[140px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   No clients yet. Create your first one.
                 </TableCell>
               </TableRow>
@@ -190,7 +232,50 @@ export default function ClientsPage() {
                       {r.status}
                     </Badge>
                   </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        r.goLive?.status === "enabled"
+                          ? "default"
+                          : r.goLive?.status === "completed"
+                            ? "outline"
+                            : r.goLive?.status === "revoked"
+                              ? "destructive"
+                              : "secondary"
+                      }
+                      className={
+                        r.goLive?.status === "enabled"
+                          ? "bg-amber-500 hover:bg-amber-600 text-white"
+                          : r.goLive?.status === "completed"
+                            ? "border-emerald-500 text-emerald-600 font-bold"
+                            : ""
+                      }
+                    >
+                      {r.goLive?.status === "enabled"
+                        ? "Enabled"
+                        : r.goLive?.status === "completed"
+                          ? "Completed"
+                          : r.goLive?.status === "revoked"
+                            ? "Revoked"
+                            : "Not Enabled"}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-right">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setGoLiveClient(r)}
+                      title="Go-Live Authorization"
+                      className={
+                        r.goLive?.status === "enabled"
+                          ? "text-amber-500 hover:text-amber-600 hover:bg-amber-50"
+                          : r.goLive?.status === "completed"
+                            ? "text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50"
+                            : ""
+                      }
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                    </Button>
                     <Button size="icon" variant="ghost" onClick={() => { setPortalClient(r); }} title="Portal Access">
                       <Users className="h-4 w-4" />
                     </Button>
@@ -307,6 +392,94 @@ export default function ClientsPage() {
           onClose={() => setPortalClient(null)}
         />
       )}
+
+      {/* Go-Live Permission Management Modal */}
+      <Dialog open={!!goLiveClient} onOpenChange={(o) => { if (!o) setGoLiveClient(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-amber-500" />
+              <span>Go-Live Clean Start Authorization</span>
+            </DialogTitle>
+          </DialogHeader>
+          {goLiveClient && (
+            <div className="space-y-4 pt-2 text-sm">
+              <div className="p-3 bg-muted rounded-lg space-y-1">
+                <span className="text-xs text-muted-foreground block">Pharmacy / Client:</span>
+                <strong className="text-base text-foreground">{goLiveClient.name}</strong>
+                <span className="text-xs text-muted-foreground block font-mono">ID: {goLiveClient.id}</span>
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-xs font-semibold block text-muted-foreground uppercase tracking-wider">
+                  Current Authorization State:
+                </span>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    className={
+                      goLiveClient.goLive?.status === "enabled"
+                        ? "bg-amber-500 text-white"
+                        : goLiveClient.goLive?.status === "completed"
+                          ? "bg-emerald-600 text-white font-bold"
+                          : goLiveClient.goLive?.status === "revoked"
+                            ? "bg-rose-500 text-white"
+                            : "bg-secondary text-secondary-foreground"
+                    }
+                  >
+                    {goLiveClient.goLive?.status === "enabled"
+                      ? "Enabled (Awaiting POS Owner Execution)"
+                      : goLiveClient.goLive?.status === "completed"
+                        ? "Completed (Locked)"
+                        : goLiveClient.goLive?.status === "revoked"
+                          ? "Revoked"
+                          : "Not Enabled (Default)"}
+                  </Badge>
+                </div>
+                {goLiveClient.goLive?.enabled_at && (
+                  <p className="text-xs text-muted-foreground">
+                    Authorized on: {new Date(goLiveClient.goLive.enabled_at).toLocaleString()} by {goLiveClient.goLive.enabled_by || "Super Admin"}
+                  </p>
+                )}
+                {goLiveClient.goLive?.completed_at && (
+                  <p className="text-xs text-emerald-600 font-medium">
+                    Clean Start completed on: {new Date(goLiveClient.goLive.completed_at).toLocaleString()} by {goLiveClient.goLive.completed_by || "Owner"}
+                  </p>
+                )}
+              </div>
+
+              <p className="text-xs text-muted-foreground bg-amber-50 dark:bg-amber-950/20 p-3 rounded-lg border border-amber-200 dark:border-amber-900/30">
+                Authorizing Go-Live exposes the Clean Start Wizard inside the pharmacy Windows POS Settings. The pharmacy owner reviews the impact and executes the reset. All real purchases, supplier accounts, and master catalog links remain 100% preserved.
+              </p>
+
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                {goLiveClient.goLive?.status === "enabled" ? (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    disabled={isUpdatingGoLive}
+                    onClick={() => updateGoLiveStatus(goLiveClient.id, "revoked")}
+                  >
+                    Revoke Permission
+                  </Button>
+                ) : (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+                    disabled={isUpdatingGoLive}
+                    onClick={() => updateGoLiveStatus(goLiveClient.id, "enabled")}
+                  >
+                    {goLiveClient.goLive?.status === "completed" ? "Re-Enable Clean Start" : "Enable Go-Live Setup"}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={() => setGoLiveClient(null)}>
+                  Close
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
