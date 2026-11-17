@@ -63,11 +63,24 @@ export interface ILicense extends Document {
     updated_by?: string;
   };
   /**
-   * Super-Admin authorized Go-Live permission configuration for this specific license.
-   * Default status is "not_enabled". When enabled, the POS activated under this license displays the Clean Start wizard.
+   * Super-Admin authorized Go-Live permission configuration for this specific license (legacy).
    */
   go_live?: {
     status: "not_enabled" | "enabled" | "completed";
+    enabled_at?: Date | null;
+    enabled_by?: string | null;
+    completed_at?: Date | null;
+    completed_by?: string | null;
+    revoked_at?: Date | null;
+    revoked_by?: string | null;
+    notes?: string | null;
+  };
+  /**
+   * Super-Admin authorized Fresh Start Reset permission configuration for this specific license.
+   * Default status is "disabled". When enabled, the POS activated under this license displays the Fresh Start wizard.
+   */
+  fresh_start?: {
+    status: "disabled" | "enabled" | "completed";
     enabled_at?: Date | null;
     enabled_by?: string | null;
     completed_at?: Date | null;
@@ -151,6 +164,19 @@ const LicenseSchema = new Schema<ILicense>(
         notes: { type: String, default: null },
       }, { _id: false }),
       default: () => ({ status: "not_enabled" }),
+    },
+    fresh_start: {
+      type: new Schema({
+        status: { type: String, enum: ["disabled", "enabled", "completed"], default: "disabled" },
+        enabled_at: { type: Date, default: null },
+        enabled_by: { type: String, default: null },
+        completed_at: { type: Date, default: null },
+        completed_by: { type: String, default: null },
+        revoked_at: { type: Date, default: null },
+        revoked_by: { type: String, default: null },
+        notes: { type: String, default: null },
+      }, { _id: false }),
+      default: () => ({ status: "disabled" }),
     },
   },
   {

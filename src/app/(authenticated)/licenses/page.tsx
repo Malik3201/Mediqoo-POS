@@ -99,6 +99,16 @@ type License = {
     revoked_by?: string | null;
     notes?: string | null;
   };
+  fresh_start?: {
+    status: "disabled" | "enabled" | "completed";
+    enabled_at?: string | null;
+    enabled_by?: string | null;
+    completed_at?: string | null;
+    completed_by?: string | null;
+    revoked_at?: string | null;
+    revoked_by?: string | null;
+    notes?: string | null;
+  };
   projects?: { name: string; slug: string } | null;
   clients?: { name: string } | null;
 };
@@ -191,30 +201,35 @@ export default function LicensesPage() {
   }>({ open: false });
   const [generatingVoucherFor, setGeneratingVoucherFor] = useState<string | null>(null);
 
-  // License-specific Go-Live Authorization Modal State
+  // License-specific Fresh Start Authorization Modal State
   const [goLiveTarget, setGoLiveTarget] = useState<License | null>(null);
   const [isUpdatingGoLive, setIsUpdatingGoLive] = useState(false);
 
   async function updateLicenseGoLive(licenseId: string, nextStatus: "enabled" | "revoked" | "not_enabled") {
     setIsUpdatingGoLive(true);
     try {
-      const res = await fetch(`/api/admin/licenses/${licenseId}/go-live`, {
+      const fsStatus = nextStatus === "enabled" ? "enabled" : "disabled";
+      const res = await fetch(`/api/admin/licenses/${licenseId}/fresh-start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
+        body: JSON.stringify({ status: fsStatus }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to update Go-Live status");
+      if (!res.ok) throw new Error(data.error || "Failed to update Fresh Start status");
 
       await queryClient.invalidateQueries({ queryKey: ["licenses"] });
       toast.success(
         nextStatus === "enabled"
-          ? "Go-Live Setup Enabled for this License"
-          : "Go-Live Setup Revoked for this License"
+          ? "Fresh Start Reset Enabled for this License"
+          : "Fresh Start Reset Revoked for this License"
       );
-      setGoLiveTarget((prev) => (prev && prev.id === licenseId ? { ...prev, go_live: data.go_live } : null));
+      setGoLiveTarget((prev) =>
+        prev && prev.id === licenseId
+          ? { ...prev, fresh_start: data.fresh_start, go_live: data.go_live }
+          : null
+      );
     } catch (err: any) {
-      toast.error(err.message || "Failed to update Go-Live status");
+      toast.error(err.message || "Failed to update Fresh Start status");
     } finally {
       setIsUpdatingGoLive(false);
     }
@@ -692,7 +707,7 @@ export default function LicensesPage() {
               <TableHead>Cloud</TableHead>
               <TableHead>Backup</TableHead>
               <TableHead>Online Orders</TableHead>
-              <TableHead>Go-Live</TableHead>
+              <TableHead>Fresh Start</TableHead>
               <TableHead className="w-[180px] text-right" />
             </TableRow>
           </TableHeader>
@@ -857,29 +872,36 @@ export default function LicensesPage() {
                       </Button>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={`h-7 text-xs px-2 font-medium ${
-                          r.go_live?.status === "enabled"
-                            ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600"
+                      {(() => {
+                        const fsStatus =
+                          r.fresh_start?.status ||
+                          (r.go_live?.status === "enabled"
+                            ? "enabled"
                             : r.go_live?.status === "completed"
-                              ? "border-emerald-500 text-emerald-600 font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-                              : r.go_live?.status === "revoked"
-                                ? "border-rose-400 text-rose-600 hover:bg-rose-50"
-                                : "text-muted-foreground"
-                        }`}
-                        onClick={() => setGoLiveTarget(r)}
-                        title="Manage Go-Live Setup for this specific license"
-                      >
-                        {r.go_live?.status === "enabled"
-                          ? "Enabled"
-                          : r.go_live?.status === "completed"
-                            ? "Completed"
-                            : r.go_live?.status === "revoked"
-                              ? "Revoked"
-                              : "Not Enabled"}
-                      </Button>
+                            ? "completed"
+                            : "disabled");
+                        return (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={`h-7 text-xs px-2 font-medium ${
+                              fsStatus === "enabled"
+                                ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600"
+                                : fsStatus === "completed"
+                                  ? "border-emerald-500 text-emerald-600 font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                                  : "text-muted-foreground"
+                            }`}
+                            onClick={() => setGoLiveTarget(r)}
+                            title="Manage Fresh Start Reset for this specific license"
+                          >
+                            {fsStatus === "enabled"
+                              ? "Enabled"
+                              : fsStatus === "completed"
+                                ? "Completed"
+                                : "Disabled"}
+                          </Button>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
@@ -1769,98 +1791,108 @@ export default function LicensesPage() {
         onClose={() => setVoucherModalState({ open: false })}
       />
 
-      {/* License-Specific Go-Live Authorization Modal */}
+      {/* License-Specific Fresh Start Authorization Modal */}
       <Dialog open={!!goLiveTarget} onOpenChange={(o) => { if (!o) setGoLiveTarget(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-amber-500" />
-              <span>License Go-Live Authorization</span>
+              <span>License Fresh Start Reset Authorization</span>
             </DialogTitle>
           </DialogHeader>
-          {goLiveTarget && (
-            <div className="space-y-4 pt-2 text-sm">
-              <div className="p-3 bg-muted rounded-lg space-y-1">
-                <span className="text-xs text-muted-foreground block">Pharmacy / Project:</span>
-                <strong className="text-base text-foreground">
-                  {goLiveTarget.projects?.name || "Active Deployment"}
-                </strong>
-                {goLiveTarget.clients?.name && (
-                  <span className="text-xs text-muted-foreground block">Client: {goLiveTarget.clients.name}</span>
-                )}
-                <span className="text-xs text-muted-foreground block font-mono">
-                  License: {goLiveTarget.license_key.substring(0, 16)}…
-                </span>
-              </div>
+          {goLiveTarget && (() => {
+            const fsStatus =
+              goLiveTarget.fresh_start?.status ||
+              (goLiveTarget.go_live?.status === "enabled"
+                ? "enabled"
+                : goLiveTarget.go_live?.status === "completed"
+                ? "completed"
+                : "disabled");
+            const enabledAt = goLiveTarget.fresh_start?.enabled_at || goLiveTarget.go_live?.enabled_at;
+            const enabledBy = goLiveTarget.fresh_start?.enabled_by || goLiveTarget.go_live?.enabled_by;
+            const completedAt = goLiveTarget.fresh_start?.completed_at || goLiveTarget.go_live?.completed_at;
+            const completedBy = goLiveTarget.fresh_start?.completed_by || goLiveTarget.go_live?.completed_by;
 
-              <div className="space-y-2">
-                <span className="text-xs font-semibold block text-muted-foreground uppercase tracking-wider">
-                  Current License Authorization:
-                </span>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    className={
-                      goLiveTarget.go_live?.status === "enabled"
-                        ? "bg-amber-500 text-white"
-                        : goLiveTarget.go_live?.status === "completed"
-                          ? "bg-emerald-600 text-white font-bold"
-                          : goLiveTarget.go_live?.status === "revoked"
-                            ? "bg-rose-500 text-white"
-                            : "bg-secondary text-secondary-foreground"
-                    }
-                  >
-                    {goLiveTarget.go_live?.status === "enabled"
-                      ? "Enabled (Awaiting POS Execution)"
-                      : goLiveTarget.go_live?.status === "completed"
-                        ? "Completed (Locked)"
-                        : goLiveTarget.go_live?.status === "revoked"
-                          ? "Revoked"
-                          : "Not Enabled (Default)"}
-                  </Badge>
+            return (
+              <div className="space-y-4 pt-2 text-sm">
+                <div className="p-3 bg-muted rounded-lg space-y-1">
+                  <span className="text-xs text-muted-foreground block">Pharmacy / Project:</span>
+                  <strong className="text-base text-foreground">
+                    {goLiveTarget.projects?.name || "Active Deployment"}
+                  </strong>
+                  {goLiveTarget.clients?.name && (
+                    <span className="text-xs text-muted-foreground block">Client: {goLiveTarget.clients.name}</span>
+                  )}
+                  <span className="text-xs text-muted-foreground block font-mono">
+                    License: {goLiveTarget.license_key.substring(0, 16)}…
+                  </span>
                 </div>
-                {goLiveTarget.go_live?.enabled_at && (
-                  <p className="text-xs text-muted-foreground">
-                    Authorized on: {new Date(goLiveTarget.go_live.enabled_at).toLocaleString()} by {goLiveTarget.go_live.enabled_by || "Super Admin"}
-                  </p>
-                )}
-                {goLiveTarget.go_live?.completed_at && (
-                  <p className="text-xs text-emerald-600 font-medium">
-                    Clean Start completed on: {new Date(goLiveTarget.go_live.completed_at).toLocaleString()} by {goLiveTarget.go_live.completed_by || "POS Operator"}
-                  </p>
-                )}
-              </div>
 
-              <p className="text-xs text-muted-foreground bg-amber-50 dark:bg-amber-950/20 p-3 rounded-lg border border-amber-200 dark:border-amber-900/30">
-                Authorizing Go-Live applies strictly to THIS license. Other licenses under the same client remain untouched. Once authorized, the POS running this license will show the Clean Start Wizard upon next license refresh.
-              </p>
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold block text-muted-foreground uppercase tracking-wider">
+                    Current License Authorization:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Badge
+                      className={
+                        fsStatus === "enabled"
+                          ? "bg-amber-500 text-white"
+                          : fsStatus === "completed"
+                            ? "bg-emerald-600 text-white font-bold"
+                            : "bg-secondary text-secondary-foreground"
+                      }
+                    >
+                      {fsStatus === "enabled"
+                        ? "Enabled (Awaiting POS Execution)"
+                        : fsStatus === "completed"
+                          ? "Completed (Locked)"
+                          : "Disabled (Default)"}
+                    </Badge>
+                  </div>
+                  {enabledAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Authorized on: {new Date(enabledAt).toLocaleString()} by {enabledBy || "Super Admin"}
+                    </p>
+                  )}
+                  {completedAt && (
+                    <p className="text-xs text-emerald-600 font-medium">
+                      Fresh Start completed on: {new Date(completedAt).toLocaleString()} by {completedBy || "POS Operator"}
+                    </p>
+                  )}
+                </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t">
-                {goLiveTarget.go_live?.status === "enabled" ? (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={isUpdatingGoLive}
-                    onClick={() => updateLicenseGoLive(goLiveTarget.id, "revoked")}
-                  >
-                    Revoke Permission
+                <p className="text-xs text-muted-foreground bg-amber-50 dark:bg-amber-950/20 p-3 rounded-lg border border-amber-200 dark:border-amber-900/30">
+                  Authorizing Fresh Start applies strictly to THIS license. Other licenses under the same client remain untouched. Once authorized, the POS running this license will show the Fresh Start Reset option in Settings upon next license refresh.
+                </p>
+
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  {fsStatus === "enabled" ? (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={isUpdatingGoLive}
+                      onClick={() => updateLicenseGoLive(goLiveTarget.id, "revoked")}
+                    >
+                      Disable Permission
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+                      disabled={isUpdatingGoLive}
+                      onClick={() => updateLicenseGoLive(goLiveTarget.id, "enabled")}
+                    >
+                      {fsStatus === "completed" ? "Re-Authorize Fresh Start" : "Enable Fresh Start Reset"}
+                    </Button>
+                  )}
+                  <Button variant="outline" size="sm" onClick={() => setGoLiveTarget(null)}>
+                    Close
                   </Button>
-                ) : (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
-                    disabled={isUpdatingGoLive}
-                    onClick={() => updateLicenseGoLive(goLiveTarget.id, "enabled")}
-                  >
-                    {goLiveTarget.go_live?.status === "completed" ? "Re-Authorize Clean Start" : "Enable Go-Live Setup"}
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" onClick={() => setGoLiveTarget(null)}>
-                  Close
-                </Button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>

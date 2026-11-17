@@ -62,10 +62,35 @@ export async function POST(
         : {}),
     };
 
+    const fsStatus =
+      nextStatus === "enabled"
+        ? "enabled"
+        : nextStatus === "completed"
+        ? "completed"
+        : "disabled";
+
+    const updatedFreshStart = {
+      ...(existing.fresh_start || {}),
+      status: fsStatus,
+      notes: typeof body.notes === "string" ? body.notes : existing.fresh_start?.notes || null,
+      ...(nextStatus === "enabled"
+        ? { enabled_at: now, enabled_by: operatorName, revoked_at: null, revoked_by: null }
+        : {}),
+      ...(nextStatus === "revoked" || nextStatus === "not_enabled"
+        ? { revoked_at: now, revoked_by: operatorName }
+        : {}),
+      ...(nextStatus === "completed"
+        ? { completed_at: now, completed_by: operatorName }
+        : {}),
+    };
+
     const updated = await License.findOneAndUpdate(
       { id },
       {
-        $set: { go_live: updatedGoLive },
+        $set: {
+          go_live: updatedGoLive,
+          fresh_start: updatedFreshStart,
+        },
         $inc: { license_version: 1 },
       },
       { new: true }
@@ -74,6 +99,7 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       go_live: updated?.go_live,
+      fresh_start: updated?.fresh_start,
       license_version: updated?.license_version,
     });
   } catch (error: any) {
