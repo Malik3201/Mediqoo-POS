@@ -89,6 +89,7 @@ type License = {
       effective_from?: string;
     } | null;
   };
+  /** Legacy Go-Live field (compatibility-only deserialization; never authorizes Fresh Start). */
   go_live?: {
     status: "not_enabled" | "enabled" | "completed" | "revoked";
     enabled_at?: string | null;
@@ -101,6 +102,13 @@ type License = {
   };
   fresh_start?: {
     status: "disabled" | "pending" | "enabled" | "completed" | "rejected";
+    cycle_id?: string | null;
+    authorization_version?: number;
+    is_repeat_cycle_request?: boolean;
+    previous_cycle_id?: string | null;
+    previous_authorization_version?: number | null;
+    previous_completed_at?: string | null;
+    previous_completed_by?: string | null;
     requested_at?: string | null;
     requested_by?: string | null;
     app_version?: string | null;
@@ -208,8 +216,8 @@ export default function LicensesPage() {
   const [generatingVoucherFor, setGeneratingVoucherFor] = useState<string | null>(null);
 
   // License-specific Fresh Start Authorization Modal State
-  const [goLiveTarget, setGoLiveTarget] = useState<License | null>(null);
-  const [isUpdatingGoLive, setIsUpdatingGoLive] = useState(false);
+  const [freshStartTarget, setFreshStartTarget] = useState<License | null>(null);
+  const [isUpdatingFreshStart, setIsUpdatingFreshStart] = useState(false);
 
   async function updateLicenseFreshStart(
     licenseId: string,
@@ -217,7 +225,7 @@ export default function LicensesPage() {
     rejectionReason?: string,
     isNewCycle?: boolean
   ) {
-    setIsUpdatingGoLive(true);
+    setIsUpdatingFreshStart(true);
     try {
       const res = await fetch(`/api/admin/licenses/${licenseId}/fresh-start`, {
         method: "POST",
@@ -241,21 +249,16 @@ export default function LicensesPage() {
           ? "Fresh Start Marked Completed"
           : "Fresh Start Reset Revoked for this License"
       );
-      setGoLiveTarget((prev) =>
+      setFreshStartTarget((prev) =>
         prev && prev.id === licenseId
-          ? { ...prev, fresh_start: data.fresh_start, go_live: data.go_live }
+          ? { ...prev, fresh_start: data.fresh_start }
           : null
       );
     } catch (err: any) {
       toast.error(err.message || "Failed to update Fresh Start status");
     } finally {
-      setIsUpdatingGoLive(false);
+      setIsUpdatingFreshStart(false);
     }
-  }
-
-  async function updateLicenseGoLive(licenseId: string, nextStatus: "enabled" | "revoked" | "not_enabled") {
-    const fsStatus = nextStatus === "enabled" ? "enabled" : "disabled";
-    return updateLicenseFreshStart(licenseId, fsStatus);
   }
 
   // Cloud Backup & Recovery Secret Modal State
@@ -752,16 +755,22 @@ export default function LicensesPage() {
                   </div>
                   <div className="space-y-0.5 text-muted-foreground font-mono text-[11px] bg-muted/50 p-2 rounded">
                     <p>License: {r.license_key?.substring(0, 16)}…</p>
+                    <p>Cycle: v{r.fresh_start?.authorization_version || 1}{r.fresh_start?.cycle_id ? ` (${r.fresh_start.cycle_id})` : ""}</p>
                     <p>Requested: {r.fresh_start?.requested_at ? new Date(r.fresh_start.requested_at).toLocaleString() : "Recently"}</p>
                     <p>By: {r.fresh_start?.requested_by || "Main POS Owner"}</p>
                     {r.fresh_start?.app_version && <p>App Version: {r.fresh_start.app_version}</p>}
                   </div>
+                  {(r.fresh_start?.is_repeat_cycle_request || r.fresh_start?.previous_completed_at) && (
+                    <div className="rounded bg-rose-500/15 border border-rose-500/40 p-2 text-[11px] text-rose-700 dark:text-rose-300 font-medium">
+                      WARNING: Fresh Start was previously completed{r.fresh_start?.previous_completed_at ? ` on ${new Date(r.fresh_start.previous_completed_at).toLocaleDateString()}` : ""}. Approving authorizes a NEW destructive reset cycle!
+                    </div>
+                  )}
                   <div className="flex items-center justify-end gap-2 pt-1 border-t">
                     <Button
                       size="sm"
                       variant="outline"
                       className="h-7 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-                      disabled={isUpdatingGoLive}
+                      disabled={isUpdatingFreshStart}
                       onClick={() => {
                         const reason = window.prompt("Rejection reason (optional):");
                         if (reason !== null) {
@@ -774,8 +783,17 @@ export default function LicensesPage() {
                     <Button
                       size="sm"
                       className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                      disabled={isUpdatingGoLive}
-                      onClick={() => updateLicenseFreshStart(r.id, "enabled")}
+                      disabled={isUpdatingFreshStart}
+                      onClick={() => {
+                        const isRepeat = Boolean(r.fresh_start?.is_repeat_cycle_request || r.fresh_start?.previous_completed_at || (r.fresh_start?.authorization_version || 1) > 1);
+                        if (isRepeat) {
+                          const ok = window.confirm(
+                            "WARNING: Fresh Start was ALREADY completed for this license.\n\nApproving grants a NEW authorization cycle for another reset. Proceed?"
+                          );
+                          if (!ok) return;
+                        }
+                        updateLicenseFreshStart(r.id, "enabled");
+                      }}
                     >
                       Approve Fresh Start
                     </Button>
@@ -967,13 +985,7 @@ export default function LicensesPage() {
                     </TableCell>
                     <TableCell>
                       {(() => {
-                        const fsStatus =
-                          r.fresh_start?.status ||
-                          (r.go_live?.status === "enabled"
-                            ? "enabled"
-                            : r.go_live?.status === "completed"
-                            ? "completed"
-                            : "disabled");
+                        const fsStatus = r.fresh_start?.status || "disabled";
                         return (
                           <Button
                             variant="outline"
@@ -989,7 +1001,7 @@ export default function LicensesPage() {
                                 ? "border-rose-400 text-rose-600 font-medium hover:bg-rose-50"
                                 : "text-muted-foreground"
                             }`}
-                            onClick={() => setGoLiveTarget(r)}
+                            onClick={() => setFreshStartTarget(r)}
                             title="Manage Fresh Start Reset for this specific license"
                           >
                             {fsStatus === "pending"
@@ -1894,7 +1906,7 @@ export default function LicensesPage() {
       />
 
       {/* License-Specific Fresh Start Authorization Modal */}
-      <Dialog open={!!goLiveTarget} onOpenChange={(o) => { if (!o) setGoLiveTarget(null); }}>
+      <Dialog open={!!freshStartTarget} onOpenChange={(o) => { if (!o) setFreshStartTarget(null); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1902,33 +1914,47 @@ export default function LicensesPage() {
               <span>License Fresh Start Reset Authorization</span>
             </DialogTitle>
           </DialogHeader>
-          {goLiveTarget && (() => {
-            const fsStatus =
-              goLiveTarget.fresh_start?.status ||
-              (goLiveTarget.go_live?.status === "enabled"
-                ? "enabled"
-                : goLiveTarget.go_live?.status === "completed"
-                ? "completed"
-                : "disabled");
-            const enabledAt = goLiveTarget.fresh_start?.enabled_at || goLiveTarget.go_live?.enabled_at;
-            const enabledBy = goLiveTarget.fresh_start?.enabled_by || goLiveTarget.go_live?.enabled_by;
-            const completedAt = goLiveTarget.fresh_start?.completed_at || goLiveTarget.go_live?.completed_at;
-            const completedBy = goLiveTarget.fresh_start?.completed_by || goLiveTarget.go_live?.completed_by;
+          {freshStartTarget && (() => {
+            const fsStatus = freshStartTarget.fresh_start?.status || "disabled";
+            const enabledAt = freshStartTarget.fresh_start?.enabled_at;
+            const enabledBy = freshStartTarget.fresh_start?.enabled_by;
+            const completedAt = freshStartTarget.fresh_start?.completed_at;
+            const completedBy = freshStartTarget.fresh_start?.completed_by;
+            const authVer = freshStartTarget.fresh_start?.authorization_version || 1;
+            const cycleId = freshStartTarget.fresh_start?.cycle_id;
+            const isRepeat = Boolean(
+              freshStartTarget.fresh_start?.is_repeat_cycle_request ||
+              freshStartTarget.fresh_start?.previous_completed_at ||
+              authVer > 1
+            );
 
             return (
               <div className="space-y-4 pt-2 text-sm">
                 <div className="p-3 bg-muted rounded-lg space-y-1">
                   <span className="text-xs text-muted-foreground block">Pharmacy / Project:</span>
                   <strong className="text-base text-foreground">
-                    {goLiveTarget.projects?.name || "Active Deployment"}
+                    {freshStartTarget.projects?.name || "Active Deployment"}
                   </strong>
-                  {goLiveTarget.clients?.name && (
-                    <span className="text-xs text-muted-foreground block">Client: {goLiveTarget.clients.name}</span>
+                  {freshStartTarget.clients?.name && (
+                    <span className="text-xs text-muted-foreground block">Client: {freshStartTarget.clients.name}</span>
                   )}
                   <span className="text-xs text-muted-foreground block font-mono">
-                    License: {goLiveTarget.license_key.substring(0, 16)}…
+                    License: {freshStartTarget.license_key.substring(0, 16)}… · Cycle v{authVer}{cycleId ? ` (${cycleId})` : ""}
                   </span>
                 </div>
+
+                {isRepeat && (
+                  <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-700 dark:text-rose-300 space-y-1">
+                    <p className="font-bold">Warning: Previous Fresh Start Completed</p>
+                    <p>
+                      This license already executed Fresh Start
+                      {freshStartTarget.fresh_start?.previous_completed_at
+                        ? ` on ${new Date(freshStartTarget.fresh_start.previous_completed_at).toLocaleString()}`
+                        : ""}
+                      . Re-authorizing enables another destructive reset cycle.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <span className="text-xs font-semibold block text-muted-foreground uppercase tracking-wider">
@@ -1959,20 +1985,20 @@ export default function LicensesPage() {
                             : "Disabled (Default)"}
                     </Badge>
                   </div>
-                  {goLiveTarget.fresh_start?.requested_at && (
+                  {freshStartTarget.fresh_start?.requested_at && (
                     <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Requested on: {new Date(goLiveTarget.fresh_start.requested_at).toLocaleString()} by {goLiveTarget.fresh_start.requested_by || "Main POS Owner"}
+                      Requested on: {new Date(freshStartTarget.fresh_start.requested_at).toLocaleString()} by {freshStartTarget.fresh_start.requested_by || "Main POS Owner"}
                     </p>
                   )}
-                  {goLiveTarget.fresh_start?.app_version && (
+                  {freshStartTarget.fresh_start?.app_version && (
                     <p className="text-xs text-muted-foreground">
-                      POS Version: {goLiveTarget.fresh_start.app_version}
+                      POS Version: {freshStartTarget.fresh_start.app_version}
                     </p>
                   )}
-                  {goLiveTarget.fresh_start?.rejected_at && (
+                  {freshStartTarget.fresh_start?.rejected_at && (
                     <p className="text-xs text-rose-600">
-                      Rejected on: {new Date(goLiveTarget.fresh_start.rejected_at).toLocaleString()} by {goLiveTarget.fresh_start.rejected_by || "Super Admin"}
-                      {goLiveTarget.fresh_start.rejection_reason ? ` (Reason: ${goLiveTarget.fresh_start.rejection_reason})` : ""}
+                      Rejected on: {new Date(freshStartTarget.fresh_start.rejected_at).toLocaleString()} by {freshStartTarget.fresh_start.rejected_by || "Super Admin"}
+                      {freshStartTarget.fresh_start.rejection_reason ? ` (Reason: ${freshStartTarget.fresh_start.rejection_reason})` : ""}
                     </p>
                   )}
                   {enabledAt && (
@@ -1998,11 +2024,11 @@ export default function LicensesPage() {
                         variant="outline"
                         size="sm"
                         className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-                        disabled={isUpdatingGoLive}
+                        disabled={isUpdatingFreshStart}
                         onClick={() => {
                           const reason = window.prompt("Rejection reason (optional):");
                           if (reason !== null) {
-                            updateLicenseFreshStart(goLiveTarget.id, "rejected", reason || "Rejected by Super Administrator");
+                            updateLicenseFreshStart(freshStartTarget.id, "rejected", reason || "Rejected by Super Administrator");
                           }
                         }}
                       >
@@ -2012,8 +2038,16 @@ export default function LicensesPage() {
                         variant="default"
                         size="sm"
                         className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                        disabled={isUpdatingGoLive}
-                        onClick={() => updateLicenseFreshStart(goLiveTarget.id, "enabled")}
+                        disabled={isUpdatingFreshStart}
+                        onClick={() => {
+                          if (isRepeat) {
+                            const ok = window.confirm(
+                              "WARNING: This pharmacy already completed Fresh Start previously.\n\nAre you sure you want to approve a NEW Fresh Start authorization cycle?"
+                            );
+                            if (!ok) return;
+                          }
+                          updateLicenseFreshStart(freshStartTarget.id, "enabled");
+                        }}
                       >
                         Approve Fresh Start
                       </Button>
@@ -2022,8 +2056,8 @@ export default function LicensesPage() {
                     <Button
                       variant="destructive"
                       size="sm"
-                      disabled={isUpdatingGoLive}
-                      onClick={() => updateLicenseFreshStart(goLiveTarget.id, "disabled")}
+                      disabled={isUpdatingFreshStart}
+                      onClick={() => updateLicenseFreshStart(freshStartTarget.id, "disabled")}
                     >
                       Disable Permission
                     </Button>
@@ -2032,7 +2066,7 @@ export default function LicensesPage() {
                       variant="destructive"
                       size="sm"
                       className="bg-amber-700 hover:bg-amber-800 text-white font-semibold"
-                      disabled={isUpdatingGoLive}
+                      disabled={isUpdatingFreshStart}
                       onClick={() => {
                         const confirmed = window.confirm(
                           "WARNING: This pharmacy has already completed Fresh Start.\n\n" +
@@ -2040,7 +2074,7 @@ export default function LicensesPage() {
                           "Are you sure you want to authorize a NEW Fresh Start authorization cycle?"
                         );
                         if (confirmed) {
-                          updateLicenseFreshStart(goLiveTarget.id, "enabled", "Super Admin authorized new Fresh Start cycle", true);
+                          updateLicenseFreshStart(freshStartTarget.id, "enabled", "Super Admin authorized new Fresh Start cycle", true);
                         }
                       }}
                     >
@@ -2051,13 +2085,13 @@ export default function LicensesPage() {
                       variant="default"
                       size="sm"
                       className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
-                      disabled={isUpdatingGoLive}
-                      onClick={() => updateLicenseFreshStart(goLiveTarget.id, "enabled")}
+                      disabled={isUpdatingFreshStart}
+                      onClick={() => updateLicenseFreshStart(freshStartTarget.id, "enabled")}
                     >
                       {fsStatus === "rejected" ? "Re-Enable Fresh Start" : "Enable Fresh Start Reset"}
                     </Button>
                   )}
-                  <Button variant="outline" size="sm" onClick={() => setGoLiveTarget(null)}>
+                  <Button variant="outline" size="sm" onClick={() => setFreshStartTarget(null)}>
                     Close
                   </Button>
                 </div>

@@ -63,7 +63,8 @@ export interface ILicense extends Document {
     updated_by?: string;
   };
   /**
-   * Super-Admin authorized Go-Live permission configuration for this specific license (legacy).
+   * Legacy Go-Live permission field (compatibility-only deserialization for historical docs).
+   * Deprecated: does NOT drive Fresh Start authorization.
    */
   go_live?: {
     status: "not_enabled" | "enabled" | "completed";
@@ -83,6 +84,11 @@ export interface ILicense extends Document {
     status: "disabled" | "pending" | "enabled" | "completed" | "rejected";
     cycle_id?: string | null;
     authorization_version?: number;
+    is_repeat_cycle_request?: boolean;
+    previous_cycle_id?: string | null;
+    previous_authorization_version?: number | null;
+    previous_completed_at?: Date | null;
+    previous_completed_by?: string | null;
     requested_at?: Date | null;
     requested_by?: string | null;
     app_version?: string | null;
@@ -178,6 +184,11 @@ const LicenseSchema = new Schema<ILicense>(
         status: { type: String, enum: ["disabled", "pending", "enabled", "completed", "rejected"], default: "disabled" },
         cycle_id: { type: String, default: null },
         authorization_version: { type: Number, default: 1 },
+        is_repeat_cycle_request: { type: Boolean, default: false },
+        previous_cycle_id: { type: String, default: null },
+        previous_authorization_version: { type: Number, default: null },
+        previous_completed_at: { type: Date, default: null },
+        previous_completed_by: { type: String, default: null },
         requested_at: { type: Date, default: null },
         requested_by: { type: String, default: null },
         app_version: { type: String, default: null },

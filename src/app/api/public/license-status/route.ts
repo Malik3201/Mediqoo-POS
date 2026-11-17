@@ -270,21 +270,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Authoritative Fresh Start permission comes strictly from license.fresh_start.
+    // Legacy license.go_live must NEVER grant or authorize Fresh Start.
     const resolvedFreshStartStatus: "disabled" | "pending" | "enabled" | "completed" | "rejected" =
-      license.fresh_start?.status ||
-      (license.go_live?.status === "enabled"
-        ? "enabled"
-        : license.go_live?.status === "completed"
-        ? "completed"
-        : "disabled");
-
-    const resolvedGoLiveStatus: "not_enabled" | "enabled" | "completed" =
-      license.go_live?.status ||
-      (license.fresh_start?.status === "enabled"
-        ? "enabled"
-        : license.fresh_start?.status === "completed"
-        ? "completed"
-        : "not_enabled");
+      license.fresh_start?.status || "disabled";
 
     const payload = {
       cloud_dashboard_enabled: isCloudDashboardEnabled(license),
@@ -306,14 +295,14 @@ export async function POST(req: NextRequest) {
       billing_cycle_start: billingCycleStart,
       billing_cycle_end: billingCycleEnd,
       fresh_start: {
-        completed_at: (license.fresh_start?.completed_at || license.go_live?.completed_at)
-          ? new Date(license.fresh_start?.completed_at || license.go_live!.completed_at!).toISOString()
+        completed_at: license.fresh_start?.completed_at
+          ? new Date(license.fresh_start.completed_at).toISOString()
           : null,
-        completed_by: license.fresh_start?.completed_by || license.go_live?.completed_by || null,
-        enabled_at: (license.fresh_start?.enabled_at || license.go_live?.enabled_at)
-          ? new Date(license.fresh_start?.enabled_at || license.go_live!.enabled_at!).toISOString()
+        completed_by: license.fresh_start?.completed_by || null,
+        enabled_at: license.fresh_start?.enabled_at
+          ? new Date(license.fresh_start.enabled_at).toISOString()
           : null,
-        enabled_by: license.fresh_start?.enabled_by || license.go_live?.enabled_by || null,
+        enabled_by: license.fresh_start?.enabled_by || null,
         requested_at: license.fresh_start?.requested_at
           ? new Date(license.fresh_start.requested_at).toISOString()
           : null,
@@ -324,27 +313,20 @@ export async function POST(req: NextRequest) {
         rejected_by: license.fresh_start?.rejected_by || null,
         rejection_reason: license.fresh_start?.rejection_reason || null,
         app_version: license.fresh_start?.app_version || null,
-        notes: license.fresh_start?.notes || license.go_live?.notes || null,
-        revoked_at: (license.fresh_start?.revoked_at || license.go_live?.revoked_at)
-          ? new Date(license.fresh_start?.revoked_at || license.go_live!.revoked_at!).toISOString()
+        notes: license.fresh_start?.notes || null,
+        revoked_at: license.fresh_start?.revoked_at
+          ? new Date(license.fresh_start.revoked_at).toISOString()
           : null,
-        revoked_by: license.fresh_start?.revoked_by || license.go_live?.revoked_by || null,
+        revoked_by: license.fresh_start?.revoked_by || null,
         status: resolvedFreshStartStatus,
         cycle_id: license.fresh_start?.cycle_id || null,
         authorization_version: license.fresh_start?.authorization_version || 1,
+        is_repeat_cycle_request: Boolean(license.fresh_start?.is_repeat_cycle_request),
+        previous_completed_at: license.fresh_start?.previous_completed_at
+          ? new Date(license.fresh_start.previous_completed_at).toISOString()
+          : null,
       },
       fresh_start_status: resolvedFreshStartStatus,
-      go_live: {
-        completed_at: license.go_live?.completed_at ? new Date(license.go_live.completed_at).toISOString() : null,
-        completed_by: license.go_live?.completed_by || null,
-        enabled_at: license.go_live?.enabled_at ? new Date(license.go_live.enabled_at).toISOString() : null,
-        enabled_by: license.go_live?.enabled_by || null,
-        notes: license.go_live?.notes || null,
-        revoked_at: license.go_live?.revoked_at ? new Date(license.go_live.revoked_at).toISOString() : null,
-        revoked_by: license.go_live?.revoked_by || null,
-        status: resolvedGoLiveStatus,
-      },
-      go_live_status: resolvedGoLiveStatus,
     };
 
     const signedResponse = await signPayload(payload);
