@@ -80,11 +80,17 @@ export interface ILicense extends Document {
    * Default status is "disabled". When enabled, the POS activated under this license displays the Fresh Start wizard.
    */
   fresh_start?: {
-    status: "disabled" | "enabled" | "completed";
+    status: "disabled" | "pending" | "enabled" | "completed" | "rejected";
+    requested_at?: Date | null;
+    requested_by?: string | null;
+    app_version?: string | null;
     enabled_at?: Date | null;
     enabled_by?: string | null;
     completed_at?: Date | null;
     completed_by?: string | null;
+    rejected_at?: Date | null;
+    rejected_by?: string | null;
+    rejection_reason?: string | null;
     revoked_at?: Date | null;
     revoked_by?: string | null;
     notes?: string | null;
@@ -167,11 +173,17 @@ const LicenseSchema = new Schema<ILicense>(
     },
     fresh_start: {
       type: new Schema({
-        status: { type: String, enum: ["disabled", "enabled", "completed"], default: "disabled" },
+        status: { type: String, enum: ["disabled", "pending", "enabled", "completed", "rejected"], default: "disabled" },
+        requested_at: { type: Date, default: null },
+        requested_by: { type: String, default: null },
+        app_version: { type: String, default: null },
         enabled_at: { type: Date, default: null },
         enabled_by: { type: String, default: null },
         completed_at: { type: Date, default: null },
         completed_by: { type: String, default: null },
+        rejected_at: { type: Date, default: null },
+        rejected_by: { type: String, default: null },
+        rejection_reason: { type: String, default: null },
         revoked_at: { type: Date, default: null },
         revoked_by: { type: String, default: null },
         notes: { type: String, default: null },

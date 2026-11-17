@@ -17,9 +17,9 @@ export async function POST(
     const body = await req.json();
 
     const nextStatus = body.status;
-    if (!["enabled", "disabled", "completed"].includes(nextStatus)) {
+    if (!["enabled", "disabled", "completed", "rejected", "pending"].includes(nextStatus)) {
       return NextResponse.json(
-        { error: "Invalid status. Must be 'enabled', 'disabled', or 'completed'." },
+        { error: "Invalid status. Must be 'enabled', 'disabled', 'completed', 'rejected', or 'pending'." },
         { status: 400 }
       );
     }
@@ -46,6 +46,16 @@ export async function POST(
             enabled_by: operatorName,
             revoked_at: null,
             revoked_by: null,
+            rejected_at: null,
+            rejected_by: null,
+            rejection_reason: null,
+          }
+        : {}),
+      ...(nextStatus === "rejected"
+        ? {
+            rejected_at: now,
+            rejected_by: operatorName,
+            rejection_reason: body.rejection_reason || body.notes || "Rejected by Super Administrator",
           }
         : {}),
       ...(nextStatus === "disabled"

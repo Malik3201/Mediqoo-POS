@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const resolvedFreshStartStatus: "disabled" | "enabled" | "completed" =
+    const resolvedFreshStartStatus: "disabled" | "pending" | "enabled" | "completed" | "rejected" =
       license.fresh_start?.status ||
       (license.go_live?.status === "enabled"
         ? "enabled"
@@ -314,6 +314,16 @@ export async function POST(req: NextRequest) {
           ? new Date(license.fresh_start?.enabled_at || license.go_live!.enabled_at!).toISOString()
           : null,
         enabled_by: license.fresh_start?.enabled_by || license.go_live?.enabled_by || null,
+        requested_at: license.fresh_start?.requested_at
+          ? new Date(license.fresh_start.requested_at).toISOString()
+          : null,
+        requested_by: license.fresh_start?.requested_by || null,
+        rejected_at: license.fresh_start?.rejected_at
+          ? new Date(license.fresh_start.rejected_at).toISOString()
+          : null,
+        rejected_by: license.fresh_start?.rejected_by || null,
+        rejection_reason: license.fresh_start?.rejection_reason || null,
+        app_version: license.fresh_start?.app_version || null,
         notes: license.fresh_start?.notes || license.go_live?.notes || null,
         revoked_at: (license.fresh_start?.revoked_at || license.go_live?.revoked_at)
           ? new Date(license.fresh_start?.revoked_at || license.go_live!.revoked_at!).toISOString()

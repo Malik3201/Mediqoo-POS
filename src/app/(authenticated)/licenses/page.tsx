@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldCheck, Eye, EyeOff, Cloud, Download, HardDrive, FileText, Loader2 } from "lucide-react";
+import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldCheck, ShieldAlert, Eye, EyeOff, Cloud, Download, HardDrive, FileText, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useQueryClient } from "@tanstack/react-query";
@@ -100,11 +100,17 @@ type License = {
     notes?: string | null;
   };
   fresh_start?: {
-    status: "disabled" | "enabled" | "completed";
+    status: "disabled" | "pending" | "enabled" | "completed" | "rejected";
+    requested_at?: string | null;
+    requested_by?: string | null;
+    app_version?: string | null;
     enabled_at?: string | null;
     enabled_by?: string | null;
     completed_at?: string | null;
     completed_by?: string | null;
+    rejected_at?: string | null;
+    rejected_by?: string | null;
+    rejection_reason?: string | null;
     revoked_at?: string | null;
     revoked_by?: string | null;
     notes?: string | null;
@@ -205,14 +211,20 @@ export default function LicensesPage() {
   const [goLiveTarget, setGoLiveTarget] = useState<License | null>(null);
   const [isUpdatingGoLive, setIsUpdatingGoLive] = useState(false);
 
-  async function updateLicenseGoLive(licenseId: string, nextStatus: "enabled" | "revoked" | "not_enabled") {
+  async function updateLicenseFreshStart(
+    licenseId: string,
+    nextStatus: "enabled" | "rejected" | "disabled" | "completed",
+    rejectionReason?: string
+  ) {
     setIsUpdatingGoLive(true);
     try {
-      const fsStatus = nextStatus === "enabled" ? "enabled" : "disabled";
       const res = await fetch(`/api/admin/licenses/${licenseId}/fresh-start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: fsStatus }),
+        body: JSON.stringify({
+          status: nextStatus,
+          rejection_reason: rejectionReason,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update Fresh Start status");
@@ -220,7 +232,11 @@ export default function LicensesPage() {
       await queryClient.invalidateQueries({ queryKey: ["licenses"] });
       toast.success(
         nextStatus === "enabled"
-          ? "Fresh Start Reset Enabled for this License"
+          ? "Fresh Start Approved & Enabled for this License"
+          : nextStatus === "rejected"
+          ? "Fresh Start Request Rejected"
+          : nextStatus === "completed"
+          ? "Fresh Start Marked Completed"
           : "Fresh Start Reset Revoked for this License"
       );
       setGoLiveTarget((prev) =>
@@ -233,6 +249,11 @@ export default function LicensesPage() {
     } finally {
       setIsUpdatingGoLive(false);
     }
+  }
+
+  async function updateLicenseGoLive(licenseId: string, nextStatus: "enabled" | "revoked" | "not_enabled") {
+    const fsStatus = nextStatus === "enabled" ? "enabled" : "disabled";
+    return updateLicenseFreshStart(licenseId, fsStatus);
   }
 
   // Cloud Backup & Recovery Secret Modal State
@@ -693,6 +714,77 @@ export default function LicensesPage() {
         </Button>
       </div>
 
+      {/* Fresh Start Requests Queue (PART 7) */}
+      {(() => {
+        const pendingLicenses = rows.filter((r: any) => r.fresh_start?.status === "pending");
+        if (pendingLicenses.length === 0) return null;
+        return (
+          <div className="rounded-xl border-2 border-amber-500/50 bg-amber-500/10 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <div>
+                  <h2 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                    Fresh Start Requests Queue ({pendingLicenses.length} pending)
+                  </h2>
+                  <p className="text-xs text-amber-800/80 dark:text-amber-300/80">
+                    The following pharmacies requested a Fresh Start Reset from their Main POS seat. Review and approve or reject.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+              {pendingLicenses.map((r: any) => (
+                <div
+                  key={r.id}
+                  className="rounded-lg border border-amber-300 dark:border-amber-800/60 bg-background/90 p-3 shadow-xs space-y-2 text-xs"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-bold text-foreground text-sm">{r.projects?.name || "Pharmacy"}</p>
+                      <p className="text-muted-foreground">{r.clients?.name || `Client #${r.client_id}`}</p>
+                    </div>
+                    <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/30 text-[10px]">
+                      Pending Approval
+                    </Badge>
+                  </div>
+                  <div className="space-y-0.5 text-muted-foreground font-mono text-[11px] bg-muted/50 p-2 rounded">
+                    <p>License: {r.license_key?.substring(0, 16)}…</p>
+                    <p>Requested: {r.fresh_start?.requested_at ? new Date(r.fresh_start.requested_at).toLocaleString() : "Recently"}</p>
+                    <p>By: {r.fresh_start?.requested_by || "Main POS Owner"}</p>
+                    {r.fresh_start?.app_version && <p>App Version: {r.fresh_start.app_version}</p>}
+                  </div>
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                      disabled={isUpdatingGoLive}
+                      onClick={() => {
+                        const reason = window.prompt("Rejection reason (optional):");
+                        if (reason !== null) {
+                          updateLicenseFreshStart(r.id, "rejected", reason || "Request rejected by Super Administrator");
+                        }
+                      }}
+                    >
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                      disabled={isUpdatingGoLive}
+                      onClick={() => updateLicenseFreshStart(r.id, "enabled")}
+                    >
+                      Approve Fresh Start
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
@@ -885,20 +977,28 @@ export default function LicensesPage() {
                             variant="outline"
                             size="sm"
                             className={`h-7 text-xs px-2 font-medium ${
-                              fsStatus === "enabled"
-                                ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600"
+                              fsStatus === "pending"
+                                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500 animate-pulse font-bold"
+                                : fsStatus === "enabled"
+                                ? "bg-amber-600 hover:bg-amber-700 text-white border-amber-700 font-semibold"
                                 : fsStatus === "completed"
-                                  ? "border-emerald-500 text-emerald-600 font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-                                  : "text-muted-foreground"
+                                ? "border-emerald-500 text-emerald-600 font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                                : fsStatus === "rejected"
+                                ? "border-rose-400 text-rose-600 font-medium hover:bg-rose-50"
+                                : "text-muted-foreground"
                             }`}
                             onClick={() => setGoLiveTarget(r)}
                             title="Manage Fresh Start Reset for this specific license"
                           >
-                            {fsStatus === "enabled"
+                            {fsStatus === "pending"
+                              ? "Pending"
+                              : fsStatus === "enabled"
                               ? "Enabled"
                               : fsStatus === "completed"
-                                ? "Completed"
-                                : "Disabled"}
+                              ? "Completed"
+                              : fsStatus === "rejected"
+                              ? "Rejected"
+                              : "Disabled"}
                           </Button>
                         );
                       })()}
@@ -1835,20 +1935,44 @@ export default function LicensesPage() {
                   <div className="flex items-center gap-2">
                     <Badge
                       className={
-                        fsStatus === "enabled"
+                        fsStatus === "pending"
+                          ? "bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500 font-bold"
+                          : fsStatus === "enabled"
                           ? "bg-amber-500 text-white"
                           : fsStatus === "completed"
                             ? "bg-emerald-600 text-white font-bold"
-                            : "bg-secondary text-secondary-foreground"
+                            : fsStatus === "rejected"
+                              ? "bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500"
+                              : "bg-secondary text-secondary-foreground"
                       }
                     >
-                      {fsStatus === "enabled"
+                      {fsStatus === "pending"
+                        ? "Pending Approval (Requested from POS)"
+                        : fsStatus === "enabled"
                         ? "Enabled (Awaiting POS Execution)"
                         : fsStatus === "completed"
                           ? "Completed (Locked)"
-                          : "Disabled (Default)"}
+                          : fsStatus === "rejected"
+                            ? "Rejected"
+                            : "Disabled (Default)"}
                     </Badge>
                   </div>
+                  {goLiveTarget.fresh_start?.requested_at && (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      Requested on: {new Date(goLiveTarget.fresh_start.requested_at).toLocaleString()} by {goLiveTarget.fresh_start.requested_by || "Main POS Owner"}
+                    </p>
+                  )}
+                  {goLiveTarget.fresh_start?.app_version && (
+                    <p className="text-xs text-muted-foreground">
+                      POS Version: {goLiveTarget.fresh_start.app_version}
+                    </p>
+                  )}
+                  {goLiveTarget.fresh_start?.rejected_at && (
+                    <p className="text-xs text-rose-600">
+                      Rejected on: {new Date(goLiveTarget.fresh_start.rejected_at).toLocaleString()} by {goLiveTarget.fresh_start.rejected_by || "Super Admin"}
+                      {goLiveTarget.fresh_start.rejection_reason ? ` (Reason: ${goLiveTarget.fresh_start.rejection_reason})` : ""}
+                    </p>
+                  )}
                   {enabledAt && (
                     <p className="text-xs text-muted-foreground">
                       Authorized on: {new Date(enabledAt).toLocaleString()} by {enabledBy || "Super Admin"}
@@ -1866,12 +1990,38 @@ export default function LicensesPage() {
                 </p>
 
                 <div className="flex justify-end gap-2 pt-2 border-t">
-                  {fsStatus === "enabled" ? (
+                  {fsStatus === "pending" ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                        disabled={isUpdatingGoLive}
+                        onClick={() => {
+                          const reason = window.prompt("Rejection reason (optional):");
+                          if (reason !== null) {
+                            updateLicenseFreshStart(goLiveTarget.id, "rejected", reason || "Rejected by Super Administrator");
+                          }
+                        }}
+                      >
+                        Reject Request
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                        disabled={isUpdatingGoLive}
+                        onClick={() => updateLicenseFreshStart(goLiveTarget.id, "enabled")}
+                      >
+                        Approve Fresh Start
+                      </Button>
+                    </>
+                  ) : fsStatus === "enabled" ? (
                     <Button
                       variant="destructive"
                       size="sm"
                       disabled={isUpdatingGoLive}
-                      onClick={() => updateLicenseGoLive(goLiveTarget.id, "revoked")}
+                      onClick={() => updateLicenseFreshStart(goLiveTarget.id, "disabled")}
                     >
                       Disable Permission
                     </Button>
@@ -1881,9 +2031,9 @@ export default function LicensesPage() {
                       size="sm"
                       className="bg-amber-600 hover:bg-amber-700 text-white font-semibold"
                       disabled={isUpdatingGoLive}
-                      onClick={() => updateLicenseGoLive(goLiveTarget.id, "enabled")}
+                      onClick={() => updateLicenseFreshStart(goLiveTarget.id, "enabled")}
                     >
-                      {fsStatus === "completed" ? "Re-Authorize Fresh Start" : "Enable Fresh Start Reset"}
+                      {fsStatus === "completed" ? "Re-Authorize Fresh Start" : fsStatus === "rejected" ? "Re-Enable Fresh Start" : "Enable Fresh Start Reset"}
                     </Button>
                   )}
                   <Button variant="outline" size="sm" onClick={() => setGoLiveTarget(null)}>
