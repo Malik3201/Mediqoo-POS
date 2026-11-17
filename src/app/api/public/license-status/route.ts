@@ -330,6 +330,8 @@ export async function POST(req: NextRequest) {
           : null,
         revoked_by: license.fresh_start?.revoked_by || license.go_live?.revoked_by || null,
         status: resolvedFreshStartStatus,
+        cycle_id: license.fresh_start?.cycle_id || null,
+        authorization_version: license.fresh_start?.authorization_version || 1,
       },
       fresh_start_status: resolvedFreshStartStatus,
       go_live: {

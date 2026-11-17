@@ -214,7 +214,8 @@ export default function LicensesPage() {
   async function updateLicenseFreshStart(
     licenseId: string,
     nextStatus: "enabled" | "rejected" | "disabled" | "completed",
-    rejectionReason?: string
+    rejectionReason?: string,
+    isNewCycle?: boolean
   ) {
     setIsUpdatingGoLive(true);
     try {
@@ -224,6 +225,7 @@ export default function LicensesPage() {
         body: JSON.stringify({
           status: nextStatus,
           rejection_reason: rejectionReason,
+          new_cycle: isNewCycle,
         }),
       });
       const data = await res.json();
@@ -2025,6 +2027,25 @@ export default function LicensesPage() {
                     >
                       Disable Permission
                     </Button>
+                  ) : fsStatus === "completed" ? (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="bg-amber-700 hover:bg-amber-800 text-white font-semibold"
+                      disabled={isUpdatingGoLive}
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          "WARNING: This pharmacy has already completed Fresh Start.\n\n" +
+                          "Authorizing a new Fresh Start allows another destructive reset of sales records, cash, and balances for this license.\n\n" +
+                          "Are you sure you want to authorize a NEW Fresh Start authorization cycle?"
+                        );
+                        if (confirmed) {
+                          updateLicenseFreshStart(goLiveTarget.id, "enabled", "Super Admin authorized new Fresh Start cycle", true);
+                        }
+                      }}
+                    >
+                      Authorize New Fresh Start
+                    </Button>
                   ) : (
                     <Button
                       variant="default"
@@ -2033,7 +2054,7 @@ export default function LicensesPage() {
                       disabled={isUpdatingGoLive}
                       onClick={() => updateLicenseFreshStart(goLiveTarget.id, "enabled")}
                     >
-                      {fsStatus === "completed" ? "Re-Authorize Fresh Start" : fsStatus === "rejected" ? "Re-Enable Fresh Start" : "Enable Fresh Start Reset"}
+                      {fsStatus === "rejected" ? "Re-Enable Fresh Start" : "Enable Fresh Start Reset"}
                     </Button>
                   )}
                   <Button variant="outline" size="sm" onClick={() => setGoLiveTarget(null)}>

@@ -81,6 +81,8 @@ export interface ILicense extends Document {
    */
   fresh_start?: {
     status: "disabled" | "pending" | "enabled" | "completed" | "rejected";
+    cycle_id?: string | null;
+    authorization_version?: number;
     requested_at?: Date | null;
     requested_by?: string | null;
     app_version?: string | null;
@@ -174,6 +176,8 @@ const LicenseSchema = new Schema<ILicense>(
     fresh_start: {
       type: new Schema({
         status: { type: String, enum: ["disabled", "pending", "enabled", "completed", "rejected"], default: "disabled" },
+        cycle_id: { type: String, default: null },
+        authorization_version: { type: Number, default: 1 },
         requested_at: { type: Date, default: null },
         requested_by: { type: String, default: null },
         app_version: { type: String, default: null },

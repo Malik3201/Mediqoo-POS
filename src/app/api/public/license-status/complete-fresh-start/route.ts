@@ -70,6 +70,8 @@ export async function POST(req: NextRequest) {
         ok: true,
         status: "completed",
         completed_at: updated?.fresh_start?.completed_at,
+        authorization_version: updated?.fresh_start?.authorization_version || 1,
+        cycle_id: updated?.fresh_start?.cycle_id || null,
         license_version: updated?.license_version,
       },
       { headers: CORS }

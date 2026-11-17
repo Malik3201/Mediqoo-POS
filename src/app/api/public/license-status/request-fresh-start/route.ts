@@ -86,6 +86,8 @@ export async function POST(req: NextRequest) {
         ok: true,
         status: "pending",
         requested_at: updated?.fresh_start?.requested_at,
+        authorization_version: updated?.fresh_start?.authorization_version || 1,
+        cycle_id: updated?.fresh_start?.cycle_id || null,
         license_version: updated?.license_version,
       },
       { headers: CORS }

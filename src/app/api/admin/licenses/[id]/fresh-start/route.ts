@@ -36,14 +36,25 @@ export async function POST(
 
     const currentFreshStart = existing.fresh_start || { status: "disabled" };
 
+    const currentVersion = Number(currentFreshStart.authorization_version || 1);
+    const isNewCycle = body.new_cycle === true || (currentFreshStart.status === "completed" && nextStatus === "enabled");
+    const nextVersion = isNewCycle ? currentVersion + 1 : currentVersion;
+    const nextCycleId = isNewCycle || !currentFreshStart.cycle_id
+      ? `cycle_${nextVersion}_${crypto.randomUUID().slice(0, 8)}`
+      : currentFreshStart.cycle_id;
+
     const updatedFreshStart = {
       ...currentFreshStart,
       status: nextStatus,
+      cycle_id: nextCycleId,
+      authorization_version: nextVersion,
       notes: typeof body.notes === "string" ? body.notes : currentFreshStart.notes || null,
       ...(nextStatus === "enabled"
         ? {
             enabled_at: now,
             enabled_by: operatorName,
+            completed_at: isNewCycle ? null : currentFreshStart.completed_at || null,
+            completed_by: isNewCycle ? null : currentFreshStart.completed_by || null,
             revoked_at: null,
             revoked_by: null,
             rejected_at: null,
