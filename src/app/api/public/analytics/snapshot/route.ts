@@ -282,6 +282,7 @@ export async function POST(req: NextRequest) {
       if (typeof statePayload.pharmacy_name === "string") updateSet.pharmacy_name = statePayload.pharmacy_name;
       if (typeof statePayload.pharmacy_phone === "string") updateSet.pharmacy_phone = statePayload.pharmacy_phone;
       if (typeof statePayload.pharmacy_address === "string") updateSet.pharmacy_address = statePayload.pharmacy_address;
+      if (typeof statePayload.pharmacy_logo === "string") updateSet.pharmacy_logo = statePayload.pharmacy_logo;
       if (Array.isArray(statePayload.customers)) updateSet.customers = statePayload.customers.slice(0, 500);
       if (Array.isArray(statePayload.khata_payments)) updateSet.khata_payments = statePayload.khata_payments.slice(0, 250);
       if (Array.isArray(statePayload.suppliers)) updateSet.suppliers = statePayload.suppliers.slice(0, 250);

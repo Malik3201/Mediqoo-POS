@@ -5,6 +5,8 @@ import {
   portalAuthErrorResponse,
 } from "@/lib/portal-auth";
 import Client from "@/models/Client";
+import OwnerPortalState from "@/models/OwnerPortalState";
+import Project from "@/models/Project";
 
 /**
  * GET /api/portal/auth/me
@@ -16,8 +18,31 @@ import Client from "@/models/Client";
 export async function GET(req: NextRequest) {
   try {
     const user = await requirePortalSession(req);
-    const client = await Client.findOne({ id: user.client_id }).lean();
-    
+    const [client, portalState, project] = await Promise.all([
+      Client.findOne({ id: user.client_id }).lean<any>(),
+      OwnerPortalState.findOne({ client_id: user.client_id })
+        .sort({ captured_at: -1 })
+        .select("pharmacy_name pharmacy_logo")
+        .lean<any>(),
+      Project.findOne({ client_id: user.client_id })
+        .sort({ updatedAt: -1 })
+        .select("name branding")
+        .lean<any>(),
+    ]);
+
+    const resolvedPharmacyName =
+      portalState?.pharmacy_name ||
+      project?.branding?.business_name ||
+      project?.name ||
+      client?.name ||
+      user.client_name ||
+      "AivraSol Pharmacy";
+
+    const resolvedPharmacyLogo =
+      portalState?.pharmacy_logo ||
+      project?.branding?.logo_url ||
+      null;
+
     // Check cloud backup feature entitlement for this client
     const License = require("@/models/License").default;
     const hasCloudBackup = await License.exists({ 
@@ -27,6 +52,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      pharmacy_name: resolvedPharmacyName,
+      pharmacy_logo: resolvedPharmacyLogo,
       user: {
         id: user.id,
         name: user.name,
@@ -34,6 +61,8 @@ export async function GET(req: NextRequest) {
         role: user.role,
         client_id: user.client_id,
         last_login_at: user.last_login_at,
+        pharmacy_name: resolvedPharmacyName,
+        pharmacy_logo: resolvedPharmacyLogo,
         client: client ? {
           name: client.name,
           contact_name: client.contact_name,

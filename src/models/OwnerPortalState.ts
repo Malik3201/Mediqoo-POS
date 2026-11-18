@@ -295,6 +295,7 @@ export interface IOwnerPortalState extends Document {
   pharmacy_name?: string;
   pharmacy_phone?: string;
   pharmacy_address?: string;
+  pharmacy_logo?: string;
   customers: IPortalCustomerSnapshot[];
   khata_payments: IPortalKhataPaymentSnapshot[];
   suppliers: IPortalSupplierSnapshot[];
@@ -329,6 +330,7 @@ const OwnerPortalStateSchema = new Schema<IOwnerPortalState>(
     pharmacy_name: { type: String },
     pharmacy_phone: { type: String },
     pharmacy_address: { type: String },
+    pharmacy_logo: { type: String },
     customers: { type: [Schema.Types.Mixed] as any, default: [] },
     khata_payments: { type: [Schema.Types.Mixed] as any, default: [] },
     suppliers: { type: [Schema.Types.Mixed] as any, default: [] },

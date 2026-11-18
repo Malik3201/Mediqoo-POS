@@ -101,7 +101,10 @@ export default function PortalOverviewPage() {
         if (json?.pharmacy?.name && typeof window !== "undefined") {
           window.dispatchEvent(
             new CustomEvent("aivrasol:pharmacy-meta", {
-              detail: { name: String(json.pharmacy.name) },
+              detail: {
+                name: String(json.pharmacy.name),
+                logo: json.pharmacy.logo ? String(json.pharmacy.logo) : null,
+              },
             })
           );
         }

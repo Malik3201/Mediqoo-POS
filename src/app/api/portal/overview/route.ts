@@ -12,6 +12,7 @@ import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
 import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
 import HistoricalTopProduct from "@/models/HistoricalTopProduct";
 import HistoricalRecentSale from "@/models/HistoricalRecentSale";
+import Project from "@/models/Project";
 import {
   computeFinancialSummary,
   getClientDateRange,
@@ -121,6 +122,24 @@ export async function GET(req: NextRequest) {
           current.bootstrap_cutoff_utc > latest ? current.bootstrap_cutoff_utc : latest,
         latestBootstraps[0].bootstrap_cutoff_utc
       );
+    } else {
+      // Check for any bootstrap record regardless of status
+      const anyBootstrap = await AnalyticsBootstrap.findOne({ client_id: clientId })
+        .sort({ created_at: -1 })
+        .lean<{ bootstrap_cutoff_utc?: Date }>();
+      if (anyBootstrap?.bootstrap_cutoff_utc) {
+        primaryCutoffUtc = new Date(anyBootstrap.bootstrap_cutoff_utc);
+      } else {
+        // Fallback: check latest historical record date in HistoricalDailyAnalytics
+        const latestHist = await HistoricalDailyAnalytics.findOne({ client_id: clientId })
+          .sort({ date: -1 })
+          .select("date")
+          .lean<{ date?: string }>();
+        if (latestHist?.date) {
+          const parts = latestHist.date.split("-").map(Number);
+          primaryCutoffUtc = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + 1));
+        }
+      }
     }
 
     // Helper to compute period KPIs (today, 7d, 30d)
@@ -163,6 +182,34 @@ export async function GET(req: NextRequest) {
           histSummary = historicalToFinancialSummary(histAgg[0]);
         }
         histInvoiceCount = histSalesCount;
+      } else if (period !== "today") {
+        // If no explicit cutoff split but HistoricalDailyAnalytics has rows within period
+        const stStr = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}-${String(start.getUTCDate()).padStart(2, "0")}`;
+        const enStr = `${end.getUTCFullYear()}-${String(end.getUTCMonth() + 1).padStart(2, "0")}-${String(end.getUTCDate()).padStart(2, "0")}`;
+        const histAgg = await HistoricalDailyAnalytics.aggregate([
+          {
+            $match: {
+              client_id: clientId,
+              date: { $gte: stStr, $lte: enStr },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              gross_sales: { $sum: "$gross_sales" },
+              sales_returns: { $sum: "$sales_returns" },
+              cogs: { $sum: "$cogs" },
+              cogs_reversed: { $sum: "$cogs_reversed" },
+              gross_profit: { $sum: "$gross_profit" },
+              net_profit: { $sum: "$net_profit" },
+              expenses: { $sum: "$expenses" },
+              purchases: { $sum: "$purchases" },
+            },
+          },
+        ]);
+        if (histAgg.length > 0) {
+          histSummary = historicalToFinancialSummary(histAgg[0]);
+        }
       }
 
       let liveSummary = ZERO_FINANCIAL_SUMMARY;
@@ -449,20 +496,41 @@ export async function GET(req: NextRequest) {
     const activeKpis = kpisByPeriod[selectedPeriod];
 
     // 2. Inventory & Portal State Aggregation across licenses
+    const primaryState = portalStates[0] || null;
+    let stockValue = inventorySnapshots.reduce((s, r) => s + (r.stock_value ?? 0), 0);
+    let lowStockCount = inventorySnapshots.reduce((s, r) => s + (r.low_stock_count ?? 0), 0);
+    let outOfStockCount = inventorySnapshots.reduce((s, r) => s + (r.out_of_stock_count ?? 0), 0);
+    let expiringSoonCount = inventorySnapshots.reduce((s, r) => s + (r.expiring_soon_count ?? 0), 0);
+
+    if (stockValue === 0 && primaryState?.products_intelligence?.length) {
+      stockValue = primaryState.products_intelligence.reduce(
+        (s: number, p: any) => s + (Number(p.stock_value) || 0),
+        0
+      );
+      lowStockCount = primaryState.products_intelligence.filter(
+        (p: any) => p.current_stock <= (p.reorder_level || 0) && p.current_stock > 0
+      ).length;
+      outOfStockCount = primaryState.products_intelligence.filter((p: any) => p.current_stock <= 0).length;
+      expiringSoonCount = primaryState.products_intelligence.filter(
+        (p: any) => p.days_to_expiry !== null && p.days_to_expiry !== undefined && p.days_to_expiry <= 90
+      ).length;
+    }
+
     const inventoryTotal = {
-      stock_value: inventorySnapshots.reduce((s, r) => s + (r.stock_value ?? 0), 0),
-      low_stock_count: inventorySnapshots.reduce((s, r) => s + (r.low_stock_count ?? 0), 0),
-      out_of_stock_count: inventorySnapshots.reduce((s, r) => s + (r.out_of_stock_count ?? 0), 0),
-      expiring_soon_count: inventorySnapshots.reduce((s, r) => s + (r.expiring_soon_count ?? 0), 0),
+      stock_value: stockValue,
+      low_stock_count: lowStockCount,
+      out_of_stock_count: outOfStockCount,
+      expiring_soon_count: expiringSoonCount,
       last_updated:
         inventorySnapshots.length > 0
           ? inventorySnapshots
               .reduce((a, b) => (a.captured_at > b.captured_at ? a : b))
               .captured_at.toISOString()
+          : primaryState?.captured_at
+          ? new Date(primaryState.captured_at).toISOString()
           : null,
     };
 
-    const primaryState = portalStates[0] || null;
     const customersList: any[] = primaryState?.customers || [];
     const suppliersList: any[] = primaryState?.suppliers || [];
     const currentDrawer = primaryState?.current_drawer || null;
@@ -718,6 +786,35 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    if (recentSales.length < 8) {
+      const needed = 8 - recentSales.length;
+      const existingNos = new Set(recentSales.map((s) => s.invoice_number));
+      const histRecentDocs = await HistoricalRecentSale.find({
+        client_id: clientId,
+        invoice_number: { $nin: Array.from(existingNos) },
+      })
+        .sort({ occurred_at: -1 })
+        .limit(needed)
+        .lean();
+
+      for (const h of histRecentDocs) {
+        recentSales.push({
+          id: h.id || `hist_${h.invoice_number}`,
+          event_id: `hist_${h.invoice_number}`,
+          occurred_at: h.occurred_at ? new Date(h.occurred_at).toISOString() : new Date().toISOString(),
+          invoice_number: h.invoice_number,
+          customer_name: h.customer_name || "Walk-in Customer",
+          cashier: "Historical",
+          gross_sales: Math.round(Number(h.gross_sales || 0) * 100) / 100,
+          discount: Math.round(Number(h.discount || 0) * 100) / 100,
+          net_sales: Math.round(Number(h.net_sales || 0) * 100) / 100,
+          payment_method: String(h.payment_method || "cash").toLowerCase(),
+          items_count: Number(h.items_count || 1),
+          terminal_number: 1,
+        });
+      }
+    }
+
     // 6. Top 5 Products for selectedPeriod
     const { start: pStart, end: pEnd } = getClientDateRange(timezone, selectedPeriod);
     const topProductsAgg = await AnalyticsEvent.aggregate([
@@ -767,12 +864,54 @@ export async function GET(req: NextRequest) {
       { $limit: 5 },
     ]);
 
+    let finalTopProducts = topProductsAgg.map((p) => ({
+      product_id: p._id,
+      product_name: p.product_name || p._id,
+      qty: Math.max(0, p.qty),
+      revenue: Math.round((p.revenue ?? 0) * 100) / 100,
+      gross_profit: Math.round((p.gross_profit ?? 0) * 100) / 100,
+    }));
+
+    if (finalTopProducts.length === 0) {
+      const histTop = await HistoricalTopProduct.find({ client_id: clientId })
+        .sort({ revenue: -1 })
+        .limit(5)
+        .lean();
+      if (histTop.length > 0) {
+        finalTopProducts = histTop.map((h: any) => ({
+          product_id: h.product_id,
+          product_name: h.product_name,
+          qty: Math.max(0, Number(h.qty || 0)),
+          revenue: Math.round(Number(h.revenue || 0) * 100) / 100,
+          gross_profit: Math.round(Number(h.gross_profit || 0) * 100) / 100,
+        }));
+      }
+    }
+
+    const project = await Project.findOne({ client_id: clientId })
+      .sort({ updatedAt: -1 })
+      .lean<{ name?: string; branding?: { business_name?: string; logo_url?: string } }>();
+
+    const resolvedPharmacyName =
+      primaryState?.pharmacy_name ||
+      project?.branding?.business_name ||
+      project?.name ||
+      client?.name ||
+      session.client_name ||
+      "AivraSol Pharmacy";
+
+    const resolvedPharmacyLogo =
+      primaryState?.pharmacy_logo ||
+      project?.branding?.logo_url ||
+      null;
+
     return NextResponse.json({
       period: selectedPeriod,
       timezone,
       pharmacy: {
         id: client?.id ?? clientId,
-        name: primaryState?.pharmacy_name || client?.name || session.client_name,
+        name: resolvedPharmacyName,
+        logo: resolvedPharmacyLogo,
         email: client?.email || session.email,
         phone: primaryState?.pharmacy_phone || client?.phone || null,
         address: primaryState?.pharmacy_address || client?.address || client?.city || null,
@@ -840,13 +979,7 @@ export async function GET(req: NextRequest) {
       },
       action_required: actionRequired,
       recent_sales: recentSales,
-      top_products: topProductsAgg.map((p) => ({
-        product_id: p._id,
-        product_name: p.product_name || p._id,
-        qty: Math.max(0, p.qty),
-        revenue: Math.round((p.revenue ?? 0) * 100) / 100,
-        gross_profit: Math.round((p.gross_profit ?? 0) * 100) / 100,
-      })),
+      top_products: finalTopProducts,
     });
   } catch (e: any) {
     console.error("Portal overview error:", e);

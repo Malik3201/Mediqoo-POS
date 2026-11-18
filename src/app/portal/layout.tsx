@@ -29,6 +29,7 @@ interface PortalMe {
   user_id: string;
   client_id: string;
   client_name: string;
+  pharmacy_logo?: string | null;
   email: string;
   role: string;
 }
@@ -117,6 +118,13 @@ const PRIMARY_NAV = [
 ];
 
 const SECONDARY_NAV = [
+  {
+    href: "/portal/profile",
+    label: "Owner Profile & Card",
+    shortLabel: "Profile",
+    subtitle: "Owner card & security",
+    icon: ShieldCheck,
+  },
   {
     href: "/portal/backups",
     label: "Cloud Backups",
@@ -292,10 +300,16 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           u?.name ||
           "My Pharmacy";
 
+        const resolvedLogo =
+          data.pharmacy_logo ||
+          u?.pharmacy_logo ||
+          null;
+
         setMe({
           user_id: u?.id || u?.user_id || "",
           client_id: clientId,
           client_name: resolvedName,
+          pharmacy_logo: resolvedLogo,
           email: u?.email || data?.email || "",
           role: u?.role || data?.role || "owner",
         });
@@ -306,19 +320,26 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     const onPharmacyMeta = (e: Event) => {
-      const detail = (e as CustomEvent<{ name?: string }>).detail;
+      const detail = (e as CustomEvent<{ name?: string; logo?: string | null }>).detail;
       const nextName = detail?.name?.trim();
-      if (!nextName) return;
+      const nextLogo = detail?.logo;
       setMe((prev) => {
-        if (!prev || prev.client_name === nextName) return prev;
+        if (!prev) return prev;
+        const nameChanged = nextName && prev.client_name !== nextName;
+        const logoChanged = nextLogo !== undefined && prev.pharmacy_logo !== nextLogo;
+        if (!nameChanged && !logoChanged) return prev;
         try {
-          if (prev.client_id) {
+          if (nextName && prev.client_id) {
             sessionStorage.setItem(`aivrasol_pharmacy_name:${prev.client_id}`, nextName);
           }
         } catch {
           // ignore storage errors
         }
-        return { ...prev, client_name: nextName };
+        return {
+          ...prev,
+          ...(nameChanged ? { client_name: nextName } : {}),
+          ...(logoChanged ? { pharmacy_logo: nextLogo } : {}),
+        };
       });
     };
     window.addEventListener("aivrasol:pharmacy-meta", onPharmacyMeta);
@@ -425,26 +446,42 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <Link
             href="/portal/dashboard"
-            className="flex items-center bg-white rounded-lg px-1.5 sm:px-2 py-0.5 sm:py-1 shadow-xs ring-1 ring-white/15 shrink-0 hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-2 bg-slate-900 border border-slate-700/80 rounded-lg px-2 sm:px-2.5 py-1 shadow-xs hover:border-emerald-500/50 transition-colors shrink-0 group"
             title="AivraSol Owner Portal"
           >
-            <img
-              src="/logo-owner-portal.png"
-              alt="AivraSol"
-              className="h-5 sm:h-6 w-auto object-contain"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src = "/logo-pharmacy-pos.png";
-              }}
-            />
+            <div className="w-5 h-5 rounded bg-emerald-500 flex items-center justify-center font-black text-[#0F172B] text-xs">
+              A
+            </div>
+            <span className="font-extrabold text-[13px] tracking-tight text-white hidden xs:inline">
+              Aivra<span className="text-emerald-400">Sol</span>
+            </span>
           </Link>
           <div className="h-6 w-px bg-slate-700/85 shrink-0" />
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 hidden sm:flex items-center justify-center text-emerald-400 shrink-0">
+          <Link
+            href="/portal/profile"
+            className="flex items-center gap-2 min-w-0 flex-1 group hover:opacity-95 transition-opacity"
+            title="View Pharmacy Profile & Owner Card"
+          >
+            {me?.pharmacy_logo ? (
+              <img
+                src={me.pharmacy_logo}
+                alt={me.client_name}
+                className="w-8 h-8 rounded-lg object-contain bg-white p-0.5 border border-slate-700 shrink-0"
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = "none";
+                }}
+              />
+            ) : null}
+            <div
+              className={`w-8 h-8 rounded-lg bg-emerald-950/60 border border-emerald-600/40 items-center justify-center text-emerald-400 shrink-0 ${
+                me?.pharmacy_logo ? "hidden" : "flex"
+              }`}
+            >
               <Building2 className="w-4 h-4" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 min-w-0">
-                <p className="text-[13px] sm:text-sm font-bold text-white truncate leading-tight">
+                <p className="text-[13px] sm:text-sm font-extrabold text-white truncate leading-tight group-hover:text-emerald-300 transition-colors">
                   {me?.client_name || "My Pharmacy"}
                 </p>
                 {currentNav && (
@@ -454,15 +491,15 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                 )}
               </div>
               <p className="text-[10.5px] sm:text-[11px] truncate leading-tight mt-0.5">
-                <span className="sm:hidden font-medium text-emerald-400">
-                  {currentNav?.label || "Owner Portal"}
+                <span className="text-emerald-400 font-semibold">
+                  Owner Portal
                 </span>
-                <span className="hidden sm:inline text-slate-400">
-                  {me?.email || "Owner Command Center"}
+                <span className="text-slate-400 ml-1.5 hidden sm:inline">
+                  • {me?.email || "Command Center"}
                 </span>
               </p>
             </div>
-          </div>
+          </Link>
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -480,6 +517,19 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </span>
             </button>
           )}
+
+          <Link
+            href="/portal/profile"
+            className={`inline-flex items-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-lg text-xs font-semibold border transition-colors ${
+              isRouteActive("/portal/profile")
+                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                : "bg-slate-800/80 text-slate-200 border-slate-700 hover:bg-slate-800 hover:text-white"
+            }`}
+            title="Owner Profile & Card"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span className="hidden md:inline">Profile</span>
+          </Link>
 
           <Link
             href="/portal/alerts"

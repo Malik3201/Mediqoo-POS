@@ -82,7 +82,24 @@ export async function GET(req: NextRequest) {
     // 3. Process each license to respect its exact cutover boundary
     for (const licId of targetLicenses) {
       const bootstrap = bootstrapMap.get(licId);
-      const cutoffUtc = bootstrap ? bootstrap.bootstrap_cutoff_utc : null;
+      let cutoffUtc = bootstrap ? bootstrap.bootstrap_cutoff_utc : null;
+      if (!cutoffUtc) {
+        const anyBootstrap = await AnalyticsBootstrap.findOne({ client_id: clientId, license_id: licId })
+          .sort({ created_at: -1 })
+          .lean<{ bootstrap_cutoff_utc?: Date }>();
+        if (anyBootstrap?.bootstrap_cutoff_utc) {
+          cutoffUtc = anyBootstrap.bootstrap_cutoff_utc;
+        } else {
+          const latestHist = await HistoricalDailyAnalytics.findOne({ client_id: clientId, license_id: licId })
+            .sort({ date: -1 })
+            .select("date")
+            .lean<{ date?: string }>();
+          if (latestHist?.date) {
+            const parts = latestHist.date.split("-").map(Number);
+            cutoffUtc = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2] + 1));
+          }
+        }
+      }
       
       const { historical, live } = splitDateRange(start, end, cutoffUtc, timezone);
 

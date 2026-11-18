@@ -352,7 +352,7 @@ export async function GET(req: NextRequest) {
         ? `${new Date(lastDoc.occurred_at).toISOString()}|${lastDoc.event_id}`
         : null;
 
-    const invoices = pageDocs.map((e: any) => {
+    let invoices = pageDocs.map((e: any) => {
       const p = e.payload || {};
       const invId = p.invoice_id || p.invoiceId || e.source_record_id;
       const invNo = p.invoice_number || p.invoiceNumber || e.source_record_id;
@@ -397,14 +397,19 @@ export async function GET(req: NextRequest) {
     const isOlderThanRetention =
       period === "all" || (rangeStart !== null && rangeStart.getTime() < retentionCutoff.getTime());
 
-    // If no live events matched and user asked for "all" or older range, check HistoricalRecentSale
-    let historicalRecentSales: any[] = [];
-    if (invoices.length === 0 && !cursor && isOlderThanRetention) {
-      const histDocs = await HistoricalRecentSale.find({ client_id: clientId })
+    // If fewer than limit matched and user asked for "all" or older range, merge HistoricalRecentSale
+    if (invoices.length < limit && !cursor && isOlderThanRetention) {
+      const needed = limit - invoices.length;
+      const existingNos = new Set(invoices.map((inv) => inv.invoice_number));
+      const histDocs = await HistoricalRecentSale.find({
+        client_id: clientId,
+        invoice_number: { $nin: Array.from(existingNos) },
+      })
         .sort({ occurred_at: -1 })
-        .limit(limit)
+        .limit(needed)
         .lean();
-      historicalRecentSales = histDocs.map((h: any) => ({
+
+      const mappedHist = histDocs.map((h: any) => ({
         id: h.invoice_number,
         event_id: `hist-${h.id || h.invoice_number}`,
         invoice_number: h.invoice_number,
@@ -428,21 +433,23 @@ export async function GET(req: NextRequest) {
         returned_amount: 0,
         return_numbers: [],
       }));
+
+      invoices = [...invoices, ...mappedHist];
     }
 
     const agg = summaryAgg[0] || {
-      total_count: historicalRecentSales.length,
-      gross_sales: historicalRecentSales.reduce((s, i) => s + i.gross_sales, 0),
-      discount_total: historicalRecentSales.reduce((s, i) => s + i.discount, 0),
-      tax_total: 0,
-      net_sales: historicalRecentSales.reduce((s, i) => s + i.net_sales, 0),
+      total_count: invoices.length,
+      gross_sales: invoices.reduce((s, i) => s + i.gross_sales, 0),
+      discount_total: invoices.reduce((s, i) => s + i.discount, 0),
+      tax_total: invoices.reduce((s, i) => s + (i.tax || 0), 0),
+      net_sales: invoices.reduce((s, i) => s + i.net_sales, 0),
       cogs_total: 0,
-      gross_profit: 0,
-      credit_sales: 0,
+      gross_profit: invoices.reduce((s, i) => s + (i.gross_profit || 0), 0),
+      credit_sales: invoices.filter((i) => i.payment_method === "credit").reduce((s, i) => s + i.net_sales, 0),
     };
 
     return NextResponse.json({
-      invoices: invoices.length > 0 ? invoices : historicalRecentSales,
+      invoices,
       next_cursor: nextCursor,
       has_more: hasMore,
       cashiers: (cashiersList as string[]).filter(Boolean).sort(),

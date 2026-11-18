@@ -96,7 +96,13 @@ export async function GET(req: NextRequest) {
 
       for (const licId of targetLicenses) {
         const bootstrap = bootstrapMap.get(licId);
-        const cutoffDate = bootstrap ? bootstrap.bootstrap_cutoff_date : null;
+        let cutoffDate = bootstrap ? bootstrap.bootstrap_cutoff_date : null;
+        if (!cutoffDate) {
+          const licHist = histData.filter((h) => h.license_id === licId);
+          if (licHist.length > 0) {
+            cutoffDate = licHist.map((h) => h.date).sort().pop() || null;
+          }
+        }
 
         if (cutoffDate && date <= cutoffDate) {
           // Use Historical data for this license on this day
