@@ -157,18 +157,18 @@ export async function GET(req: NextRequest) {
         const occurredIso = new Date(ev.occurred_at).toISOString();
         if (evType === "sale.completed") {
           for (const it of items) {
-            const pid = it.product_id || it.code || it.product_name || it.name;
+            const pid = it.product_id || it.productId || it.code || it.product_name || it.productName || it.name;
             if (!pid) continue;
             const entry = prodMap.get(pid) || {
               product_id: pid,
               code: it.code,
-              name: it.product_name || it.name || pid,
+              name: it.product_name || it.productName || it.name || pid,
               category: it.category || "General",
               unit_type: it.unit_type || it.unit || "Unit",
               current_stock: 0,
               reorder_level: 0,
-              sale_price: Number(it.unit_price ?? 0),
-              cost_wac: Number(it.cost_price ?? 0),
+              sale_price: Number(it.unit_price ?? it.unitPrice ?? it.price ?? 0),
+              cost_wac: Number(it.cost_price ?? it.cost ?? 0),
               stock_value: 0,
               margin_pct: 0,
               sold_qty_30d: 0,
@@ -178,11 +178,11 @@ export async function GET(req: NextRequest) {
               movement_status: "normal",
             };
             const q = Number(it.qty ?? 0);
-            const rev = Number(it.revenue ?? it.line_total ?? q * Number(it.unit_price ?? 0));
+            const rev = Number(it.revenue ?? it.line_total ?? it.lineTotal ?? q * Number(it.unit_price ?? it.unitPrice ?? it.price ?? 0));
             entry.sold_qty_30d += q;
             entry.sold_qty_90d += q;
             entry.sold_revenue_30d += rev;
-            if (!entry.sale_price && it.unit_price) entry.sale_price = Number(it.unit_price);
+            if (!entry.sale_price && (it.unit_price || it.unitPrice || it.price)) entry.sale_price = Number(it.unit_price ?? it.unitPrice ?? it.price);
             if (!entry.last_sold_at || occurredIso > entry.last_sold_at) {
               entry.last_sold_at = occurredIso;
             }
@@ -192,19 +192,19 @@ export async function GET(req: NextRequest) {
             prodMap.set(pid, entry);
           }
         } else if (evType === "purchase.received") {
-          const supName = ev.payload?.supplier_name || "Supplier";
+          const supName = ev.payload?.supplier_name || ev.payload?.supplierName || ev.payload?.supplier || "Supplier";
           for (const it of items) {
-            const pid = it.product_id || it.code || it.product_name || it.name;
+            const pid = it.product_id || it.productId || it.code || it.product_name || it.productName || it.name;
             if (!pid) continue;
             const entry = prodMap.get(pid) || {
               product_id: pid,
               code: it.code,
-              name: it.product_name || it.name || pid,
+              name: it.product_name || it.productName || it.name || pid,
               category: it.category || "General",
               unit_type: it.unit_type || it.unit || "Unit",
               current_stock: Number(it.qty ?? 0),
               reorder_level: 0,
-              sale_price: Number(it.sale_price ?? 0),
+              sale_price: Number(it.sale_price ?? it.salePrice ?? 0),
               cost_wac: Number(it.cost_price ?? it.cost ?? 0),
               stock_value: 0,
               margin_pct: 0,

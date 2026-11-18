@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
         client_id: clientId,
         $or: [
           { type: "sale.completed", "payload.payment_method": "credit" },
+          { type: "sale.completed", "payload.paymentMethod": "credit" },
           { type: "khata.payment" },
         ],
       })
@@ -85,8 +86,8 @@ export async function GET(req: NextRequest) {
     // Also ensure any customer seen in live credit sales or khata.payment events is represented
     for (const ev of creditEvents) {
       const p = ev.payload || {};
-      const custId = p.customer_id || p.customer_name;
-      const custName = p.customer_name || "Customer";
+      const custId = p.customer_id || p.customerId || p.customer_name || p.customerName;
+      const custName = p.customer_name || p.customerName || "Customer";
       if (!custId || custName === "Walk-in Customer") continue;
 
       if (!customerMap.has(custId)) {
@@ -98,7 +99,7 @@ export async function GET(req: NextRequest) {
         customerMap.set(custId, {
           id: custId,
           name: custName,
-          phone: p.customer_phone || null,
+          phone: p.customer_phone || p.customerPhone || null,
           address: null,
           notes: null,
           opening_balance: 0,
@@ -119,7 +120,7 @@ export async function GET(req: NextRequest) {
       if (entry._derived_from_events) {
         const iso = new Date(ev.occurred_at).toISOString();
         if (ev.type === "sale.completed") {
-          const amt = Number(p.net_sales ?? p.gross_sales ?? 0);
+          const amt = Number(p.netSales ?? p.net_sales ?? p.grossSales ?? p.gross_sales ?? 0);
           entry.total_credit_sales = Math.round((entry.total_credit_sales + amt) * 100) / 100;
           entry.credit_balance = Math.round((entry.credit_balance + amt) * 100) / 100;
           if (!entry.last_purchase_at || iso > entry.last_purchase_at) entry.last_purchase_at = iso;

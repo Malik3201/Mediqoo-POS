@@ -79,7 +79,6 @@ export async function GET(_req: NextRequest) {
           ],
         },
       })
-        .select("type occurred_at payload.net_sales payload.gross_sales payload.payment_method payload.return_amount payload.refund_method payload.amount payload.method")
         .lean<any[]>(),
       CloudExpense.find({
         client_id: clientId,
@@ -102,15 +101,15 @@ export async function GET(_req: NextRequest) {
     for (const ev of todayEvents) {
       const p = ev.payload || {};
       if (ev.type === "sale.completed") {
-        const amt = Number(p.net_sales ?? p.gross_sales ?? 0);
-        const m = (p.payment_method || "cash").toLowerCase();
+        const amt = Number(p.netSales ?? p.net_sales ?? p.grossSales ?? p.gross_sales ?? p.total ?? 0);
+        const m = (p.paymentMethod || p.payment_method || "cash").toLowerCase();
         if (m === "cash") todayCashSales += amt;
         else if (m === "card") todayCardSales += amt;
-        else if (m === "wallet") todayWalletSales += amt;
-        else if (m === "credit") todayCreditSales += amt;
+        else if (m === "wallet" || m === "bank") todayWalletSales += amt;
+        else if (m === "credit" || m === "khata") todayCreditSales += amt;
       } else if (ev.type === "sale.returned") {
-        const amt = Number(p.return_amount ?? 0);
-        const m = (p.refund_method || "cash").toLowerCase();
+        const amt = Number(p.returnAmount ?? p.return_amount ?? p.total ?? 0);
+        const m = (p.refundMethod || p.refund_method || p.refund || "cash").toLowerCase();
         if (m === "cash") todayCashRefunds += amt;
       } else if (ev.type === "khata.payment") {
         const amt = Number(p.amount ?? 0);
@@ -243,17 +242,18 @@ export async function GET(_req: NextRequest) {
       const day = ensureDay(dStr);
       const p = ev.payload || {};
       if (ev.type === "sale.completed") {
-        const amt = Number(p.net_sales ?? p.gross_sales ?? 0);
-        const m = (p.payment_method || "cash").toLowerCase();
+        const amt = Number(p.netSales ?? p.net_sales ?? p.grossSales ?? p.gross_sales ?? p.total ?? 0);
+        const m = (p.paymentMethod || p.payment_method || "cash").toLowerCase();
         day.total_sales += amt;
         if (m === "cash") day.cash_sales += amt;
         else if (m === "card") day.card_sales += amt;
-        else if (m === "wallet") day.wallet_sales += amt;
-        else if (m === "credit") day.credit_sales += amt;
+        else if (m === "wallet" || m === "bank") day.wallet_sales += amt;
+        else if (m === "credit" || m === "khata") day.credit_sales += amt;
       } else if (ev.type === "sale.returned") {
-        const amt = Number(p.return_amount ?? 0);
+        const amt = Number(p.returnAmount ?? p.return_amount ?? p.total ?? 0);
         day.returns_total += amt;
-        if ((p.refund_method || "cash").toLowerCase() === "cash") day.cash_returns += amt;
+        const rm = (p.refundMethod || p.refund_method || p.refund || "cash").toLowerCase();
+        if (rm === "cash") day.cash_returns += amt;
       } else if (ev.type === "khata.payment") {
         const amt = Number(p.amount ?? 0);
         if ((p.method || "cash").toLowerCase() === "cash") day.verified_collections += amt;

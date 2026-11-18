@@ -378,23 +378,16 @@ export default function PortalOverviewPage() {
               className="bg-white rounded-xl border border-slate-300/90 hover:border-emerald-600 p-3.5 sm:p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all"
             >
               <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 block">Gross Profit</span>
-              {kpis.has_reliable_costs ? (
-                <>
-                  <p className="text-base font-extrabold text-[#047857] mt-1 tabular-nums truncate">
-                    {formatPKR(kpis.gross_profit ?? 0)}
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                    {kpis.gross_margin_pct !== null
-                      ? `${kpis.gross_margin_pct}% margin`
-                      : "COGS verified"}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs font-bold text-slate-700 mt-1.5">Cost Review Needed</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5">Missing item costs</p>
-                </>
-              )}
+              <p className="text-base font-extrabold text-[#047857] mt-1 tabular-nums truncate">
+                {formatPKR(kpis.gross_profit ?? 0)}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                {kpis.gross_margin_pct !== null && kpis.gross_margin_pct !== undefined
+                  ? `${kpis.gross_margin_pct}% margin`
+                  : kpis.has_reliable_costs
+                  ? "COGS verified"
+                  : "Gross profit"}
+              </p>
             </Link>
 
             {/* 6. Credit Sales */}

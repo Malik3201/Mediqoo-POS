@@ -76,7 +76,11 @@ export async function GET(req: NextRequest) {
     }
 
     if (refundFilter !== "all" && ["cash", "card", "wallet", "credit"].includes(refundFilter)) {
-      salesReturnMatch["payload.refund_method"] = refundFilter;
+      salesReturnMatch.$or = [
+        { "payload.refund_method": refundFilter },
+        { "payload.refundMethod": refundFilter },
+        { "payload.refund": refundFilter },
+      ];
     }
 
     const [saleReturnEvents, purchaseReturnEvents] = await Promise.all([
@@ -95,47 +99,51 @@ export async function GET(req: NextRequest) {
       const items = Array.isArray(p.items)
         ? p.items.map((i: any) => {
             const qty = Number(i.qty) || 0;
-            const lineTotal = Number(i.line_total ?? i.revenue_reversed ?? 0);
+            const lineTotal = Number(i.line_total ?? i.lineTotal ?? i.revenue_reversed ?? i.revenueReversed ?? 0);
             const unitPrice =
               i.unit_price !== undefined
                 ? Number(i.unit_price)
+                : i.unitPrice !== undefined
+                ? Number(i.unitPrice)
+                : i.price !== undefined
+                ? Number(i.price)
                 : qty > 0
                 ? Math.round((lineTotal / qty) * 100) / 100
                 : 0;
             return {
-              product_id: i.product_id,
+              product_id: i.product_id || i.productId || i.code || i.name,
               code: i.code || null,
-              product_name: i.product_name || i.product_id,
+              product_name: i.product_name || i.productName || i.name || i.product_id,
               unit: i.unit || "unit",
               qty,
               unit_price: Math.round(unitPrice * 100) / 100,
               discount: Math.round(Number(i.discount ?? 0) * 100) / 100,
               tax: Math.round(Number(i.tax ?? 0) * 100) / 100,
               line_total: Math.round(lineTotal * 100) / 100,
-              cogs_reversed: Math.round(Number(i.cogs_reversed ?? 0) * 100) / 100,
+              cogs_reversed: Math.round(Number(i.cogs_reversed ?? i.cogsReversed ?? 0) * 100) / 100,
             };
           })
         : [];
 
       return {
-        id: p.return_id || e.source_record_id,
+        id: p.return_id || p.returnId || e.source_record_id,
         event_id: e.event_id,
-        return_number: p.return_number || e.source_record_id,
-        return_type: p.return_type || (p.invoice_id || p.invoice_number ? "INVOICE" : "LOOSE"),
-        invoice_id: p.invoice_id || null,
-        invoice_number: p.invoice_number || null,
-        customer_id: p.customer_id || null,
-        customer_name: p.customer_name || "Walk-in Customer",
-        refund_method: p.refund_method || "cash",
+        return_number: p.return_number || p.returnNumber || e.source_record_id,
+        return_type: p.return_type || p.returnType || (p.invoice_id || p.invoiceId || p.invoice_number || p.invoiceNumber ? "INVOICE" : "LOOSE"),
+        invoice_id: p.invoice_id || p.invoiceId || null,
+        invoice_number: p.invoice_number || p.invoiceNumber || null,
+        customer_id: p.customer_id || p.customerId || null,
+        customer_name: p.customer_name || p.customerName || "Walk-in Customer",
+        refund_method: p.refund_method || p.refundMethod || p.refund || "cash",
         reason: p.reason || null,
         cashier: p.cashier || "Cashier",
-        terminal_number: e.terminal_number ?? p.terminal_number ?? 1,
+        terminal_number: e.terminal_number ?? p.terminal_number ?? p.terminalNumber ?? 1,
         occurred_at: new Date(e.occurred_at).toISOString(),
-        subtotal: Math.round(Number(p.subtotal ?? p.return_amount ?? 0) * 100) / 100,
+        subtotal: Math.round(Number(p.subtotal ?? p.return_amount ?? p.returnAmount ?? 0) * 100) / 100,
         discount: Math.round(Number(p.discount ?? 0) * 100) / 100,
         tax: Math.round(Number(p.tax ?? 0) * 100) / 100,
-        return_amount: Math.round(Number(p.return_amount ?? 0) * 100) / 100,
-        cogs_reversed: Math.round(Number(p.cogs_reversed ?? 0) * 100) / 100,
+        return_amount: Math.round(Number(p.return_amount ?? p.returnAmount ?? p.total ?? 0) * 100) / 100,
+        cogs_reversed: Math.round(Number(p.cogs_reversed ?? p.cogsReversed ?? 0) * 100) / 100,
         items_count: items.length,
         items,
       };
@@ -174,29 +182,29 @@ export async function GET(req: NextRequest) {
 
     for (const e of purchaseReturnEvents) {
       const p = e.payload || {};
-      const key = p.return_id || e.source_record_id;
+      const key = p.return_id || p.returnId || e.source_record_id;
       if (!purchaseReturnsMap.has(key)) {
         const items = Array.isArray(p.items)
           ? p.items.map((i: any) => ({
-              product_id: i.product_id,
+              product_id: i.product_id || i.productId || i.code || i.name,
               code: i.code || null,
-              name: i.name || i.product_id,
+              name: i.name || i.productName || i.product_name || i.product_id,
               qty: Number(i.qty) || 0,
               cost: Math.round(Number(i.cost ?? 0) * 100) / 100,
-              line_total: Math.round(Number(i.line_total ?? 0) * 100) / 100,
+              line_total: Math.round(Number(i.line_total ?? i.lineTotal ?? 0) * 100) / 100,
             }))
           : [];
         purchaseReturnsMap.set(key, {
           id: key,
-          return_number: p.return_number || key,
+          return_number: p.return_number || p.returnNumber || key,
           occurred_at: new Date(e.occurred_at).toISOString(),
-          supplier_id: p.supplier_id || null,
-          supplier_name: p.supplier_name || "Supplier",
-          purchase_id: p.purchase_id || null,
-          purchase_number: p.purchase_number || null,
-          return_total: Math.round(Number(p.return_total ?? 0) * 100) / 100,
+          supplier_id: p.supplier_id || p.supplierId || null,
+          supplier_name: p.supplier_name || p.supplierName || "Supplier",
+          purchase_id: p.purchase_id || p.purchaseId || null,
+          purchase_number: p.purchase_number || p.purchaseNumber || null,
+          return_total: Math.round(Number(p.return_total ?? p.returnTotal ?? p.total ?? 0) * 100) / 100,
           reason: p.reason || null,
-          operator_name: p.operator_name || null,
+          operator_name: p.operator_name || p.operatorName || null,
           items_count: items.length,
           items,
         });

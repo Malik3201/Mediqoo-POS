@@ -36,6 +36,279 @@ const VALID_TYPES = new Set([
 
 const MAX_EVENTS_PER_BATCH = 50;
 
+function normalizeAnalyticsPayload(type: string, raw: any): any {
+  if (!raw || typeof raw !== "object") return raw;
+  const p = { ...raw };
+
+  const num = (v: any, fallback = 0) => {
+    const n = Number(v);
+    return isNaN(n) ? fallback : n;
+  };
+
+  if (type === "sale.completed") {
+    const invNo = p.invoiceNumber || p.invoice_number || "";
+    const invId = p.invoiceId || p.invoice_id || "";
+    const custName = p.customerName || p.customer_name || "Walk-in Customer";
+    const custPhone = p.customerPhone || p.customer_phone || "";
+    const custId = p.customerId || p.customer_id || null;
+    const pm = (p.paymentMethod || p.payment_method || "cash").toLowerCase();
+    const gross = num(p.grossSales ?? p.gross_sales ?? p.subtotal ?? p.total);
+    const disc = num(p.discount ?? 0);
+    const tax = num(p.tax ?? 0);
+    const net = num(p.netSales ?? p.net_sales ?? p.total ?? (gross - disc + tax));
+    const paid = num(p.paidAmount ?? p.paid_amount ?? p.paid ?? net);
+    const change = num(p.changeAmount ?? p.change_amount ?? p.change ?? 0);
+    const cogs = num(p.cogs ?? 0);
+    const gp = num(p.grossProfit ?? p.gross_profit ?? (net - cogs));
+    const cashier = p.cashier || "Cashier";
+    const term = p.terminalNumber ?? p.terminal_number ?? 1;
+
+    p.invoiceNumber = invNo;
+    p.invoice_number = invNo;
+    p.invoiceId = invId;
+    p.invoice_id = invId;
+    p.customerName = custName;
+    p.customer_name = custName;
+    p.customerPhone = custPhone;
+    p.customer_phone = custPhone;
+    p.customerId = custId;
+    p.customer_id = custId;
+    p.paymentMethod = pm;
+    p.payment_method = pm;
+    p.grossSales = gross;
+    p.gross_sales = gross;
+    p.subtotal = gross;
+    p.discount = disc;
+    p.tax = tax;
+    p.netSales = net;
+    p.net_sales = net;
+    p.total = net;
+    p.paidAmount = paid;
+    p.paid_amount = paid;
+    p.changeAmount = change;
+    p.change_amount = change;
+    p.cogs = cogs;
+    p.grossProfit = gp;
+    p.gross_profit = gp;
+    p.cashier = cashier;
+    p.terminalNumber = term;
+    p.terminal_number = term;
+
+    if (Array.isArray(p.items)) {
+      p.items = p.items.map((it: any) => {
+        const pId = it.productId || it.product_id || "";
+        const pName = it.productName || it.product_name || it.name || pId;
+        const qty = num(it.qty ?? 0);
+        const uPrice = num(it.unitPrice ?? it.unit_price ?? it.price ?? 0);
+        const lTotal = num(it.lineTotal ?? it.line_total ?? it.revenue ?? (qty * uPrice));
+        const rev = num(it.revenue ?? lTotal);
+        const iCogs = num(it.cogs ?? 0);
+        const iGp = num(it.grossProfit ?? it.gross_profit ?? (rev - iCogs));
+        const dAmt = num(it.discountAmt ?? it.discount_amt ?? 0);
+        const dPct = num(it.discountPct ?? it.discount_pct ?? 0);
+        const tAmt = num(it.taxAmt ?? it.tax_amt ?? 0);
+        const tPct = num(it.taxPct ?? it.tax_pct ?? 0);
+
+        return {
+          ...it,
+          productId: pId,
+          product_id: pId,
+          productName: pName,
+          product_name: pName,
+          name: pName,
+          code: it.code || "",
+          unit: it.unit || "unit",
+          multiplier: num(it.multiplier ?? 1),
+          qty,
+          unitPrice: uPrice,
+          unit_price: uPrice,
+          price: uPrice,
+          discountAmt: dAmt,
+          discount_amt: dAmt,
+          discountPct: dPct,
+          discount_pct: dPct,
+          taxAmt: tAmt,
+          tax_amt: tAmt,
+          taxPct: tPct,
+          tax_pct: tPct,
+          lineTotal: lTotal,
+          line_total: lTotal,
+          revenue: rev,
+          cogs: iCogs,
+          grossProfit: iGp,
+          gross_profit: iGp,
+        };
+      });
+    }
+  } else if (type === "sale.returned") {
+    const retId = p.returnId || p.return_id || "";
+    const retNo = p.returnNumber || p.return_number || "";
+    const invId = p.invoiceId || p.invoice_id || null;
+    const invNo = p.invoiceNumber || p.invoice_number || null;
+    const custName = p.customerName || p.customer_name || "Walk-in Customer";
+    const refMethod = (p.refundMethod || p.refund_method || p.refund || "cash").toLowerCase();
+    const retAmt = num(p.returnAmount ?? p.return_amount ?? p.total ?? 0);
+    const cogsRev = num(p.cogsReversed ?? p.cogs_reversed ?? 0);
+
+    p.returnId = retId;
+    p.return_id = retId;
+    p.returnNumber = retNo;
+    p.return_number = retNo;
+    p.invoiceId = invId;
+    p.invoice_id = invId;
+    p.invoiceNumber = invNo;
+    p.invoice_number = invNo;
+    p.customerName = custName;
+    p.customer_name = custName;
+    p.refundMethod = refMethod;
+    p.refund_method = refMethod;
+    p.returnAmount = retAmt;
+    p.return_amount = retAmt;
+    p.total = retAmt;
+    p.cogsReversed = cogsRev;
+    p.cogs_reversed = cogsRev;
+
+    if (Array.isArray(p.items)) {
+      p.items = p.items.map((it: any) => {
+        const pId = it.productId || it.product_id || "";
+        const pName = it.productName || it.product_name || it.name || pId;
+        const qty = num(it.qty ?? 0);
+        const revRev = num(it.revenueReversed ?? it.revenue_reversed ?? it.lineTotal ?? it.line_total ?? 0);
+        const cogsR = num(it.cogsReversed ?? it.cogs_reversed ?? 0);
+        const gpRev = num(it.grossProfitReversed ?? it.gross_profit_reversed ?? (revRev - cogsR));
+        return {
+          ...it,
+          productId: pId,
+          product_id: pId,
+          productName: pName,
+          product_name: pName,
+          name: pName,
+          qty,
+          lineTotal: revRev,
+          line_total: revRev,
+          revenueReversed: revRev,
+          revenue_reversed: revRev,
+          cogsReversed: cogsR,
+          cogs_reversed: cogsR,
+          grossProfitReversed: gpRev,
+          gross_profit_reversed: gpRev,
+        };
+      });
+    }
+  } else if (type === "purchase.received") {
+    const purId = p.purchaseId || p.purchase_id || "";
+    const purNo = p.purchaseNumber || p.purchase_number || p.grn || "";
+    const supId = p.supplierId || p.supplier_id || "";
+    const supName = p.supplierName || p.supplier_name || p.supplier || "";
+    const purTot = num(p.purchaseTotal ?? p.purchase_total ?? p.total ?? 0);
+    const paid = num(p.paidAmount ?? p.paid_amount ?? p.paid ?? 0);
+
+    p.purchaseId = purId;
+    p.purchase_id = purId;
+    p.purchaseNumber = purNo;
+    p.purchase_number = purNo;
+    p.grn = purNo;
+    p.supplierId = supId;
+    p.supplier_id = supId;
+    p.supplierName = supName;
+    p.supplier_name = supName;
+    p.supplier = supName;
+    p.purchaseTotal = purTot;
+    p.purchase_total = purTot;
+    p.total = purTot;
+    p.paidAmount = paid;
+    p.paid_amount = paid;
+
+    if (Array.isArray(p.lines)) {
+      p.lines = p.lines.map((l: any) => ({
+        ...l,
+        productId: l.productId || l.product_id || "",
+        product_id: l.productId || l.product_id || "",
+        name: l.name || l.productName || l.product_name || "",
+        productName: l.productName || l.product_name || l.name || "",
+        product_name: l.productName || l.product_name || l.name || "",
+        cost: num(l.cost ?? 0),
+        cost_price: num(l.cost ?? l.cost_price ?? 0),
+        qty: num(l.qty ?? 0),
+        freeQty: num(l.freeQty ?? l.free_qty ?? 0),
+        free_qty: num(l.freeQty ?? l.free_qty ?? 0),
+        lineTotal: num(l.lineTotal ?? l.line_total ?? 0),
+        line_total: num(l.lineTotal ?? l.line_total ?? 0),
+      }));
+    }
+  } else if (type === "purchase.returned") {
+    const pretId = p.returnId || p.return_id || "";
+    const pretNo = p.returnNumber || p.return_number || "";
+    const supId = p.supplierId || p.supplier_id || "";
+    const supName = p.supplierName || p.supplier_name || "Supplier";
+    const purId = p.purchaseId || p.purchase_id || null;
+    const purNo = p.purchaseNumber || p.purchase_number || null;
+    const tot = num(p.returnTotal ?? p.return_total ?? p.total ?? 0);
+
+    p.returnId = pretId;
+    p.return_id = pretId;
+    p.returnNumber = pretNo;
+    p.return_number = pretNo;
+    p.supplierId = supId;
+    p.supplier_id = supId;
+    p.supplierName = supName;
+    p.supplier_name = supName;
+    p.purchaseId = purId;
+    p.purchase_id = purId;
+    p.purchaseNumber = purNo;
+    p.purchase_number = purNo;
+    p.returnTotal = tot;
+    p.return_total = tot;
+    p.total = tot;
+
+    if (Array.isArray(p.items)) {
+      p.items = p.items.map((it: any) => ({
+        ...it,
+        productId: it.productId || it.product_id || "",
+        product_id: it.productId || it.product_id || "",
+        name: it.name || it.productName || it.product_name || "",
+        productName: it.productName || it.product_name || it.name || "",
+        product_name: it.productName || it.product_name || it.name || "",
+        qty: num(it.qty ?? 0),
+        cost: num(it.cost ?? 0),
+        lineTotal: num(it.lineTotal ?? it.line_total ?? 0),
+        line_total: num(it.lineTotal ?? it.line_total ?? 0),
+      }));
+    }
+  } else if (type === "khata.payment") {
+    const payId = p.paymentId || p.payment_id || "";
+    const custId = p.customerId || p.customer_id || "";
+    const custName = p.customerName || p.customer_name || "Customer";
+    const amt = num(p.amount ?? 0);
+    const m = (p.method || "cash").toLowerCase();
+
+    p.paymentId = payId;
+    p.payment_id = payId;
+    p.customerId = custId;
+    p.customer_id = custId;
+    p.customerName = custName;
+    p.customer_name = custName;
+    p.amount = amt;
+    p.method = m;
+  } else if (type === "supplier.payment") {
+    const payId = p.paymentId || p.payment_id || "";
+    const supId = p.supplierId || p.supplier_id || "";
+    const supName = p.supplierName || p.supplier_name || "Supplier";
+    const amt = num(p.amount ?? 0);
+    const m = (p.method || "cash").toLowerCase();
+
+    p.paymentId = payId;
+    p.payment_id = payId;
+    p.supplierId = supId;
+    p.supplier_id = supId;
+    p.supplierName = supName;
+    p.supplier_name = supName;
+    p.amount = amt;
+    p.method = m;
+  }
+  return p;
+}
+
 /**
  * POST /api/public/analytics/events
  *
@@ -153,9 +426,9 @@ export async function POST(req: NextRequest) {
     const results: Array<{ event_id: string; duplicate: boolean; error?: string }> = [];
 
     for (const ev of events) {
-      const { event_id, type, source_record_id, occurred_at, payload } = ev ?? {};
+      const { event_id, type, source_record_id, occurred_at, payload: rawPayload } = ev ?? {};
 
-      if (!event_id || !type || !source_record_id || !occurred_at || !payload) {
+      if (!event_id || !type || !source_record_id || !occurred_at || !rawPayload) {
         results.push({ event_id: event_id ?? "unknown", duplicate: false, error: "missing_fields" });
         continue;
       }
@@ -176,6 +449,8 @@ export async function POST(req: NextRequest) {
         results.push({ event_id, duplicate: true });
         continue;
       }
+
+      const payload = normalizeAnalyticsPayload(type, rawPayload);
 
       // Idempotent insert — catch duplicate-key error
       try {

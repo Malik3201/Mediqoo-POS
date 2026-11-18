@@ -41,7 +41,9 @@ export async function GET(
           { source_record_id: decodedId },
           { event_id: decodedId },
           { "payload.invoice_id": decodedId },
+          { "payload.invoiceId": decodedId },
           { "payload.invoice_number": decodedId },
+          { "payload.invoiceNumber": decodedId },
         ],
       }).lean<any>(),
     ]);
@@ -99,8 +101,8 @@ export async function GET(
     }
 
     const p = eventDoc.payload || {};
-    const invId = p.invoice_id || eventDoc.source_record_id;
-    const invNo = p.invoice_number || eventDoc.source_record_id;
+    const invId = p.invoice_id || p.invoiceId || eventDoc.source_record_id;
+    const invNo = p.invoice_number || p.invoiceNumber || eventDoc.source_record_id;
 
     // Fetch related sales returns
     const returnDocs = await AnalyticsEvent.find({
@@ -108,72 +110,83 @@ export async function GET(
       type: "sale.returned",
       $or: [
         { "payload.invoice_id": invId },
+        { "payload.invoiceId": invId },
         { "payload.invoice_number": invNo },
+        { "payload.invoiceNumber": invNo },
       ],
     })
       .sort({ occurred_at: -1 })
       .lean<any[]>();
 
-    const relatedReturns = returnDocs.map((r) => ({
-      id: r.payload?.return_id || r.source_record_id,
-      return_number: r.payload?.return_number || r.source_record_id,
-      occurred_at: new Date(r.occurred_at).toISOString(),
-      return_amount: Math.round(Number(r.payload?.return_amount ?? 0) * 100) / 100,
-      refund_method: r.payload?.refund_method || "cash",
-      reason: r.payload?.reason || null,
-      cashier: r.payload?.cashier || "Cashier",
-      items: Array.isArray(r.payload?.items)
-        ? r.payload.items.map((ri: any) => ({
-            product_id: ri.product_id,
-            product_name: ri.product_name,
-            qty: Number(ri.qty) || 0,
-            unit: ri.unit || "unit",
-            unit_price:
-              ri.unit_price !== undefined
-                ? Number(ri.unit_price)
-                : Number(ri.qty) > 0
-                ? Math.round((Number(ri.revenue_reversed ?? ri.line_total ?? 0) / Number(ri.qty)) * 100) / 100
-                : 0,
-            line_total: Math.round(Number(ri.line_total ?? ri.revenue_reversed ?? 0) * 100) / 100,
-          }))
-        : [],
-    }));
+    const relatedReturns = returnDocs.map((r) => {
+      const rp = r.payload || {};
+      return {
+        id: rp.return_id || rp.returnId || r.source_record_id,
+        return_number: rp.return_number || rp.returnNumber || r.source_record_id,
+        occurred_at: new Date(r.occurred_at).toISOString(),
+        return_amount: Math.round(Number(rp.return_amount ?? rp.returnAmount ?? rp.total ?? 0) * 100) / 100,
+        refund_method: rp.refund_method || rp.refundMethod || rp.refund || "cash",
+        reason: rp.reason || null,
+        cashier: rp.cashier || "Cashier",
+        items: Array.isArray(rp.items)
+          ? rp.items.map((ri: any) => ({
+              product_id: ri.product_id || ri.productId || ri.code || ri.name,
+              product_name: ri.product_name || ri.productName || ri.name || ri.product_id,
+              qty: Number(ri.qty) || 0,
+              unit: ri.unit || "unit",
+              unit_price:
+                ri.unit_price !== undefined
+                  ? Number(ri.unit_price)
+                  : ri.unitPrice !== undefined
+                  ? Number(ri.unitPrice)
+                  : Number(ri.qty) > 0
+                  ? Math.round((Number(ri.revenue_reversed ?? ri.revenueReversed ?? ri.line_total ?? ri.lineTotal ?? 0) / Number(ri.qty)) * 100) / 100
+                  : 0,
+              line_total: Math.round(Number(ri.line_total ?? ri.lineTotal ?? ri.revenue_reversed ?? ri.revenueReversed ?? 0) * 100) / 100,
+            }))
+          : [],
+      };
+    });
 
     const returnedTotal = relatedReturns.reduce((s, r) => s + r.return_amount, 0);
-    const subtotal = Number(p.gross_sales ?? p.net_sales ?? 0);
+    const grossSales = Number(p.grossSales ?? p.gross_sales ?? p.subtotal ?? p.netSales ?? p.net_sales ?? 0);
     const discount = Number(p.discount ?? 0);
     const tax = Number(p.tax ?? 0);
-    const grandTotal = Number(p.net_sales ?? subtotal - discount + tax);
+    const grandTotal = Number(p.netSales ?? p.net_sales ?? p.total ?? (grossSales - discount + tax));
 
     const items = Array.isArray(p.items)
       ? p.items.map((item: any, idx: number) => {
           const qty = Number(item.qty) || 0;
-          const revenue = Number(item.revenue ?? item.line_total ?? 0);
-          const discountAmt = Number(item.discount_amt ?? 0);
-          const taxAmt = Number(item.tax_amt ?? 0);
+          const revenue = Number(item.revenue ?? item.line_total ?? item.lineTotal ?? 0);
+          const discountAmt = Number(item.discount_amt ?? item.discountAmt ?? 0);
+          const taxAmt = Number(item.tax_amt ?? item.taxAmt ?? 0);
           const derivedUnitPrice =
             item.unit_price !== undefined && Number(item.unit_price) > 0
               ? Number(item.unit_price)
+              : item.unitPrice !== undefined && Number(item.unitPrice) > 0
+              ? Number(item.unitPrice)
+              : item.price !== undefined && Number(item.price) > 0
+              ? Number(item.price)
               : qty > 0
               ? Math.round(((revenue + discountAmt - taxAmt) / qty) * 100) / 100
               : 0;
           const cogs = Number(item.cogs ?? 0);
-          const grossProfit = Number(item.gross_profit ?? revenue - cogs);
+          const grossProfit = Number(item.gross_profit ?? item.grossProfit ?? revenue - cogs);
 
           return {
             index: idx + 1,
-            product_id: item.product_id,
+            product_id: item.product_id || item.productId || item.code || item.name,
             code: item.code || null,
-            product_name: item.product_name || item.product_id,
+            product_name: item.product_name || item.productName || item.name || item.product_id,
             unit: item.unit || item.unit_type || "unit",
             multiplier: Number(item.multiplier ?? item.unit_multiplier ?? 1),
             qty,
             unit_price: Math.round(derivedUnitPrice * 100) / 100,
             discount_amt: Math.round(discountAmt * 100) / 100,
-            discount_pct: Number(item.discount_pct ?? 0),
-            tax_pct: Number(item.tax_pct ?? 0),
+            discount_pct: Number(item.discount_pct ?? item.discountPct ?? 0),
+            tax_pct: Number(item.tax_pct ?? item.taxPct ?? 0),
             tax_amt: Math.round(taxAmt * 100) / 100,
-            line_total: Math.round((Number(item.line_total ?? revenue) || 0) * 100) / 100,
+            line_total: Math.round((Number(item.line_total ?? item.lineTotal ?? revenue) || 0) * 100) / 100,
             cogs: Math.round(cogs * 100) / 100,
             gross_profit: Math.round(grossProfit * 100) / 100,
           };
@@ -181,7 +194,7 @@ export async function GET(
       : [];
 
     const totalCogs = Number(p.cogs ?? 0);
-    const hasReliableCogs = p.has_reliable_cogs !== undefined ? Boolean(p.has_reliable_cogs) : totalCogs > 0;
+    const hasReliableCogs = p.has_reliable_cogs !== undefined ? Boolean(p.has_reliable_cogs) : (p.hasReliableCogs !== undefined ? Boolean(p.hasReliableCogs) : totalCogs > 0);
 
     return NextResponse.json({
       pharmacy: pharmacyInfo,
@@ -191,26 +204,26 @@ export async function GET(
         invoice_number: invNo,
         occurred_at: new Date(eventDoc.occurred_at).toISOString(),
         received_at: eventDoc.received_at ? new Date(eventDoc.received_at).toISOString() : null,
-        customer_id: p.customer_id || null,
-        customer_name: p.customer_name || "Walk-in Customer",
-        customer_phone: p.customer_phone || null,
+        customer_id: p.customer_id || p.customerId || null,
+        customer_name: p.customer_name || p.customerName || "Walk-in Customer",
+        customer_phone: p.customer_phone || p.customerPhone || null,
         cashier: p.cashier || "Cashier",
-        terminal_number: eventDoc.terminal_number ?? p.terminal_number ?? 1,
-        payment_method: p.payment_method || "cash",
+        terminal_number: eventDoc.terminal_number ?? p.terminal_number ?? p.terminalNumber ?? 1,
+        payment_method: String(p.payment_method || p.paymentMethod || "cash").toLowerCase(),
         status:
           returnedTotal >= grandTotal - 0.01 && grandTotal > 0
             ? "refunded"
             : returnedTotal > 0.01
             ? "partially_returned"
             : p.status || "paid",
-        subtotal: Math.round(subtotal * 100) / 100,
+        subtotal: Math.round(grossSales * 100) / 100,
         discount: Math.round(discount * 100) / 100,
         tax: Math.round(tax * 100) / 100,
         grand_total: Math.round(grandTotal * 100) / 100,
-        paid_amount: Math.round(Number(p.paid_amount ?? grandTotal) * 100) / 100,
-        change_amount: Math.round(Number(p.change_amount ?? 0) * 100) / 100,
+        paid_amount: Math.round(Number(p.paid_amount ?? p.paidAmount ?? grandTotal) * 100) / 100,
+        change_amount: Math.round(Number(p.change_amount ?? p.changeAmount ?? 0) * 100) / 100,
         cogs: Math.round(totalCogs * 100) / 100,
-        gross_profit: Math.round(Number(p.gross_profit ?? grandTotal - totalCogs) * 100) / 100,
+        gross_profit: Math.round(Number(p.gross_profit ?? p.grossProfit ?? grandTotal - totalCogs) * 100) / 100,
         has_reliable_cogs: hasReliableCogs,
         notes: p.notes || null,
         items_archived: Boolean(p.items_archived),

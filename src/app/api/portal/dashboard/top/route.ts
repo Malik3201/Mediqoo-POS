@@ -76,17 +76,21 @@ export async function GET(req: NextRequest) {
     function aggregateItems(items: any[], multiplier: 1 | -1) {
       if (!Array.isArray(items)) return;
       for (const item of items) {
-        if (!item?.product_id) continue;
-        const existing = productMap.get(item.product_id) ?? {
-          product_id: item.product_id,
-          product_name: item.product_name ?? item.product_id,
+        const pid = item.productId || item.product_id || item.code || item.name;
+        if (!pid) continue;
+        const existing = productMap.get(pid) ?? {
+          product_id: pid,
+          product_name: item.productName ?? item.product_name ?? item.name ?? pid,
           qty: 0, revenue: 0, cogs: 0, gross_profit: 0,
         };
+        const rev = Number(item.revenue ?? item.revenueReversed ?? item.revenue_reversed ?? item.lineTotal ?? item.line_total ?? 0);
+        const cogs = Number(item.cogs ?? item.cogsReversed ?? item.cogs_reversed ?? 0);
+        const gp = Number(item.grossProfit ?? item.gross_profit ?? item.grossProfitReversed ?? item.gross_profit_reversed ?? (rev - cogs));
         existing.qty += multiplier * (Number(item.qty) || 0);
-        existing.revenue += multiplier * (Number(item.revenue) || 0);
-        existing.cogs += multiplier * (Number(item.cogs) || 0);
-        existing.gross_profit += multiplier * (Number(item.gross_profit) || 0);
-        productMap.set(item.product_id, existing);
+        existing.revenue += multiplier * rev;
+        existing.cogs += multiplier * cogs;
+        existing.gross_profit += multiplier * gp;
+        productMap.set(pid, existing);
       }
     }
 
@@ -151,17 +155,21 @@ export async function GET(req: NextRequest) {
         // Recent Sales
         const liveSales = await AnalyticsEvent.find({ ...matchFilter, type: "sale.completed" })
           .sort({ occurred_at: -1 }).limit(20)
-          .select("occurred_at payload.invoice_number payload.gross_sales payload.net_sales payload.payment_method payload.customer_name")
           .lean();
 
-        recentSalesList.push(...liveSales.map((ev) => ({
-          occurred_at: ev.occurred_at,
-          invoice_number: ev.payload?.invoice_number,
-          gross_sales: ev.payload?.gross_sales,
-          net_sales: ev.payload?.net_sales,
-          payment_method: ev.payload?.payment_method,
-          customer_name: ev.payload?.customer_name ?? null,
-        })));
+        recentSalesList.push(...liveSales.map((ev: any) => {
+          const p = ev.payload || {};
+          const gross = Number(p.grossSales ?? p.gross_sales ?? p.subtotal ?? p.netSales ?? p.net_sales ?? 0);
+          const net = Number(p.netSales ?? p.net_sales ?? p.total ?? gross);
+          return {
+            occurred_at: ev.occurred_at,
+            invoice_number: p.invoiceNumber ?? p.invoice_number ?? ev.source_record_id,
+            gross_sales: gross,
+            net_sales: net,
+            payment_method: String(p.paymentMethod ?? p.payment_method ?? "cash").toLowerCase(),
+            customer_name: p.customerName ?? p.customer_name ?? null,
+          };
+        }));
       }
     }
 

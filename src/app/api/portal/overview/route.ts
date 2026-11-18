@@ -188,18 +188,93 @@ export async function GET(req: NextRequest) {
             {
               $group: {
                 _id: "$type",
-                gross_sales: { $sum: { $ifNull: ["$payload.net_sales", "$payload.gross_sales"] } },
-                subtotal_sales: { $sum: { $ifNull: ["$payload.gross_sales", 0] } },
-                discount_total: { $sum: { $ifNull: ["$payload.discount", 0] } },
-                cogs: { $sum: { $ifNull: ["$payload.cogs", 0] } },
-                return_amount: { $sum: { $ifNull: ["$payload.return_amount", 0] } },
-                cogs_reversed: { $sum: { $ifNull: ["$payload.cogs_reversed", 0] } },
-                purchase_total: { $sum: { $ifNull: ["$payload.purchase_total", 0] } },
+                gross_sales: {
+                  $sum: {
+                    $convert: {
+                      input: { $ifNull: ["$payload.netSales", { $ifNull: ["$payload.net_sales", { $ifNull: ["$payload.grossSales", "$payload.gross_sales"] }] }] },
+                      to: "double",
+                      onError: 0,
+                      onNull: 0,
+                    },
+                  },
+                },
+                subtotal_sales: {
+                  $sum: {
+                    $convert: {
+                      input: { $ifNull: ["$payload.grossSales", { $ifNull: ["$payload.gross_sales", { $ifNull: ["$payload.subtotal", 0] }] }] },
+                      to: "double",
+                      onError: 0,
+                      onNull: 0,
+                    },
+                  },
+                },
+                discount_total: {
+                  $sum: {
+                    $convert: {
+                      input: { $ifNull: ["$payload.discount", 0] },
+                      to: "double",
+                      onError: 0,
+                      onNull: 0,
+                    },
+                  },
+                },
+                cogs: {
+                  $sum: {
+                    $convert: {
+                      input: { $ifNull: ["$payload.cogs", 0] },
+                      to: "double",
+                      onError: 0,
+                      onNull: 0,
+                    },
+                  },
+                },
+                return_amount: {
+                  $sum: {
+                    $convert: {
+                      input: { $ifNull: ["$payload.returnAmount", { $ifNull: ["$payload.return_amount", { $ifNull: ["$payload.total", 0] }] }] },
+                      to: "double",
+                      onError: 0,
+                      onNull: 0,
+                    },
+                  },
+                },
+                cogs_reversed: {
+                  $sum: {
+                    $convert: {
+                      input: { $ifNull: ["$payload.cogsReversed", { $ifNull: ["$payload.cogs_reversed", 0] }] },
+                      to: "double",
+                      onError: 0,
+                      onNull: 0,
+                    },
+                  },
+                },
+                purchase_total: {
+                  $sum: {
+                    $convert: {
+                      input: { $ifNull: ["$payload.purchaseTotal", { $ifNull: ["$payload.purchase_total", { $ifNull: ["$payload.total", 0] }] }] },
+                      to: "double",
+                      onError: 0,
+                      onNull: 0,
+                    },
+                  },
+                },
                 cash_sales: {
                   $sum: {
                     $cond: [
-                      { $eq: ["$payload.payment_method", "cash"] },
-                      { $ifNull: ["$payload.net_sales", "$payload.gross_sales"] },
+                      {
+                        $in: [
+                          { $toLower: { $ifNull: ["$payload.paymentMethod", { $ifNull: ["$payload.payment_method", "cash"] }] } },
+                          ["cash"],
+                        ],
+                      },
+                      {
+                        $convert: {
+                          input: { $ifNull: ["$payload.netSales", { $ifNull: ["$payload.net_sales", { $ifNull: ["$payload.grossSales", "$payload.gross_sales"] }] }] },
+                          to: "double",
+                          onError: 0,
+                          onNull: 0,
+                        },
+                      },
                       0,
                     ],
                   },
@@ -207,8 +282,20 @@ export async function GET(req: NextRequest) {
                 card_sales: {
                   $sum: {
                     $cond: [
-                      { $eq: ["$payload.payment_method", "card"] },
-                      { $ifNull: ["$payload.net_sales", "$payload.gross_sales"] },
+                      {
+                        $in: [
+                          { $toLower: { $ifNull: ["$payload.paymentMethod", { $ifNull: ["$payload.payment_method", ""] }] } },
+                          ["card"],
+                        ],
+                      },
+                      {
+                        $convert: {
+                          input: { $ifNull: ["$payload.netSales", { $ifNull: ["$payload.net_sales", { $ifNull: ["$payload.grossSales", "$payload.gross_sales"] }] }] },
+                          to: "double",
+                          onError: 0,
+                          onNull: 0,
+                        },
+                      },
                       0,
                     ],
                   },
@@ -216,8 +303,20 @@ export async function GET(req: NextRequest) {
                 wallet_sales: {
                   $sum: {
                     $cond: [
-                      { $eq: ["$payload.payment_method", "wallet"] },
-                      { $ifNull: ["$payload.net_sales", "$payload.gross_sales"] },
+                      {
+                        $in: [
+                          { $toLower: { $ifNull: ["$payload.paymentMethod", { $ifNull: ["$payload.payment_method", ""] }] } },
+                          ["wallet", "bank"],
+                        ],
+                      },
+                      {
+                        $convert: {
+                          input: { $ifNull: ["$payload.netSales", { $ifNull: ["$payload.net_sales", { $ifNull: ["$payload.grossSales", "$payload.gross_sales"] }] }] },
+                          to: "double",
+                          onError: 0,
+                          onNull: 0,
+                        },
+                      },
                       0,
                     ],
                   },
@@ -225,8 +324,20 @@ export async function GET(req: NextRequest) {
                 credit_sales: {
                   $sum: {
                     $cond: [
-                      { $eq: ["$payload.payment_method", "credit"] },
-                      { $ifNull: ["$payload.net_sales", "$payload.gross_sales"] },
+                      {
+                        $in: [
+                          { $toLower: { $ifNull: ["$payload.paymentMethod", { $ifNull: ["$payload.payment_method", ""] }] } },
+                          ["credit", "khata"],
+                        ],
+                      },
+                      {
+                        $convert: {
+                          input: { $ifNull: ["$payload.netSales", { $ifNull: ["$payload.net_sales", { $ifNull: ["$payload.grossSales", "$payload.gross_sales"] }] }] },
+                          to: "double",
+                          onError: 0,
+                          onNull: 0,
+                        },
+                      },
                       0,
                     ],
                   },
@@ -239,13 +350,13 @@ export async function GET(req: NextRequest) {
                           { $gte: [{ $ifNull: ["$payload.discount", 0] }, 500] },
                           {
                             $and: [
-                              { $gt: [{ $ifNull: ["$payload.gross_sales", 0] }, 0] },
+                              { $gt: [{ $ifNull: ["$payload.grossSales", { $ifNull: ["$payload.gross_sales", 0] }] }, 0] },
                               {
                                 $gte: [
                                   {
                                     $divide: [
                                       { $ifNull: ["$payload.discount", 0] },
-                                      { $ifNull: ["$payload.gross_sales", 1] },
+                                      { $ifNull: ["$payload.grossSales", { $ifNull: ["$payload.gross_sales", 1] }] },
                                     ],
                                   },
                                   0.15,
@@ -585,20 +696,27 @@ export async function GET(req: NextRequest) {
       .limit(8)
       .lean();
 
-    const recentSales = liveRecentEvents.map((e: any) => ({
-      id: e.source_record_id || e.event_id,
-      event_id: e.event_id,
-      occurred_at: e.occurred_at.toISOString(),
-      invoice_number: e.payload?.invoice_number ?? e.source_record_id,
-      customer_name: e.payload?.customer_name ?? "Walk-in Customer",
-      cashier: e.payload?.cashier ?? "Cashier",
-      gross_sales: e.payload?.gross_sales ?? 0,
-      discount: e.payload?.discount ?? 0,
-      net_sales: e.payload?.net_sales ?? e.payload?.gross_sales ?? 0,
-      payment_method: e.payload?.payment_method ?? "cash",
-      items_count: Array.isArray(e.payload?.items) ? e.payload.items.length : 0,
-      terminal_number: e.terminal_number ?? e.payload?.terminal_number,
-    }));
+    const recentSales = liveRecentEvents.map((e: any) => {
+      const p = e.payload || {};
+      const gross = Number(p.grossSales ?? p.gross_sales ?? p.subtotal ?? p.netSales ?? p.net_sales ?? 0);
+      const disc = Number(p.discount ?? 0);
+      const net = Number(p.netSales ?? p.net_sales ?? p.total ?? (gross - disc));
+      const pm = String(p.paymentMethod ?? p.payment_method ?? "cash").toLowerCase();
+      return {
+        id: e.source_record_id || e.event_id,
+        event_id: e.event_id,
+        occurred_at: e.occurred_at.toISOString(),
+        invoice_number: p.invoiceNumber ?? p.invoice_number ?? e.source_record_id,
+        customer_name: p.customerName ?? p.customer_name ?? "Walk-in Customer",
+        cashier: p.cashier ?? "Cashier",
+        gross_sales: Math.round(gross * 100) / 100,
+        discount: Math.round(disc * 100) / 100,
+        net_sales: Math.round(net * 100) / 100,
+        payment_method: pm,
+        items_count: Array.isArray(p.items) ? p.items.length : 0,
+        terminal_number: e.terminal_number ?? p.terminalNumber ?? p.terminal_number ?? 1,
+      };
+    });
 
     // 6. Top 5 Products for selectedPeriod
     const { start: pStart, end: pEnd } = getClientDateRange(timezone, selectedPeriod);
@@ -613,14 +731,14 @@ export async function GET(req: NextRequest) {
       { $unwind: "$payload.items" },
       {
         $group: {
-          _id: "$payload.items.product_id",
-          product_name: { $last: "$payload.items.product_name" },
+          _id: { $ifNull: ["$payload.items.productId", { $ifNull: ["$payload.items.product_id", "$payload.items.name"] }] },
+          product_name: { $last: { $ifNull: ["$payload.items.productName", { $ifNull: ["$payload.items.product_name", "$payload.items.name"] }] } },
           qty: {
             $sum: {
               $cond: [
                 { $eq: ["$type", "sale.completed"] },
-                { $ifNull: ["$payload.items.qty", 0] },
-                { $multiply: [{ $ifNull: ["$payload.items.qty", 0] }, -1] },
+                { $convert: { input: { $ifNull: ["$payload.items.qty", 0] }, to: "double", onError: 0, onNull: 0 } },
+                { $multiply: [{ $convert: { input: { $ifNull: ["$payload.items.qty", 0] }, to: "double", onError: 0, onNull: 0 } }, -1] },
               ],
             },
           },
@@ -628,8 +746,8 @@ export async function GET(req: NextRequest) {
             $sum: {
               $cond: [
                 { $eq: ["$type", "sale.completed"] },
-                { $ifNull: ["$payload.items.revenue", 0] },
-                { $multiply: [{ $ifNull: ["$payload.items.revenue_reversed", 0] }, -1] },
+                { $convert: { input: { $ifNull: ["$payload.items.revenue", { $ifNull: ["$payload.items.lineTotal", { $ifNull: ["$payload.items.line_total", 0] }] }] }, to: "double", onError: 0, onNull: 0 } },
+                { $multiply: [{ $convert: { input: { $ifNull: ["$payload.items.revenueReversed", { $ifNull: ["$payload.items.revenue_reversed", { $ifNull: ["$payload.items.lineTotal", 0] }] }] }, to: "double", onError: 0, onNull: 0 } }, -1] },
               ],
             },
           },
@@ -637,8 +755,8 @@ export async function GET(req: NextRequest) {
             $sum: {
               $cond: [
                 { $eq: ["$type", "sale.completed"] },
-                { $ifNull: ["$payload.items.gross_profit", 0] },
-                { $multiply: [{ $ifNull: ["$payload.items.gross_profit_reversed", 0] }, -1] },
+                { $convert: { input: { $ifNull: ["$payload.items.grossProfit", { $ifNull: ["$payload.items.gross_profit", 0] }] }, to: "double", onError: 0, onNull: 0 } },
+                { $multiply: [{ $convert: { input: { $ifNull: ["$payload.items.grossProfitReversed", { $ifNull: ["$payload.items.gross_profit_reversed", 0] }] }, to: "double", onError: 0, onNull: 0 } }, -1] },
               ],
             },
           },

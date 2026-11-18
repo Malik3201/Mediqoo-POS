@@ -229,22 +229,22 @@ export async function GET(req: NextRequest) {
       const occurredIso = new Date(ev.occurred_at).toISOString();
 
       if (evType === "sale.completed") {
-        const net = Number(p.net_sales ?? p.total_amount ?? p.net_total ?? p.gross_sales ?? 0);
-        const disc = Number(p.discount ?? p.discount_amount ?? 0);
-        const gross = Number(p.gross_sales ?? p.subtotal ?? net + disc);
-        let cogs = Number(p.cogs ?? p.cost_total ?? 0);
+        const net = Number(p.netSales ?? p.net_sales ?? p.total_amount ?? p.net_total ?? p.grossSales ?? p.gross_sales ?? p.total ?? 0);
+        const disc = Number(p.discount ?? p.discount_amount ?? p.discountAmount ?? 0);
+        const gross = Number(p.grossSales ?? p.gross_sales ?? p.subtotal ?? net + disc);
+        let cogs = Number(p.cogs ?? p.cost_total ?? p.cogs_total ?? 0);
 
         invoicesCount += 1;
         grossRevenue += gross;
         totalDiscounts += disc;
         netSales += net;
 
-        const pm = String(p.payment_method || "cash").toLowerCase();
-        if (pm.includes("credit") || pm.includes("khata") || Number(p.credit_amount || 0) > 0) {
+        const pm = String(p.paymentMethod ?? p.payment_method ?? "cash").toLowerCase();
+        if (pm.includes("credit") || pm.includes("khata") || Number(p.credit_amount || p.creditAmount || 0) > 0) {
           paymentBreakdown.credit.count += 1;
-          paymentBreakdown.credit.amount += Number(p.credit_amount || net);
-          if (Number(p.paid_amount || 0) > 0) {
-            paymentBreakdown.cash.amount += Number(p.paid_amount || 0);
+          paymentBreakdown.credit.amount += Number(p.credit_amount || p.creditAmount || net);
+          if (Number(p.paid_amount || p.paidAmount || 0) > 0) {
+            paymentBreakdown.cash.amount += Number(p.paid_amount || p.paidAmount || 0);
           }
         } else if (pm.includes("card") || pm.includes("pos")) {
           paymentBreakdown.card.count += 1;
@@ -276,21 +276,21 @@ export async function GET(req: NextRequest) {
         let calcLineCogs = 0;
         const lines = p.items || p.lines || [];
         for (const l of lines) {
-          const pid = l.product_id || l.code || l.product_name || l.name;
+          const pid = l.product_id || l.productId || l.code || l.product_name || l.productName || l.name;
           if (!pid) continue;
           const catProd = catalogLookup.get(pid);
           const q = Number(l.qty ?? 0);
-          const lDisc = Number(l.discount ?? 0);
-          const lNet = Number(l.revenue ?? l.line_total ?? q * Number(l.unit_price ?? 0));
+          const lDisc = Number(l.discountAmt ?? l.discount_amt ?? l.discount ?? 0);
+          const lNet = Number(l.revenue ?? l.revenueReversed ?? l.lineTotal ?? l.line_total ?? q * Number(l.unitPrice ?? l.unit_price ?? l.price ?? 0));
           const lineSnapshotCogs = Number(l.cogs ?? 0);
-          const unitCost = Number(l.cost_price ?? l.unit_cost ?? catProd?.cost_wac ?? 0);
+          const unitCost = Number(l.cost_price ?? l.cost ?? l.unit_cost ?? catProd?.cost_wac ?? 0);
           const lCogs = lineSnapshotCogs > 0 ? lineSnapshotCogs : unitCost > 0 ? unitCost * q : 0;
           calcLineCogs += lCogs;
 
           const ps = productSalesMap.get(pid) || {
             product_id: pid,
             code: l.code || catProd?.code,
-            name: l.product_name || l.name || catProd?.name || pid,
+            name: l.product_name || l.productName || l.name || catProd?.name || pid,
             category: l.category || catProd?.category || "General",
             qty_sold: 0,
             gross_revenue: 0,
@@ -349,9 +349,9 @@ export async function GET(req: NextRequest) {
         liveDailyAccum.set(dateKey, dBucket);
       } else if (evType === "sale.returned") {
         const retAmt = Math.abs(
-          Number(p.return_amount ?? p.total_refund ?? p.total ?? 0)
+          Number(p.returnAmount ?? p.return_amount ?? p.total_refund ?? p.total ?? 0)
         );
-        const revCogs = Math.abs(Number(p.cogs_reversed ?? 0));
+        const revCogs = Math.abs(Number(p.cogsReversed ?? p.cogs_reversed ?? 0));
         returnsCount += 1;
         totalReturns += retAmt;
         netSales -= retAmt;
@@ -389,24 +389,24 @@ export async function GET(req: NextRequest) {
         dBucket.gross_profit = dBucket.net_sales - dBucket.cogs;
         liveDailyAccum.set(dateKey, dBucket);
       } else if (evType === "purchase.received") {
-        const purId = p.purchase_id || ev.source_record_id || ev.event_id;
-        const grnNo = p.grn || p.grn_number || p.purchase_number || purId;
-        const supId = p.supplier_id || p.supplier_name || "unknown";
-        const supName = p.supplier_name || "Supplier";
-        const tot = Number(p.purchase_total ?? p.total_amount ?? p.total ?? 0);
-        const paid = Number(p.paid_amount ?? p.paid ?? 0);
-        const isLegacyExcluded = Boolean(p.exclude_from_supplier_balance || p.migration_imported);
+        const purId = p.purchase_id || p.purchaseId || ev.source_record_id || ev.event_id;
+        const grnNo = p.grn || p.grn_number || p.purchase_number || p.purchaseNumber || purId;
+        const supId = p.supplier_id || p.supplierId || p.supplier_name || p.supplierName || "unknown";
+        const supName = p.supplier_name || p.supplierName || p.supplier || "Supplier";
+        const tot = Number(p.purchase_total ?? p.purchaseTotal ?? p.total_amount ?? p.total ?? 0);
+        const paid = Number(p.paid_amount ?? p.paidAmount ?? p.paid ?? 0);
+        const isLegacyExcluded = Boolean(p.exclude_from_supplier_balance || p.excludeFromSupplierBalance || p.migration_imported || p.migrationImported);
         const bal = isLegacyExcluded ? 0 : Math.max(0, Number(p.balance_due ?? tot - paid));
 
         let bonusTotal = 0;
         for (const it of p.lines || p.items || []) {
-          const bq = Number(it.free_qty ?? it.bonus_qty ?? 0);
+          const bq = Number(it.free_qty ?? it.freeQty ?? it.bonus_qty ?? 0);
           bonusTotal += bq;
-          const pid = it.product_id || it.code || it.product_name || it.name;
+          const pid = it.product_id || it.productId || it.code || it.product_name || it.productName || it.name;
           if (pid && !productPurchaseMap.has(`${purId}_${pid}`)) {
             productPurchaseMap.set(`${purId}_${pid}`, {
               product_id: pid,
-              name: it.product_name || it.name || pid,
+              name: it.product_name || it.productName || it.name || pid,
               supplier_name: supName,
               grn_number: grnNo,
               purchase_id: purId,

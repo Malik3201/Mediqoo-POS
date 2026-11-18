@@ -62,7 +62,10 @@ export async function GET(req: NextRequest) {
           { source_record_id: decoded },
           { event_id: decoded },
           { "payload.purchase_id": decoded },
+          { "payload.purchaseId": decoded },
           { "payload.grn": decoded },
+          { "payload.purchase_number": decoded },
+          { "payload.purchaseNumber": decoded },
         ],
       }).lean<any>();
 
@@ -71,14 +74,14 @@ export async function GET(req: NextRequest) {
       }
 
       const p = purDoc.payload || {};
-      const purId = p.purchase_id || purDoc.source_record_id;
-      const grnNo = p.grn || purDoc.source_record_id;
+      const purId = p.purchase_id || p.purchaseId || purDoc.source_record_id;
+      const grnNo = p.grn || p.purchase_number || p.purchaseNumber || purDoc.source_record_id;
 
       // Match purchase returns from OwnerPortalState + purchase.returned events
       const statePurchaseReturns: any[] = (portalState?.purchase_returns || []).filter(
         (pr: any) =>
-          (pr.purchase_id && pr.purchase_id === purId) ||
-          (pr.purchase_number && pr.purchase_number === grnNo)
+          (pr.purchase_id && (pr.purchase_id === purId || pr.purchase_id === grnNo)) ||
+          (pr.purchase_number && (pr.purchase_number === grnNo || pr.purchase_number === purId))
       );
 
       const eventPurchaseReturns = await AnalyticsEvent.find({
@@ -86,7 +89,9 @@ export async function GET(req: NextRequest) {
         type: "purchase.returned",
         $or: [
           { "payload.purchase_id": purId },
+          { "payload.purchaseId": purId },
           { "payload.purchase_number": grnNo },
+          { "payload.purchaseNumber": grnNo },
         ],
       }).lean<any[]>();
 
@@ -120,24 +125,24 @@ export async function GET(req: NextRequest) {
       const lines = Array.isArray(p.lines)
         ? p.lines.map((l: any, idx: number) => ({
             index: idx + 1,
-            product_id: l.product_id,
+            product_id: l.product_id || l.productId || l.code || l.name,
             code: l.code || null,
-            name: l.name || l.product_id,
+            name: l.name || l.product_name || l.productName || l.product_id,
             unit: l.unit || "unit",
             multiplier: Number(l.multiplier ?? 1),
             qty: Number(l.qty) || 0,
-            free_qty: Number(l.free_qty ?? 0),
-            cost: Math.round(Number(l.cost ?? 0) * 100) / 100,
-            discount_pct: Number(l.discount_pct ?? 0),
-            tax_amount: Math.round(Number(l.tax_amount ?? 0) * 100) / 100,
-            line_total: Math.round(Number(l.line_total ?? (Number(l.qty) || 0) * (Number(l.cost) || 0)) * 100) / 100,
-            batch_no: l.batch_no || null,
+            free_qty: Number(l.free_qty ?? l.freeQty ?? 0),
+            cost: Math.round(Number(l.cost ?? l.cost_price ?? 0) * 100) / 100,
+            discount_pct: Number(l.discount_pct ?? l.discountPct ?? 0),
+            tax_amount: Math.round(Number(l.tax_amount ?? l.taxAmount ?? 0) * 100) / 100,
+            line_total: Math.round(Number(l.line_total ?? l.lineTotal ?? (Number(l.qty) || 0) * (Number(l.cost) || 0)) * 100) / 100,
+            batch_no: l.batch_no || l.batchNo || null,
             expiry: l.expiry || null,
-            sale_price: l.sale_price !== undefined ? Number(l.sale_price) : null,
+            sale_price: l.sale_price !== undefined ? Number(l.sale_price) : (l.salePrice !== undefined ? Number(l.salePrice) : null),
           }))
         : [];
 
-      const isLegacyExcluded = Boolean(p.exclude_from_supplier_balance || p.migration_imported);
+      const isLegacyExcluded = Boolean(p.exclude_from_supplier_balance || p.excludeFromSupplierBalance || p.migration_imported || p.migrationImported);
 
       return NextResponse.json({
         purchase: {
@@ -145,25 +150,25 @@ export async function GET(req: NextRequest) {
           event_id: purDoc.event_id,
           grn: grnNo,
           occurred_at: new Date(purDoc.occurred_at).toISOString(),
-          supplier_id: p.supplier_id || null,
-          supplier_name: p.supplier_name || "Supplier",
-          subtotal: Math.round(Number(p.subtotal ?? p.purchase_total ?? 0) * 100) / 100,
+          supplier_id: p.supplier_id || p.supplierId || null,
+          supplier_name: p.supplier_name || p.supplierName || p.supplier || "Supplier",
+          subtotal: Math.round(Number(p.subtotal ?? p.purchase_total ?? p.purchaseTotal ?? 0) * 100) / 100,
           discount: Math.round(Number(p.discount ?? 0) * 100) / 100,
-          tax_amount: Math.round(Number(p.tax_amount ?? 0) * 100) / 100,
-          purchase_total: Math.round(Number(p.purchase_total ?? 0) * 100) / 100,
-          paid_amount: p.paid_amount !== undefined ? Math.round(Number(p.paid_amount) * 100) / 100 : null,
+          tax_amount: Math.round(Number(p.tax_amount ?? p.taxAmount ?? 0) * 100) / 100,
+          purchase_total: Math.round(Number(p.purchase_total ?? p.purchaseTotal ?? 0) * 100) / 100,
+          paid_amount: p.paid_amount !== undefined ? Math.round(Number(p.paid_amount) * 100) / 100 : (p.paidAmount !== undefined ? Math.round(Number(p.paidAmount) * 100) / 100 : null),
           payment_verification_status: isLegacyExcluded
             ? "historical_unverified"
-            : Number(p.paid_amount ?? 0) >= Number(p.purchase_total ?? 0) - 0.01 && Number(p.purchase_total ?? 0) > 0
+            : Number(p.paid_amount ?? p.paidAmount ?? 0) >= Number(p.purchase_total ?? p.purchaseTotal ?? 0) - 0.01 && Number(p.purchase_total ?? p.purchaseTotal ?? 0) > 0
             ? "paid"
-            : Number(p.paid_amount ?? 0) > 0
+            : Number(p.paid_amount ?? p.paidAmount ?? 0) > 0
             ? "partial"
             : "credit_payable",
-          operator_name: p.operator_name || null,
-          terminal_number: purDoc.terminal_number ?? p.terminal_number ?? 1,
+          operator_name: p.operator_name || p.operatorName || null,
+          terminal_number: purDoc.terminal_number ?? p.terminal_number ?? p.terminalNumber ?? 1,
           notes: p.notes || null,
-          migration_imported: Boolean(p.migration_imported),
-          exclude_from_supplier_balance: Boolean(p.exclude_from_supplier_balance),
+          migration_imported: Boolean(p.migration_imported || p.migrationImported),
+          exclude_from_supplier_balance: Boolean(p.exclude_from_supplier_balance || p.excludeFromSupplierBalance),
           items_archived: Boolean(p.items_archived),
           has_line_details: lines.length > 0,
           lines,
@@ -205,7 +210,10 @@ export async function GET(req: NextRequest) {
     if (supplierFilter && supplierFilter !== "all") {
       baseMatch.$or = [
         { "payload.supplier_name": supplierFilter },
+        { "payload.supplierName": supplierFilter },
+        { "payload.supplier": supplierFilter },
         { "payload.supplier_id": supplierFilter },
+        { "payload.supplierId": supplierFilter },
       ];
     }
 
@@ -216,9 +224,14 @@ export async function GET(req: NextRequest) {
       andConditions.push({
         $or: [
           { "payload.grn": regex },
+          { "payload.purchase_number": regex },
+          { "payload.purchaseNumber": regex },
           { source_record_id: regex },
           { "payload.supplier_name": regex },
+          { "payload.supplierName": regex },
+          { "payload.supplier": regex },
           { "payload.lines.name": regex },
+          { "payload.lines.productName": regex },
         ],
       });
     }
@@ -255,7 +268,16 @@ export async function GET(req: NextRequest) {
           $group: {
             _id: null,
             total_count: { $sum: 1 },
-            total_amount: { $sum: { $ifNull: ["$payload.purchase_total", 0] } },
+            total_amount: {
+              $sum: {
+                $convert: {
+                  input: { $ifNull: ["$payload.purchaseTotal", { $ifNull: ["$payload.purchase_total", { $ifNull: ["$payload.total", 0] }] }] },
+                  to: "double",
+                  onError: 0,
+                  onNull: 0,
+                },
+              },
+            },
           },
         },
       ]),
@@ -268,10 +290,19 @@ export async function GET(req: NextRequest) {
         },
         {
           $group: {
-            _id: { $ifNull: ["$payload.supplier_name", "Unknown Supplier"] },
-            supplier_id: { $first: "$payload.supplier_id" },
+            _id: { $ifNull: ["$payload.supplierName", { $ifNull: ["$payload.supplier_name", { $ifNull: ["$payload.supplier", "Unknown Supplier"] }] }] },
+            supplier_id: { $first: { $ifNull: ["$payload.supplierId", "$payload.supplier_id"] } },
             purchase_count: { $sum: 1 },
-            purchase_volume: { $sum: { $ifNull: ["$payload.purchase_total", 0] } },
+            purchase_volume: {
+              $sum: {
+                $convert: {
+                  input: { $ifNull: ["$payload.purchaseTotal", { $ifNull: ["$payload.purchase_total", { $ifNull: ["$payload.total", 0] }] }] },
+                  to: "double",
+                  onError: 0,
+                  onNull: 0,
+                },
+              },
+            },
             last_purchase_at: { $max: "$occurred_at" },
           },
         },
@@ -290,29 +321,33 @@ export async function GET(req: NextRequest) {
     const purchases = pageDocs.map((e: any) => {
       const p = e.payload || {};
       const lines = Array.isArray(p.lines) ? p.lines : [];
-      const isLegacyExcluded = Boolean(p.exclude_from_supplier_balance || p.migration_imported);
+      const isLegacyExcluded = Boolean(p.exclude_from_supplier_balance || p.excludeFromSupplierBalance || p.migration_imported || p.migrationImported);
+      const purTot = Number(p.purchase_total ?? p.purchaseTotal ?? p.total ?? 0);
+      const paid = p.paid_amount !== undefined ? Number(p.paid_amount) : (p.paidAmount !== undefined ? Number(p.paidAmount) : (p.paid !== undefined ? Number(p.paid) : null));
       return {
-        id: p.purchase_id || e.source_record_id,
+        id: p.purchase_id || p.purchaseId || e.source_record_id,
         event_id: e.event_id,
-        grn: p.grn || e.source_record_id,
+        grn: p.grn || p.purchase_number || p.purchaseNumber || e.source_record_id,
         occurred_at: new Date(e.occurred_at).toISOString(),
-        supplier_id: p.supplier_id || null,
-        supplier_name: p.supplier_name || "Supplier",
-        subtotal: Math.round(Number(p.subtotal ?? p.purchase_total ?? 0) * 100) / 100,
+        supplier_id: p.supplier_id || p.supplierId || null,
+        supplier_name: p.supplier_name || p.supplierName || p.supplier || "Supplier",
+        subtotal: Math.round(Number(p.subtotal ?? purTot) * 100) / 100,
         discount: Math.round(Number(p.discount ?? 0) * 100) / 100,
-        tax_amount: Math.round(Number(p.tax_amount ?? 0) * 100) / 100,
-        purchase_total: Math.round(Number(p.purchase_total ?? 0) * 100) / 100,
-        paid_amount: p.paid_amount !== undefined ? Math.round(Number(p.paid_amount) * 100) / 100 : null,
+        tax_amount: Math.round(Number(p.tax_amount ?? p.taxAmount ?? 0) * 100) / 100,
+        purchase_total: Math.round(purTot * 100) / 100,
+        paid_amount: paid !== null ? Math.round(paid * 100) / 100 : null,
         payment_verification_status: isLegacyExcluded
           ? "historical_unverified"
-          : Number(p.paid_amount ?? 0) >= Number(p.purchase_total ?? 0) - 0.01 && Number(p.purchase_total ?? 0) > 0
+          : (paid !== null ? paid : 0) >= purTot - 0.01 && purTot > 0
           ? "paid"
+          : (paid !== null ? paid : 0) > 0
+          ? "partial"
           : "credit_payable",
         lines_count: lines.length,
         has_line_details: lines.length > 0,
-        operator_name: p.operator_name || null,
-        migration_imported: Boolean(p.migration_imported),
-        exclude_from_supplier_balance: Boolean(p.exclude_from_supplier_balance),
+        operator_name: p.operator_name || p.operatorName || null,
+        migration_imported: Boolean(p.migration_imported || p.migrationImported),
+        exclude_from_supplier_balance: Boolean(p.exclude_from_supplier_balance || p.excludeFromSupplierBalance),
       };
     });
 
