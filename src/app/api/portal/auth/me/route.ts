@@ -30,13 +30,16 @@ export async function GET(req: NextRequest) {
         .lean<any>(),
     ]);
 
+    // Prioritize actual pharmacy store name over proprietor's personal name
     const resolvedPharmacyName =
-      portalState?.pharmacy_name ||
+      (client?.name && !/^abdul\s*rehman$/i.test(client.name) ? client.name : null) ||
+      (portalState?.pharmacy_name && !/^abdul\s*rehman$/i.test(portalState.pharmacy_name) ? portalState.pharmacy_name : null) ||
       project?.branding?.business_name ||
-      project?.name ||
+      (project?.name && !/^abdul\s*rehman$/i.test(project.name) ? project.name : null) ||
       client?.name ||
+      portalState?.pharmacy_name ||
       user.client_name ||
-      "AivraSol Pharmacy";
+      "AR Pharmacy";
 
     const resolvedPharmacyLogo =
       portalState?.pharmacy_logo ||

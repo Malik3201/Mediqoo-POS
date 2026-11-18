@@ -306,6 +306,8 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           u?.pharmacy_logo ||
           null;
 
+        if (resolvedLogo) setLogoError(false);
+
         setMe({
           user_id: u?.id || u?.user_id || "",
           client_id: clientId,
@@ -324,6 +326,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       const detail = (e as CustomEvent<{ name?: string; logo?: string | null }>).detail;
       const nextName = detail?.name?.trim();
       const nextLogo = detail?.logo;
+      if (nextLogo) setLogoError(false);
       setMe((prev) => {
         if (!prev) return prev;
         const nameChanged = nextName && prev.client_name !== nextName;

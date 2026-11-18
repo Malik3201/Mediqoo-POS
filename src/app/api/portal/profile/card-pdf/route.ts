@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
-import "pdfkit/standard-fonts/Helvetica";
-import "pdfkit/standard-fonts/HelveticaBold";
-import "pdfkit/standard-fonts/HelveticaOblique";
-import "pdfkit/standard-fonts/Courier";
-import "pdfkit/standard-fonts/CourierBold";
 import connectToDatabase from "@/lib/db";
 import { requirePortalSession, PortalAuthError, portalAuthErrorResponse } from "@/lib/portal-auth";
 import PortalUser from "@/models/PortalUser";
@@ -14,6 +9,18 @@ import OwnerPortalState from "@/models/OwnerPortalState";
 import Project from "@/models/Project";
 
 export const runtime = "nodejs";
+
+function maskLicenseKey(key: string): string {
+  if (!key) return "AIVRA-•••••-•••••-•••••-•••••";
+  const parts = key.trim().split("-");
+  if (parts.length >= 5) {
+    return `${parts[0]}-${parts[1]}-••••-••••-${parts[4]}`;
+  }
+  if (parts.length >= 3) {
+    return `${parts[0]}-••••-${parts[parts.length - 1]}`;
+  }
+  return key.slice(0, 8) + "••••••••";
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -36,36 +43,47 @@ export async function GET(req: NextRequest) {
 
     const primaryLicense = licenses.find((l) => l.status === "active") || licenses[0] || null;
 
-    const pharmacyName = (
-      portalState?.pharmacy_name ||
-      project?.branding?.business_name ||
-      project?.name ||
-      client?.name ||
-      session.client_name ||
-      "AivraSol Pharmacy"
-    ).toUpperCase();
+    // Resolve Pharmacy Business Name (Separate from individual proprietor name)
+    let pharmacyName = "AR Pharmacy";
+    if (client?.name && !/^abdul\s*rehman$/i.test(client.name)) {
+      pharmacyName = client.name;
+    } else if (portalState?.pharmacy_name && !/^abdul\s*rehman$/i.test(portalState.pharmacy_name)) {
+      pharmacyName = portalState.pharmacy_name;
+    } else if (project?.branding?.business_name) {
+      pharmacyName = project.branding.business_name;
+    } else if (project?.name && !/^abdul\s*rehman$/i.test(project.name)) {
+      pharmacyName = project.name;
+    } else if (client?.name) {
+      pharmacyName = client.name;
+    }
+    pharmacyName = pharmacyName.toUpperCase();
 
-    const ownerName = (
-      user?.name ||
+    // Resolve Registered Proprietor / Owner Name
+    let ownerName = (
       client?.contact_name ||
+      user?.name ||
       session.name ||
-      "Registered Proprietor"
+      "Abdul Rehman"
     ).toUpperCase();
 
-    const licenseKey = primaryLicense?.license_key || "AIVRA-PRO-VERIFIED";
+    const rawLicenseKey = primaryLicense?.license_key || "AIVRA-KHVX8-VYVQ4-8GWVK-ECFLK";
+    const maskedKey = maskLicenseKey(rawLicenseKey);
     const planName = (primaryLicense?.plan_name || "Enterprise Pharmacy Suite").toUpperCase();
-    const city = client?.city || client?.location?.city || "Pakistan";
-    const address = portalState?.pharmacy_address || client?.address || "Registered Pharmacy Premise";
-    const phone = portalState?.pharmacy_phone || client?.contact_phone || client?.phone || "+92 300 0000000";
+    const city = client?.city || client?.location?.city || "Faisalabad, Pakistan";
+    const address = portalState?.pharmacy_address || client?.address || "Phase 2, Boolmind near Nisar charsi tikka";
+    const phone = portalState?.pharmacy_phone || client?.contact_phone || client?.phone || "03456666052";
+    const issueDateStr = primaryLicense?.issued_at
+      ? new Date(primaryLicense.issued_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+      : "14 Nov 2026";
 
-    // Card dimensions: 540 x 340 (Standard proportions, crisp resolution)
+    // Card dimensions: 540 x 340 (Standard executive proportions)
     const doc = new PDFDocument({
       size: [540, 340],
       margins: { top: 15, bottom: 15, left: 15, right: 15 },
       info: {
-        Title: `${pharmacyName} - Official Owner Identity Card`,
+        Title: `${pharmacyName} - Official Owner Credential`,
         Author: "AivraSol Healthcare Technologies",
-        Subject: "Verified Pharmacy Proprietor Credential",
+        Subject: "Verified Licensed Pharmacy Proprietor Credential",
       },
     });
 
@@ -78,7 +96,6 @@ export async function GET(req: NextRequest) {
     });
 
     // ── Background Gradient & Outer Border ──
-    // Dark Executive Obsidian Slate with subtle emerald accents
     doc.rect(0, 0, 540, 340).fill("#0B132B");
 
     // Decorative gradient banner at top
@@ -92,70 +109,71 @@ export async function GET(req: NextRequest) {
     // ── Header Content ──
     // Brand Icon Monogram
     doc.roundedRect(26, 20, 32, 32, 6).fill("#10B981");
-    doc.font("HelveticaBold").fontSize(18).fillColor("#0F172A").text("A", 35, 27);
+    doc.font("Helvetica-Bold").fontSize(18).fillColor("#0F172A").text("A", 35, 27);
 
     // Header Title
-    doc.font("HelveticaBold").fontSize(14).fillColor("#FFFFFF").text("AivraSol Pharmacy Network", 68, 22);
-    doc.font("Helvetica").fontSize(8.5).fillColor("#34D399").text("OFFICIAL REGISTERED PROPRIETOR & PHARMACY OWNER CREDENTIAL", 68, 40);
+    doc.font("Helvetica-Bold").fontSize(13.5).fillColor("#FFFFFF").text("AivraSol Pharmacy Network", 68, 22);
+    doc.font("Helvetica").fontSize(8).fillColor("#34D399").text("OFFICIAL REGISTERED PROPRIETOR & PHARMACY OWNER CREDENTIAL", 68, 40);
 
     // Active Status Badge on top-right
-    doc.roundedRect(420, 24, 94, 22, 11).fill("#064E3B");
-    doc.circle(432, 35, 3.5).fill("#10B981");
-    doc.font("HelveticaBold").fontSize(8).fillColor("#D1FAE5").text("ACTIVE & VERIFIED", 442, 31);
+    doc.roundedRect(415, 24, 98, 22, 11).fill("#064E3B");
+    doc.circle(427, 35, 3.5).fill("#10B981");
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#D1FAE5").text("ACTIVE & VERIFIED", 436, 31);
 
     // ── Pharmacy Name (Hero Text) ──
-    doc.font("HelveticaBold").fontSize(17).fillColor("#FFFFFF").text(pharmacyName, 30, 84, {
+    doc.font("Helvetica-Bold").fontSize(17).fillColor("#FFFFFF").text(pharmacyName, 30, 84, {
       width: 480,
       ellipsis: true,
     });
 
-    doc.font("HelveticaOblique").fontSize(9.5).fillColor("#94A3B8").text("Licensed Retail & Community Pharmacy", 30, 108);
+    doc.font("Helvetica-Oblique").fontSize(9).fillColor("#94A3B8").text("Licensed Community & Retail Pharmacy Premise", 30, 107);
 
     // Thin accent divider
-    doc.moveTo(30, 125).lineTo(510, 125).lineWidth(0.5).strokeColor("#334155").stroke();
+    doc.moveTo(30, 124).lineTo(510, 124).lineWidth(0.5).strokeColor("#334155").stroke();
 
     // ── Two-Column Information Layout ──
     const leftCol = 30;
-    const rightCol = 280;
+    const rightCol = 270;
 
     // Left Column: Owner & Registration
-    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("REGISTERED PROPRIETOR / OWNER", leftCol, 136);
-    doc.font("HelveticaBold").fontSize(12).fillColor("#F8FAFC").text(ownerName, leftCol, 148, { width: 230, ellipsis: true });
+    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("REGISTERED PROPRIETOR / OWNER", leftCol, 134);
+    doc.font("Helvetica-Bold").fontSize(11.5).fillColor("#F8FAFC").text(ownerName, leftCol, 145, { width: 225, ellipsis: true });
 
-    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("CONTACT & PHONE", leftCol, 172);
-    doc.font("HelveticaBold").fontSize(9.5).fillColor("#CBD5E1").text(phone, leftCol, 183);
+    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("AUTHORIZED CONTACT", leftCol, 168);
+    doc.font("Helvetica-Bold").fontSize(9.5).fillColor("#CBD5E1").text(phone, leftCol, 179);
 
-    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("PREMISE LOCATION", leftCol, 204);
-    doc.font("Helvetica").fontSize(9).fillColor("#CBD5E1").text(`${address}, ${city}`, leftCol, 215, { width: 230, height: 26, ellipsis: true });
+    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("REGISTERED PREMISE LOCATION", leftCol, 200);
+    doc.font("Helvetica").fontSize(8.5).fillColor("#CBD5E1").text(`${address}, ${city}`, leftCol, 211, { width: 225, height: 26, ellipsis: true });
 
     // Right Column: License & Security Credentials
-    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("DIGITAL LICENSE KEY", rightCol, 136);
-    doc.font("CourierBold").fontSize(9.5).fillColor("#34D399").text(licenseKey, rightCol, 148);
+    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("PROTECTED LICENSE CREDENTIAL", rightCol, 134);
+    doc.font("Courier-Bold").fontSize(9.5).fillColor("#34D399").text(maskedKey, rightCol, 145);
 
-    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("AUTHORIZED SOFTWARE PLAN", rightCol, 172);
-    doc.font("HelveticaBold").fontSize(9.5).fillColor("#CBD5E1").text(planName, rightCol, 183);
+    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("AUTHORIZED SOFTWARE PLAN", rightCol, 168);
+    doc.font("Helvetica-Bold").fontSize(9.5).fillColor("#CBD5E1").text(planName, rightCol, 179);
 
-    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("NETWORK VALIDITY", rightCol, 204);
-    doc.font("HelveticaBold").fontSize(9).fillColor("#10B981").text("VALID • LIFETIME CLOUD INTEGRITY", rightCol, 215);
+    doc.font("Helvetica").fontSize(7.5).fillColor("#64748B").text("ISSUED & CLOUD INTEGRITY", rightCol, 200);
+    doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#10B981").text(`ISSUED: ${issueDateStr} • LIFETIME CLOUD SYNC`, rightCol, 211);
 
-    // ── Simulated Security Chip / Verification Stamp ──
-    doc.roundedRect(424, 148, 86, 86, 8).fill("#0F172A");
-    doc.roundedRect(424, 148, 86, 86, 8).lineWidth(1).strokeColor("#10B981").stroke();
-    doc.circle(467, 191, 26).lineWidth(1).strokeColor("#059669").stroke();
-    doc.circle(467, 191, 20).lineWidth(0.5).strokeColor("#34D399").stroke();
-    doc.font("HelveticaBold").fontSize(7).fillColor("#10B981").text("AIVRASOL", 448, 184);
-    doc.font("HelveticaBold").fontSize(5.5).fillColor("#94A3B8").text("VERIFIED POS", 444, 194);
+    // ── Security Verification Stamp / Hologram Box ──
+    doc.roundedRect(420, 140, 92, 92, 8).fill("#0F172A");
+    doc.roundedRect(420, 140, 92, 92, 8).lineWidth(1).strokeColor("#10B981").stroke();
+    doc.circle(466, 186, 28).lineWidth(1).strokeColor("#059669").stroke();
+    doc.circle(466, 186, 22).lineWidth(0.5).strokeColor("#34D399").stroke();
+    doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#10B981").text("AIVRASOL", 446, 179);
+    doc.font("Helvetica-Bold").fontSize(6).fillColor("#94A3B8").text("VERIFIED OWNER", 440, 189);
+    doc.font("Helvetica").fontSize(5).fillColor("#64748B").text("DIGITAL ID SECURED", 438, 198);
 
     // ── Card Footer with Microprint Security Text ──
     doc.rect(14, 280, 512, 44).fill("#070D1E");
     doc.moveTo(14, 280).lineTo(526, 280).lineWidth(0.5).strokeColor("#1E293B").stroke();
 
-    doc.font("HelveticaBold").fontSize(7.5).fillColor("#94A3B8").text(
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#94A3B8").text(
       "DIGITALLY ENCRYPTED AIVRASOL POS IDENTITY • TAMPER-EVIDENT VERIFICATION",
       28,
       290
     );
-    doc.font("Helvetica").fontSize(6.5).fillColor("#475569").text(
+    doc.font("Helvetica").fontSize(6).fillColor("#475569").text(
       "This document certifies authorized ownership of the pharmacy management terminal and cloud telemetry seat. Issued under AivraSol Healthcare Technologies PK.",
       28,
       303,

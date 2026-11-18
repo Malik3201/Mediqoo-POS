@@ -12,8 +12,8 @@ import { extractRequestGeo } from "@/lib/geo-location";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-license-key, x-terminal-id, x-machine-id",
 };
 
 export async function OPTIONS() {
@@ -323,7 +323,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "invalid_json" }, { status: 400, headers: CORS });
     }
 
-    const { license_key, machine_id, events } = body ?? {};
+    const license_key = (
+      body?.license_key ||
+      req.headers.get("x-license-key") ||
+      ""
+    ).trim();
+
+    const machine_id = (
+      body?.machine_id ||
+      req.headers.get("x-terminal-id") ||
+      req.headers.get("x-machine-id") ||
+      ""
+    ).trim();
+
+    const events = body?.events;
 
     if (!license_key || !machine_id) {
       return NextResponse.json(
@@ -438,7 +451,25 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const occurredAtDate = new Date(occurred_at);
+      let occurredAtDate = new Date(occurred_at);
+      if (isNaN(occurredAtDate.getTime()) && typeof occurred_at === "string") {
+        // Robust fallback for localized date strings e.g. "18/11/2026, 1:04:46 pm" or "18/11/2026"
+        const dmyMatch = occurred_at.trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?)?/i);
+        if (dmyMatch) {
+          const day = parseInt(dmyMatch[1], 10);
+          const month = parseInt(dmyMatch[2], 10) - 1;
+          const year = parseInt(dmyMatch[3], 10);
+          let hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 12;
+          const minutes = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
+          const seconds = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+          const ampm = dmyMatch[7]?.toLowerCase();
+          if (ampm === "pm" && hours < 12) hours += 12;
+          if (ampm === "am" && hours === 12) hours = 0;
+          const parsed = new Date(year, month, day, hours, minutes, seconds);
+          if (!isNaN(parsed.getTime())) occurredAtDate = parsed;
+        }
+      }
+
       if (isNaN(occurredAtDate.getTime())) {
         results.push({ event_id, duplicate: false, error: "invalid_occurred_at" });
         continue;
@@ -446,6 +477,19 @@ export async function POST(req: NextRequest) {
 
       // Ignore any stale pre-reset events that occurred before the latest POS factory data reset
       if (lastResetMs > 0 && occurredAtDate.getTime() <= lastResetMs + 2000) {
+        results.push({ event_id, duplicate: true });
+        continue;
+      }
+
+      // ── Strict Multi-Seat & Historical Deduplication ──
+      // Check if this source record has already been ingested under this license (e.g. from Desktop or Mobile)
+      const existingRecord = await AnalyticsEvent.findOne({
+        license_id: license.id,
+        type,
+        source_record_id: String(source_record_id),
+      }).select("event_id").lean();
+
+      if (existingRecord) {
         results.push({ event_id, duplicate: true });
         continue;
       }
