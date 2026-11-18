@@ -64,10 +64,26 @@ export async function POST(req: NextRequest) {
       bootstrap_version = 1,
       cutoff_date,
       daily,
+      daily_summaries,
       top_products,
       recent_sales,
       inventory_snapshot,
+      force,
     } = body ?? {};
+
+    const dailyItems =
+      (Array.isArray(daily) && daily) ||
+      (Array.isArray(daily_summaries) && daily_summaries) ||
+      (Array.isArray(body?.dailySummaries) && body.dailySummaries) ||
+      [];
+    const topProductItems =
+      (Array.isArray(top_products) && top_products) ||
+      (Array.isArray(body?.topProducts) && body.topProducts) ||
+      [];
+    const recentSalesItems =
+      (Array.isArray(recent_sales) && recent_sales) ||
+      (Array.isArray(body?.recentSales) && body.recentSales) ||
+      [];
 
     if (!license_key || !machine_id || !cutoff_date) {
       return NextResponse.json(
@@ -179,10 +195,19 @@ export async function POST(req: NextRequest) {
       });
     } catch (e: any) {
       if (e.code === 11000) {
-        // Already completed or in progress for this version.
-        return NextResponse.json({ ok: true, already_completed: true }, { headers: CORS });
+        // Check if HistoricalDailyAnalytics already has rows for this license
+        const existingCount = await HistoricalDailyAnalytics.countDocuments({ license_id: license.id });
+        if (existingCount === 0 || force) {
+          bootstrapRecord = await AnalyticsBootstrap.findOne({
+            license_id: license.id,
+            bootstrap_version,
+          });
+        } else {
+          return NextResponse.json({ ok: true, already_completed: true }, { headers: CORS });
+        }
+      } else {
+        throw e;
       }
-      throw e;
     }
 
     try {
@@ -190,26 +215,26 @@ export async function POST(req: NextRequest) {
       let dailyInserted = 0;
       let defaultPeriodStart = cutoff_date;
 
-      if (Array.isArray(daily) && daily.length > 0) {
+      if (Array.isArray(dailyItems) && dailyItems.length > 0) {
         // Sort dates to find the earliest date for top_products period_start
-        const sortedDates = daily.map((d: any) => d.date).filter(Boolean).sort();
+        const sortedDates = dailyItems.map((d: any) => d.date).filter(Boolean).sort();
         if (sortedDates.length > 0) defaultPeriodStart = sortedDates[0];
 
-        const dailyDocs = daily.map((d: any) => ({
+        const dailyDocs = dailyItems.map((d: any) => ({
           client_id: license.client_id,
           license_id: license.id,
           date: d.date,
-          gross_sales: Number(d.gross_sales) || 0,
+          gross_sales: Number(d.gross_sales ?? d.grossSales) || 0,
           discounts: Number(d.discounts ?? d.discount) || 0,
           tax: Number(d.tax) || 0,
-          net_sales: Number(d.net_sales) || 0,
-          sales_returns: Number(d.sales_returns) || 0,
-          cogs_reversed: Number(d.cogs_reversed) || 0,
+          net_sales: Number(d.net_sales ?? d.netSales) || 0,
+          sales_returns: Number(d.sales_returns ?? d.salesReturns) || 0,
+          cogs_reversed: Number(d.cogs_reversed ?? d.cogsReversed) || 0,
           cogs: Number(d.cogs) || 0,
-          gross_profit: Number(d.gross_profit) || 0,
+          gross_profit: Number(d.gross_profit ?? d.grossProfit) || 0,
           expenses: Number(d.expenses) || 0,
           purchases: Number(d.purchases) || 0,
-          net_profit: Number(d.net_profit) || 0,
+          net_profit: Number(d.net_profit ?? d.netProfit) || 0,
         }));
         
         // insertMany with ordered: false to skip any existing duplicates gracefully
@@ -222,18 +247,18 @@ export async function POST(req: NextRequest) {
 
       // ── Step 5: Ingest Top Products ────────────────────────────────────────
       let topInserted = 0;
-      if (Array.isArray(top_products) && top_products.length > 0) {
-        const topDocs = top_products.map((p: any) => ({
+      if (Array.isArray(topProductItems) && topProductItems.length > 0) {
+        const topDocs = topProductItems.map((p: any) => ({
           client_id: license.client_id,
           license_id: license.id,
-          product_id: p.product_id,
-          product_name: p.product_name || p.product_id,
-          period_start: p.period_start || defaultPeriodStart,
-          period_end: p.period_end || cutoff_date,
+          product_id: p.product_id || p.productId,
+          product_name: p.product_name || p.productName || p.product_id || p.productId,
+          period_start: p.period_start || p.periodStart || defaultPeriodStart,
+          period_end: p.period_end || p.periodEnd || cutoff_date,
           qty: Number(p.qty) || 0,
           revenue: Number(p.revenue) || 0,
           cogs: Number(p.cogs) || 0,
-          gross_profit: Number(p.gross_profit) || 0,
+          gross_profit: Number(p.gross_profit ?? p.grossProfit) || 0,
         }));
         const result = await HistoricalTopProduct.insertMany(topDocs, { ordered: false }).catch((e) => {
            if (e.code === 11000) return e.insertedDocs || [];
@@ -244,25 +269,25 @@ export async function POST(req: NextRequest) {
 
       // ── Step 6: Ingest Recent Sales ────────────────────────────────────────
       let recentInserted = 0;
-      if (Array.isArray(recent_sales) && recent_sales.length > 0) {
+      if (Array.isArray(recentSalesItems) && recentSalesItems.length > 0) {
         // Clear previous partial writes for this license to guarantee idempotency on retry
         await HistoricalRecentSale.deleteMany({ license_id: license.id });
 
         // Limit to 100 for safety
-        const limitedSales = recent_sales.slice(0, 100);
+        const limitedSales = recentSalesItems.slice(0, 100);
         const saleDocs = limitedSales.map((s: any) => {
-          let occurred = new Date(s.occurred_at);
+          let occurred = new Date(s.occurred_at || s.occurredAt);
           if (isNaN(occurred.getTime())) occurred = new Date();
           
           return {
             client_id: license.client_id,
             license_id: license.id,
             occurred_at: occurred,
-            invoice_number: s.invoice_number,
-            gross_sales: Number(s.gross_sales) || 0,
-            net_sales: Number(s.net_sales) || 0,
-            payment_method: s.payment_method,
-            customer_name: s.customer_name,
+            invoice_number: s.invoice_number || s.invoiceNumber,
+            gross_sales: Number(s.gross_sales ?? s.grossSales) || 0,
+            net_sales: Number(s.net_sales ?? s.netSales) || 0,
+            payment_method: s.payment_method || s.paymentMethod,
+            customer_name: s.customer_name || s.customerName,
           };
         });
         const result = await HistoricalRecentSale.insertMany(saleDocs, { ordered: false }).catch((e) => {

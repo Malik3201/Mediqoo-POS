@@ -223,12 +223,14 @@ export async function GET(req: NextRequest) {
       let cogsReliableEvents = 0;
 
       if (live) {
+        // If historical bootstrap has 0 gross sales, expand live query across the full period (start to end) so past events are included
+        const liveStartBoundary = (histSummary.gross_sales > 0 && historical) ? live.start : start;
         const [aggByType, expenseAgg] = await Promise.all([
           AnalyticsEvent.aggregate([
             {
               $match: {
                 client_id: clientId,
-                occurred_at: { $gte: live.start, $lte: live.end },
+                occurred_at: { $gte: liveStartBoundary, $lte: live.end },
                 type: { $in: ["sale.completed", "sale.returned", "purchase.received"] },
               },
             },
@@ -432,7 +434,7 @@ export async function GET(req: NextRequest) {
               $match: {
                 client_id: clientId,
                 is_deleted: false,
-                occurred_at: { $gte: live.start, $lte: live.end },
+                occurred_at: { $gte: liveStartBoundary, $lte: live.end },
               },
             },
             { $group: { _id: null, total: { $sum: "$amount" } } },

@@ -149,6 +149,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [onlineOrderBadgeCount, setOnlineOrderBadgeCount] = useState(0);
+  const [logoError, setLogoError] = useState(false);
   const [newOrderBanner, setNewOrderBanner] = useState<{
     id: string;
     order_number: string;
@@ -462,23 +463,20 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             className="flex items-center gap-2 min-w-0 flex-1 group hover:opacity-95 transition-opacity"
             title="View Pharmacy Profile & Owner Card"
           >
-            {me?.pharmacy_logo ? (
+            {me?.pharmacy_logo && !logoError ? (
               <img
                 src={me.pharmacy_logo}
                 alt={me.client_name}
                 className="w-8 h-8 rounded-lg object-contain bg-white p-0.5 border border-slate-700 shrink-0"
-                onError={(e) => {
-                  (e.currentTarget as HTMLElement).style.display = "none";
-                }}
+                onError={() => setLogoError(true)}
               />
-            ) : null}
-            <div
-              className={`w-8 h-8 rounded-lg bg-emerald-950/60 border border-emerald-600/40 items-center justify-center text-emerald-400 shrink-0 ${
-                me?.pharmacy_logo ? "hidden" : "flex"
-              }`}
-            >
-              <Building2 className="w-4 h-4" />
-            </div>
+            ) : (
+              <div
+                className="w-8 h-8 rounded-lg bg-emerald-950/60 border border-emerald-600/40 flex items-center justify-center text-emerald-400 font-black text-sm shrink-0"
+              >
+                {me?.client_name ? me.client_name.charAt(0).toUpperCase() : <Building2 className="w-4 h-4" />}
+              </div>
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 min-w-0">
                 <p className="text-[13px] sm:text-sm font-extrabold text-white truncate leading-tight group-hover:text-emerald-300 transition-colors">

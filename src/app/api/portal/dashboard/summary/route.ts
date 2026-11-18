@@ -136,10 +136,11 @@ export async function GET(req: NextRequest) {
 
       // --- Live ---
       if (live) {
+        const liveStartBoundary = (historical && finalSummary.gross_sales > 0) ? live.start : start;
         const matchFilter = {
           client_id: clientId,
           license_id: licId,
-          occurred_at: { $gte: live.start, $lte: live.end },
+          occurred_at: { $gte: liveStartBoundary, $lte: live.end },
         };
 
         // Helper to safely normalize numeric fields from both camelCase and snake_case

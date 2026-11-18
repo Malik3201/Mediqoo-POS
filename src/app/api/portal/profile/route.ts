@@ -85,7 +85,7 @@ export async function PATCH(req: NextRequest) {
     await connectToDatabase();
 
     const body = await req.json().catch(() => null);
-    const { name, phone, address, pharmacy_name } = body ?? {};
+    const { name, phone, address, pharmacy_name, pharmacy_logo, logo } = body ?? {};
 
     if (name && typeof name === "string") {
       await PortalUser.updateOne(
@@ -93,6 +93,10 @@ export async function PATCH(req: NextRequest) {
         { $set: { name: name.trim(), updated_at: new Date() } }
       );
     }
+
+    const resolvedLogo = (typeof pharmacy_logo === "string" && pharmacy_logo.trim()) ||
+      (typeof logo === "string" && logo.trim()) ||
+      undefined;
 
     const clientUpdates: Record<string, any> = { updated_at: new Date() };
     if (name && typeof name === "string") clientUpdates.contact_name = name.trim();
@@ -102,13 +106,26 @@ export async function PATCH(req: NextRequest) {
 
     await Client.updateOne({ id: session.client_id }, { $set: clientUpdates });
 
-    if (pharmacy_name || phone || address) {
+    if (pharmacy_name || phone || address || resolvedLogo) {
       const stateUpdates: Record<string, any> = {};
       if (pharmacy_name) stateUpdates.pharmacy_name = pharmacy_name.trim();
       if (phone) stateUpdates.pharmacy_phone = phone.trim();
       if (address) stateUpdates.pharmacy_address = address.trim();
+      if (resolvedLogo) stateUpdates.pharmacy_logo = resolvedLogo;
 
       await OwnerPortalState.updateMany({ client_id: session.client_id }, { $set: stateUpdates });
+
+      if (resolvedLogo || pharmacy_name) {
+        await Project.updateMany(
+          { client_id: session.client_id },
+          {
+            $set: {
+              ...(pharmacy_name ? { name: pharmacy_name.trim(), "branding.business_name": pharmacy_name.trim() } : {}),
+              ...(resolvedLogo ? { "branding.logo_url": resolvedLogo } : {}),
+            },
+          }
+        );
+      }
     }
 
     return NextResponse.json({
