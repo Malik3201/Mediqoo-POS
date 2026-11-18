@@ -307,19 +307,11 @@ export default function OwnerProfilePage() {
 
           {/* Action on Card */}
           <div className="flex flex-col sm:flex-row md:flex-col items-center justify-center gap-3 p-4 rounded-xl bg-slate-900/60 border border-slate-700/60 shrink-0 backdrop-blur-xs">
-            <div className="w-20 h-20 rounded-xl bg-white p-2 flex items-center justify-center shrink-0 shadow-md">
-              {data.pharmacy.logo ? (
-                <img
-                  src={data.pharmacy.logo}
-                  alt={data.pharmacy.name}
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                <div className="w-full h-full border border-slate-900 flex flex-col items-center justify-center text-center p-1 rounded-lg">
-                  <Sparkles className="w-6 h-6 text-emerald-600 mb-1" />
-                  <span className="text-[8px] font-black text-slate-900 leading-tight">OFFICIAL SEAL</span>
-                </div>
-              )}
+            <div className="w-20 h-20 rounded-lg bg-white p-1.5 flex items-center justify-center shrink-0">
+              <div className="w-full h-full border border-slate-900 flex flex-col items-center justify-center text-center p-1">
+                <Sparkles className="w-6 h-6 text-emerald-600 mb-1" />
+                <span className="text-[8px] font-black text-slate-900 leading-tight">OFFICIAL SEAL</span>
+              </div>
             </div>
             <button
               onClick={downloadOwnerCardPdf}

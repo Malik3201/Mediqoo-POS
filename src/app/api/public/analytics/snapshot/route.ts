@@ -19,8 +19,8 @@ import { extractRequestGeo } from "@/lib/geo-location";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-license-key, x-terminal-id, x-machine-id",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
 };
 
 export async function OPTIONS() {
@@ -50,20 +50,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "invalid_json" }, { status: 400, headers: CORS });
     }
 
-    const license_key = (
-      body?.license_key ||
-      req.headers.get("x-license-key") ||
-      ""
-    ).trim();
-
-    const machine_id = (
-      body?.machine_id ||
-      req.headers.get("x-terminal-id") ||
-      req.headers.get("x-machine-id") ||
-      ""
-    ).trim();
-
-    const { snapshot, portal_state, reset_portal_data } = body ?? {};
+    const { license_key, machine_id, snapshot, portal_state, reset_portal_data } = body ?? {};
 
     if (!license_key || !machine_id || (!snapshot && !reset_portal_data)) {
       return NextResponse.json(
@@ -292,13 +279,7 @@ export async function POST(req: NextRequest) {
       if (typeof statePayload.movement_coverage_days === "number") {
         updateSet.movement_coverage_days = statePayload.movement_coverage_days;
       }
-      if (typeof statePayload.pharmacy_name === "string" && statePayload.pharmacy_name.trim()) {
-        const rawName = statePayload.pharmacy_name.trim();
-        // Prevent personal contact name from overwriting verified pharmacy business name
-        if (!/^abdul\s*rehman$/i.test(rawName)) {
-          updateSet.pharmacy_name = rawName;
-        }
-      }
+      if (typeof statePayload.pharmacy_name === "string") updateSet.pharmacy_name = statePayload.pharmacy_name;
       if (typeof statePayload.pharmacy_phone === "string") updateSet.pharmacy_phone = statePayload.pharmacy_phone;
       if (typeof statePayload.pharmacy_address === "string") updateSet.pharmacy_address = statePayload.pharmacy_address;
       if (typeof statePayload.pharmacy_logo === "string") updateSet.pharmacy_logo = statePayload.pharmacy_logo;
