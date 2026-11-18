@@ -33,12 +33,14 @@ export async function GET(req: NextRequest) {
     const clientSeats = seats.filter((s) => licenses.some((l) => l.id === s.license_id));
 
     const resolvedPharmacyName =
-      portalState?.pharmacy_name ||
+      (client?.name && !/^abdul\s*rehman$/i.test(client.name) ? client.name : null) ||
+      (portalState?.pharmacy_name && !/^abdul\s*rehman$/i.test(portalState.pharmacy_name) ? portalState.pharmacy_name : null) ||
       project?.branding?.business_name ||
-      project?.name ||
+      (project?.name && !/^abdul\s*rehman$/i.test(project.name) ? project.name : null) ||
       client?.name ||
+      portalState?.pharmacy_name ||
       session.client_name ||
-      "AivraSol Pharmacy";
+      "AR Pharmacy";
 
     const resolvedPharmacyLogo =
       portalState?.pharmacy_logo ||

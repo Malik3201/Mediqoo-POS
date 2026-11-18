@@ -107,9 +107,24 @@ export async function GET(req: NextRequest) {
     doc.rect(14, 14, 512, 312).lineWidth(0.8).strokeColor("#059669").stroke();
 
     // ── Header Content ──
-    // Brand Icon Monogram
-    doc.roundedRect(26, 20, 32, 32, 6).fill("#10B981");
-    doc.font("Helvetica-Bold").fontSize(18).fillColor("#0F172A").text("A", 35, 27);
+    // Brand Icon Monogram or Real Pharmacy Logo
+    let logoDrawn = false;
+    const logoDataUri = portalState?.pharmacy_logo || project?.branding?.logo_url;
+    if (logoDataUri && typeof logoDataUri === "string" && logoDataUri.includes("base64,")) {
+      try {
+        const b64 = logoDataUri.split("base64,")[1];
+        const imgBuf = Buffer.from(b64, "base64");
+        doc.image(imgBuf, 24, 16, { fit: [36, 36], align: "center", valign: "center" });
+        logoDrawn = true;
+      } catch {
+        // Fallback to monogram below
+      }
+    }
+
+    if (!logoDrawn) {
+      doc.roundedRect(26, 20, 32, 32, 6).fill("#10B981");
+      doc.font("Helvetica-Bold").fontSize(18).fillColor("#0F172A").text("A", 35, 27);
+    }
 
     // Header Title
     doc.font("Helvetica-Bold").fontSize(13.5).fillColor("#FFFFFF").text("AivraSol Pharmacy Network", 68, 22);

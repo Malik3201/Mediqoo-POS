@@ -475,11 +475,9 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Ignore any stale pre-reset events that occurred before the latest POS factory data reset
-      if (lastResetMs > 0 && occurredAtDate.getTime() <= lastResetMs + 2000) {
-        results.push({ event_id, duplicate: true });
-        continue;
-      }
+      // Strict deduplication protects against duplicate insertion.
+      // Do NOT arbitrarily drop legitimate historical transactions that occurred before lastResetMs:
+      // The authentic terminal history must be ingested into AnalyticsEvent so Owner Portal reflects true history.
 
       // ── Strict Multi-Seat & Historical Deduplication ──
       // Check if this source record has already been ingested under this license (e.g. from Desktop or Mobile)
