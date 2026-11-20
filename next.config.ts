@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "/api/**/*": [
       "./node_modules/pdfkit/**/*",
       "./public/logo-aivrasol-voucher.png",
+      "./public/logo-owner-portal.png",
     ],
   },
   typescript: {
