@@ -12,12 +12,8 @@ import {
   Check,
   Eye,
   EyeOff,
-  User,
-  Phone,
   MapPin,
-  Mail,
   Lock,
-  Layers,
 } from "lucide-react";
 
 interface ProfileData {
@@ -251,91 +247,136 @@ export default function OwnerProfilePage() {
 
       {/* Compact Executive Owner Card Showcase */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-        {/* Authentic Compact Owner Identity Card (Wallet / CR-80 Proportions) */}
+        {/* Authentic Compact Owner Identity Card (Pearl White + Deep Forest-Emerald CR-80 Design) */}
         <div className="lg:col-span-6 flex justify-center lg:justify-start">
-          <div className="w-full max-w-[440px] rounded-2xl overflow-hidden border border-emerald-700/70 shadow-xl bg-[#04261D] text-white relative">
-            {/* Crisp White Top Brand Header */}
-            <div className="bg-white px-4 py-2.5 border-b-[3px] border-[#009A4D] flex items-center justify-between gap-2 relative">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <img
-                  src="/logo-aivrasol-voucher.png"
-                  alt="AivraSol"
-                  className="h-9 w-9 object-contain shrink-0"
-                />
-                <div className="h-6 w-px bg-slate-300 shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black tracking-wider text-emerald-950 uppercase leading-tight truncate">
-                    Owner Identity Card
-                  </p>
-                  <p className="text-[7.5px] font-bold text-emerald-700 uppercase tracking-wide leading-tight truncate">
-                    AivraSol Owner Portal · Verified Pass
-                  </p>
-                </div>
-              </div>
-
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-600/70 text-[9px] font-extrabold text-emerald-900 shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#009A4D] animate-pulse" />
-                {data.pharmacy.license_status === "active" || !data.pharmacy.license_status
-                  ? "ACTIVE & VERIFIED"
-                  : data.pharmacy.license_status.toUpperCase()}
-              </span>
+          <div className="w-full max-w-[440px] rounded-2xl overflow-hidden border border-slate-300/90 shadow-xl bg-white relative flex min-h-[258px]">
+            {/* Left Vertical Brand Accent Spine */}
+            <div className="w-1.5 shrink-0 flex flex-col">
+              <div className="flex-[3] bg-[#009A4D]" />
+              <div className="flex-[2] bg-[#04291F]" />
             </div>
 
-            {/* Deep Pharmacy Forest-Emerald Card Body */}
-            <div className="relative px-4 py-3.5 bg-gradient-to-br from-[#04261D] via-[#063B2C] to-[#021912] overflow-hidden">
-              {/* Gold Micro-Hairline Accent */}
-              <div className="absolute top-0 left-0 right-0 h-[1px] bg-amber-400/50" />
-              {/* Transparent AivraSol Logo Watermark */}
+            {/* Left Pearl-White Main Credential Surface */}
+            <div className="flex-1 min-w-0 relative flex flex-col justify-between p-4 pr-3 bg-white overflow-hidden">
+              {/* Subtle translucent AivraSol watermark */}
               <img
                 src="/logo-aivrasol-voucher.png"
                 alt=""
                 aria-hidden="true"
-                className="pointer-events-none select-none absolute -right-3 bottom-0 w-28 h-28 object-contain opacity-[0.08]"
+                className="pointer-events-none select-none absolute right-2 top-14 w-28 h-28 object-contain opacity-[0.045]"
               />
-              {/* Concentric Security Guilloche Rings */}
-              <div className="pointer-events-none absolute -right-10 top-4 w-44 h-44 rounded-full border border-emerald-400/10" />
-              <div className="pointer-events-none absolute -right-6 top-8 w-36 h-36 rounded-full border border-emerald-400/10" />
 
-              {/* Hero Row: Smart Chip + Pharmacy Info + Emblem */}
-              <div className="relative z-10 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  {/* Metallic Champagne-Gold Smart EMV Chip */}
-                  <div className="w-9 h-6 rounded-[4px] bg-gradient-to-br from-[#F3DA8B] via-[#DFB958] to-[#B68E31] border border-amber-300/70 shrink-0 relative p-0.5 shadow-xs">
-                    <div className="w-full h-full border border-amber-950/35 rounded-[2px] flex items-center justify-center">
-                      <div className="w-3.5 h-full border-x border-amber-950/35" />
-                    </div>
+              {/* Top Brand Lockup */}
+              <div className="relative z-10 flex items-center gap-2.5 pb-2.5 border-b border-emerald-950/10">
+                <img
+                  src="/logo-aivrasol-voucher.png"
+                  alt="AivraSol"
+                  className="h-8 w-8 object-contain shrink-0"
+                />
+                <div className="min-w-0">
+                  <p className="text-[10.5px] font-black tracking-wider text-[#053427] uppercase leading-tight truncate">
+                    AivraSol Technologies
+                  </p>
+                  <p className="text-[7.5px] font-extrabold text-[#009A4D] uppercase tracking-widest leading-tight mt-0.5 truncate">
+                    Official Owner Identity Card
+                  </p>
+                </div>
+              </div>
+
+              {/* Center Pharmacy & Proprietor Details */}
+              <div className="relative z-10 space-y-2.5 py-2.5">
+                <div>
+                  <p className="text-[7.5px] font-bold uppercase tracking-widest text-slate-400">
+                    Authorized Pharmacy
+                  </p>
+                  <h2 className="text-sm sm:text-[15px] font-black text-[#0B1F19] tracking-tight uppercase truncate leading-snug mt-0.5">
+                    {data.pharmacy.name}
+                  </h2>
+                  <p className="text-[9.5px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                    <MapPin className="w-2.5 h-2.5 text-[#009A4D] shrink-0" />
+                    <span className="truncate">
+                      {data.pharmacy.address ? `${data.pharmacy.address} · ` : ""}
+                      {data.pharmacy.city || "Pakistan"}
+                    </span>
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[7.5px] font-bold uppercase tracking-widest text-slate-400">
+                    Registered Proprietor
+                  </p>
+                  <p className="text-xs sm:text-[13px] font-extrabold text-[#064E3B] uppercase truncate mt-0.5">
+                    {data.profile.name}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-0.5">
+                  <div className="min-w-0">
+                    <p className="text-[7px] font-bold uppercase tracking-widest text-slate-400">Contact</p>
+                    <p className="text-[10px] font-bold text-slate-900 truncate mt-0.5">
+                      {data.pharmacy.phone || "+92 300 0000000"}
+                    </p>
                   </div>
-                  {/* Contactless Cloud Icon */}
-                  <svg
-                    viewBox="0 0 18 22"
-                    className="w-3.5 h-4 text-emerald-400/80 shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                  >
-                    <path d="M3 7c3 2.2 3 5.8 0 8" />
-                    <path d="M7.5 4.5c4.5 3.6 4.5 9.4 0 13" />
-                    <path d="M12 2c6 4.8 6 13.2 0 18" />
-                  </svg>
-
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-sm sm:text-base font-black text-white tracking-tight uppercase truncate leading-tight">
-                      {data.pharmacy.name}
-                    </h2>
-                    <p className="text-[10px] text-emerald-200/90 mt-0.5 truncate flex items-center gap-1">
-                      <MapPin className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
-                      <span className="truncate">
-                        {data.pharmacy.address ? `${data.pharmacy.address} · ` : ""}
-                        {data.pharmacy.city || "Pakistan"}
-                      </span>
+                  <div className="min-w-0">
+                    <p className="text-[7px] font-bold uppercase tracking-widest text-slate-400">Plan</p>
+                    <p className="text-[10px] font-bold text-slate-900 uppercase truncate mt-0.5">
+                      {data.pharmacy.plan_name || "Enterprise POS"}
                     </p>
                   </div>
                 </div>
+              </div>
 
-                {/* Pharmacy Logo or Monogram Shield */}
+              {/* Bottom Signature & Branding Row */}
+              <div className="relative z-10 pt-2 border-t border-emerald-950/10 flex items-end justify-between gap-2 bg-[#F7FBF9] -mx-4 -mb-4 px-4 py-2">
+                <div>
+                  <svg viewBox="0 0 225 58" className="w-16 h-4 overflow-visible" fill="none">
+                    <path
+                      d="M 16 44 C 21 20, 31 6, 38 8 C 44 10, 39 34, 34 44 C 33 46, 42 26, 49 23 C 54 21, 52 36, 57 36 C 62 36, 67 11, 63 9 C 59 7, 56 35, 64 36 C 70 37, 75 23, 72 21 C 68 19, 67 35, 74 36 C 79 36, 82 26, 85 35 C 88 36, 94 11, 90 9 C 86 7, 84 35, 92 36 C 96 25, 102 24, 105 34 C 108 35, 114 24, 110 22 C 106 20, 105 35, 113 35 C 118 35, 124 10, 120 8 C 116 6, 115 35, 121 35 C 125 25, 129 25, 132 35 C 135 25, 140 25, 143 34 C 146 25, 151 25, 154 34 C 158 35, 164 24, 160 22 C 156 20, 155 35, 163 35 C 168 25, 173 25, 177 34 C 181 25, 187 26, 192 35 C 197 37, 206 31, 214 22"
+                      stroke="#0F172A"
+                      strokeWidth="2.4"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M 12 27 C 46 22, 92 19, 134 17 M 22 49 C 72 41, 146 38, 208 41 C 216 42, 188 49, 154 52"
+                      stroke="#009A4D"
+                      strokeWidth="2.0"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="w-20 border-t border-slate-400/70 pt-0.5 text-[6.5px] font-bold tracking-wider text-slate-600 uppercase">
+                    Authorized Signatory
+                  </div>
+                  <p className="text-[7px] font-extrabold text-[#009A4D] leading-tight">
+                    AivraSol Technologies
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[7px] font-bold uppercase tracking-wider text-slate-400">Portal</p>
+                  <p className="text-[8.5px] font-semibold text-slate-600">www.aivrasol.com</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Deep Pharmacy Forest-Emerald Credential Wing */}
+            <div className="w-[144px] sm:w-[152px] shrink-0 bg-gradient-to-b from-[#063B2C] via-[#04291F] to-[#021B14] border-l-[3px] border-[#009A4D] p-3 text-white flex flex-col items-center justify-between text-center relative overflow-hidden">
+              {/* Subtle Gold Edge Accent */}
+              <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-amber-400/50" />
+              {/* Concentric Security Rings */}
+              <div className="pointer-events-none absolute -right-10 -bottom-10 w-36 h-36 rounded-full border border-emerald-400/15" />
+              <div className="pointer-events-none absolute -right-6 -bottom-6 w-28 h-28 rounded-full border border-emerald-400/15" />
+
+              {/* Status Badge */}
+              <span className="relative z-10 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#064E3B] border border-emerald-500/80 text-[8.5px] font-extrabold tracking-wider text-emerald-50 uppercase">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                {data.pharmacy.license_status === "active" || !data.pharmacy.license_status
+                  ? "VERIFIED"
+                  : data.pharmacy.license_status.toUpperCase()}
+              </span>
+
+              {/* Pharmacy Crest / Custom Logo */}
+              <div className="relative z-10 flex flex-col items-center gap-2.5 my-1">
                 {data.pharmacy.logo ? (
-                  <div className="w-11 h-11 rounded-lg bg-white border border-emerald-400/70 p-1 flex items-center justify-center shrink-0 shadow-xs">
+                  <div className="w-12 h-12 rounded-xl bg-white border border-emerald-400/80 p-1 flex items-center justify-center shadow-sm">
                     <img
                       src={data.pharmacy.logo}
                       alt={data.pharmacy.name}
@@ -343,104 +384,54 @@ export default function OwnerProfilePage() {
                     />
                   </div>
                 ) : (
-                  <div className="w-11 h-11 rounded-lg bg-[#064E3B] border border-emerald-400/60 flex flex-col items-center justify-center shrink-0 shadow-xs">
-                    <span className="text-sm font-black text-emerald-50 leading-none">
-                      {data.pharmacy.name
-                        .trim()
-                        .split(/\s+/)
-                        .slice(0, 2)
-                        .map((w) => w[0]?.toUpperCase() || "")
-                        .join("") || "AP"}
-                    </span>
-                    <span className="text-[6px] font-bold tracking-wider text-emerald-300 mt-0.5 uppercase">
-                      PHARMACY
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="relative z-10 border-t border-emerald-400/20 my-3" />
-
-              {/* Credential Grid */}
-              <div className="relative z-10 space-y-2.5">
-                <div className="grid grid-cols-12 gap-2.5 items-end">
-                  <div className="col-span-6 min-w-0">
-                    <p className="text-[8.5px] font-bold uppercase tracking-wider text-emerald-300/90">
-                      Proprietor / Owner
-                    </p>
-                    <p className="text-xs sm:text-[13px] font-extrabold text-white uppercase truncate mt-0.5">
-                      {data.profile.name}
-                    </p>
-                  </div>
-                  <div className="col-span-6 min-w-0">
-                    <p className="text-[8.5px] font-bold uppercase tracking-wider text-emerald-300/90">
-                      Digital License Key
-                    </p>
-                    <div className="mt-0.5 px-2 py-1 rounded bg-[#021913] border border-emerald-600/50 font-mono text-[10px] font-bold text-emerald-400 truncate text-center">
-                      {data.pharmacy.license_key || "AIVRA-PRO-VERIFIED"}
+                  <div className="w-12 h-12 rounded-xl bg-[#064E3B] border border-emerald-400/70 p-0.5 shadow-sm">
+                    <div className="w-full h-full rounded-[9px] border border-amber-300/45 flex flex-col items-center justify-center">
+                      <span className="text-base font-black text-white leading-none">
+                        {data.pharmacy.name
+                          .trim()
+                          .split(/\s+/)
+                          .slice(0, 2)
+                          .map((w) => w[0]?.toUpperCase() || "")
+                          .join("") || "AP"}
+                      </span>
+                      <span className="text-[6px] font-bold tracking-widest text-emerald-300 mt-0.5 uppercase">
+                        OWNER
+                      </span>
                     </div>
                   </div>
-                </div>
+                )}
 
-                <div className="grid grid-cols-12 gap-2 text-[10.5px]">
-                  <div className="col-span-4 min-w-0">
-                    <p className="text-[8px] font-bold uppercase tracking-wider text-emerald-300/80">
-                      Contact
-                    </p>
-                    <p className="font-bold text-emerald-50 truncate mt-0.5">
-                      {data.pharmacy.phone || "+92 300 0000000"}
-                    </p>
-                  </div>
-                  <div className="col-span-4 min-w-0">
-                    <p className="text-[8px] font-bold uppercase tracking-wider text-emerald-300/80">
-                      Authorized Plan
-                    </p>
-                    <p className="font-bold text-emerald-50 truncate uppercase mt-0.5">
-                      {data.pharmacy.plan_name || "Enterprise"}
-                    </p>
-                  </div>
-                  <div className="col-span-4 min-w-0">
-                    <p className="text-[8px] font-bold uppercase tracking-wider text-emerald-300/80">
-                      Portal Pass ID
-                    </p>
-                    <p className="font-mono font-bold text-emerald-200 truncate mt-0.5">
-                      #{(data.pharmacy.id || "0001").replace(/[^A-Za-z0-9]/g, "").slice(-6).toUpperCase() || "0001"} ·{" "}
-                      {Math.max(1, data.pharmacy.active_terminals ?? 1)} Seat
-                      {Math.max(1, data.pharmacy.active_terminals ?? 1) === 1 ? "" : "s"}
-                    </p>
+                {/* Champagne-Gold Smart EMV Chip */}
+                <div className="w-8 h-5 rounded-[4px] bg-gradient-to-br from-[#F3DA8B] via-[#DFB958] to-[#B68E31] border border-amber-300/80 p-0.5 shadow-xs">
+                  <div className="w-full h-full border border-amber-950/35 rounded-[2px] flex items-center justify-center">
+                    <div className="w-3 h-full border-x border-amber-950/35" />
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Compact Dark Footer with Authorized Signatory */}
-            <div className="bg-[#021510] px-4 py-2 border-t border-emerald-600/40 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[8.5px] font-extrabold text-white tracking-wider uppercase truncate">
-                  AivraSol Healthcare Technologies
-                </p>
-                <p className="text-[8px] text-emerald-300/80 truncate">
-                  Verified Proprietor Credential · www.aivrasol.com
-                </p>
-              </div>
-              <div className="shrink-0 flex flex-col items-center">
-                <svg viewBox="0 0 225 60" className="w-16 h-4 overflow-visible" fill="none">
-                  <path
-                    d="M 16 44 C 21 20, 31 6, 38 8 C 44 10, 39 34, 34 44 C 33 46, 42 26, 49 23 C 54 21, 52 36, 57 36 C 62 36, 67 11, 63 9 C 59 7, 56 35, 64 36 C 70 37, 75 23, 72 21 C 68 19, 67 35, 74 36 C 79 36, 82 26, 85 35 C 88 36, 94 11, 90 9 C 86 7, 84 35, 92 36 C 96 25, 102 24, 105 34 C 108 35, 114 24, 110 22 C 106 20, 105 35, 113 35 C 118 35, 124 10, 120 8 C 116 6, 115 35, 121 35 C 125 25, 129 25, 132 35 C 135 25, 140 25, 143 34 C 146 25, 151 25, 154 34 C 158 35, 164 24, 160 22 C 156 20, 155 35, 163 35 C 168 25, 173 25, 177 34 C 181 25, 187 26, 192 35 C 197 37, 206 31, 214 22"
-                    stroke="#F8FAFC"
-                    strokeWidth="2.4"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M 12 27 C 46 22, 92 19, 134 17 M 22 49 C 72 41, 146 38, 208 41 C 216 42, 188 49, 154 52"
-                    stroke="#10B981"
-                    strokeWidth="2.0"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="w-20 border-t border-emerald-400/40 pt-0.5 text-center text-[6.5px] font-bold tracking-wider text-emerald-200 uppercase">
-                  Authorized Signatory
+              {/* License Key & Pass ID */}
+              <div className="relative z-10 w-full space-y-1.5">
+                <div>
+                  <p className="text-[6.5px] font-bold uppercase tracking-widest text-emerald-300/90">
+                    License Key
+                  </p>
+                  <div className="mt-0.5 px-1.5 py-1 rounded bg-[#021B14] border border-emerald-500/60 font-mono text-[8.5px] font-bold text-emerald-300 truncate">
+                    {data.pharmacy.license_key || "AIVRA-PRO"}
+                  </div>
                 </div>
+                <div>
+                  <p className="text-[6.5px] font-bold uppercase tracking-widest text-emerald-300/85">
+                    Pass ID · Seats
+                  </p>
+                  <p className="font-mono text-[8.5px] font-bold text-emerald-50 truncate mt-0.5">
+                    #{(data.pharmacy.id || "0001").replace(/[^A-Za-z0-9]/g, "").slice(-6).toUpperCase() || "0001"} ·{" "}
+                    {Math.max(1, data.pharmacy.active_terminals ?? 1)} Seat
+                    {Math.max(1, data.pharmacy.active_terminals ?? 1) === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <p className="pt-1 border-t border-emerald-400/20 text-[6.5px] font-bold tracking-widest text-emerald-300/90 uppercase">
+                  AivraSol Cloud Verified
+                </p>
               </div>
             </div>
           </div>
@@ -459,7 +450,7 @@ export default function OwnerProfilePage() {
                     Executive Owner Credential
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Compact pocket-sized ID card · Official AivraSol Seal
+                    Compact CR-80 ID card · Issued by AivraSol Technologies
                   </p>
                 </div>
               </div>
@@ -469,7 +460,7 @@ export default function OwnerProfilePage() {
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Your digital Owner Card authenticates pharmacy proprietorship, verified software licensing, and registered cloud terminals under the AivraSol Pharmacy Network.
+              Your digital Owner Card authenticates pharmacy proprietorship, active software licensing, and registered cloud terminals under AivraSol Technologies.
             </p>
 
             <div className="grid grid-cols-2 gap-2.5 pt-1">
