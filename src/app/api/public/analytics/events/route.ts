@@ -3,6 +3,7 @@ import connectToDatabase from "@/lib/db";
 import License from "@/models/License";
 import LicenseSeat from "@/models/LicenseSeat";
 import AnalyticsEvent from "@/models/AnalyticsEvent";
+import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
 import CloudExpense from "@/models/CloudExpense";
 import OwnerPortalState from "@/models/OwnerPortalState";
 import Client from "@/models/Client";
@@ -452,6 +453,24 @@ export async function POST(req: NextRequest) {
 
       const payload = normalizeAnalyticsPayload(type, rawPayload);
 
+      // Cross-device & retry dedup: never allow duplicate immutable records for the same
+      // (license_id, type, source_record_id) even if submitted with a different event_id
+      // (e.g. from both Desktop POS and Mobile POS after LAN sync or outbox backfill).
+      const isMutableExpenseEvent = type === "expense.updated" || type === "expense.deleted";
+      if (!isMutableExpenseEvent) {
+        const existingDup = await AnalyticsEvent.findOne({
+          license_id: license.id,
+          type,
+          source_record_id: String(source_record_id),
+        })
+          .select("_id")
+          .lean();
+        if (existingDup) {
+          results.push({ event_id, duplicate: true });
+          continue;
+        }
+      }
+
       // Idempotent insert — catch duplicate-key error
       try {
         await AnalyticsEvent.create({
@@ -514,7 +533,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ok: true, results }, { headers: CORS });
+    // Piggyback bootstrap-needed status (0 extra Vercel requests!)
+    const completedV2 = await AnalyticsBootstrap.findOne({
+      license_id: license.id,
+      status: "completed",
+      bootstrap_version: { $gte: 2 },
+    })
+      .select("_id")
+      .lean();
+
+    return NextResponse.json(
+      { ok: true, results, analytics_bootstrap_needed: !completedV2 },
+      { headers: CORS }
+    );
   } catch (e: any) {
     console.error("Analytics events error:", e);
     return NextResponse.json(

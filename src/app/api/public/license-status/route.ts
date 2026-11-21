@@ -275,8 +275,27 @@ export async function POST(req: NextRequest) {
     const resolvedFreshStartStatus: "disabled" | "pending" | "enabled" | "completed" | "rejected" =
       license.fresh_start?.status || "disabled";
 
+    const cloudDashEnabled = isCloudDashboardEnabled(license);
+    let analyticsBootstrapNeeded = false;
+    if (cloudDashEnabled && isOperational) {
+      try {
+        const AnalyticsBootstrap = (await import("@/models/AnalyticsBootstrap")).default;
+        const completedV2 = await AnalyticsBootstrap.findOne({
+          license_id: license.id,
+          status: "completed",
+          bootstrap_version: { $gte: 2 },
+        })
+          .select("_id")
+          .lean();
+        analyticsBootstrapNeeded = !completedV2;
+      } catch {
+        analyticsBootstrapNeeded = false;
+      }
+    }
+
     const payload = {
-      cloud_dashboard_enabled: isCloudDashboardEnabled(license),
+      cloud_dashboard_enabled: cloudDashEnabled,
+      analytics_bootstrap_needed: analyticsBootstrapNeeded,
       cloud_backup_enabled: license.features?.cloud_backup === true,
       online_orders_enabled: onlineOrdersEnabled,
       effective_status,

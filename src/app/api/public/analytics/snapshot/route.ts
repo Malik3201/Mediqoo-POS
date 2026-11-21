@@ -349,9 +349,23 @@ export async function POST(req: NextRequest) {
       ).catch((err) => console.warn("Retention compaction warning:", err));
     }
 
+    // Piggyback bootstrap-needed signal (zero extra Vercel calls for auto-healing existing pharmacies)
+    let analyticsBootstrapNeeded = false;
+    if (!reset_portal_data && isCloudDashboardEnabled(license)) {
+      const completedV2 = await AnalyticsBootstrap.findOne({
+        license_id: license.id,
+        status: "completed",
+        bootstrap_version: { $gte: 2 },
+      })
+        .select("_id")
+        .lean();
+      analyticsBootstrapNeeded = !completedV2;
+    }
+
     return NextResponse.json(
       {
         ok: true,
+        analytics_bootstrap_needed: analyticsBootstrapNeeded,
         ...(reset_portal_data ? { reset_completed: true, reset_id: reset_portal_data.reset_id } : {}),
       },
       { headers: CORS }

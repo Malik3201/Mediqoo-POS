@@ -195,13 +195,31 @@ export async function POST(req: NextRequest) {
       });
     } catch (e: any) {
       if (e.code === 11000) {
-        // Check if HistoricalDailyAnalytics already has rows for this license
+        const existingRec = await AnalyticsBootstrap.findOne({
+          license_id: license.id,
+          bootstrap_version,
+        });
         const existingCount = await HistoricalDailyAnalytics.countDocuments({ license_id: license.id });
-        if (existingCount === 0 || force) {
-          bootstrapRecord = await AnalyticsBootstrap.findOne({
-            license_id: license.id,
-            bootstrap_version,
-          });
+        const wasIncompleteOrEmpty =
+          !existingRec ||
+          existingRec.status !== "completed" ||
+          (existingCount === 0 && dailyItems.length > 0);
+
+        if (wasIncompleteOrEmpty || force) {
+          bootstrapRecord = await AnalyticsBootstrap.findOneAndUpdate(
+            { license_id: license.id, bootstrap_version },
+            {
+              $set: {
+                seat_id: seat.id,
+                terminal_number: seat.terminal_number,
+                status: "in_progress",
+                bootstrap_cutoff_date: cutoff_date,
+                bootstrap_cutoff_utc: cutoffUtc,
+                generated_at: body.generated_at ? new Date(body.generated_at) : new Date(),
+              },
+            },
+            { new: true }
+          );
         } else {
           return NextResponse.json({ ok: true, already_completed: true }, { headers: CORS });
         }
@@ -211,44 +229,76 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      // ── Step 4: Ingest Daily Records ───────────────────────────────────────
+      // ── Step 4: Idempotent Upsert of Daily Records (Zero Duplicates!) ─────
       let dailyInserted = 0;
       let defaultPeriodStart = cutoff_date;
 
       if (Array.isArray(dailyItems) && dailyItems.length > 0) {
-        // Sort dates to find the earliest date for top_products period_start
         const sortedDates = dailyItems.map((d: any) => d.date).filter(Boolean).sort();
         if (sortedDates.length > 0) defaultPeriodStart = sortedDates[0];
 
-        const dailyDocs = dailyItems.map((d: any) => ({
-          client_id: license.client_id,
-          license_id: license.id,
-          date: d.date,
-          gross_sales: Number(d.gross_sales ?? d.grossSales) || 0,
-          discounts: Number(d.discounts ?? d.discount) || 0,
-          tax: Number(d.tax) || 0,
-          net_sales: Number(d.net_sales ?? d.netSales) || 0,
-          sales_returns: Number(d.sales_returns ?? d.salesReturns) || 0,
-          cogs_reversed: Number(d.cogs_reversed ?? d.cogsReversed) || 0,
-          cogs: Number(d.cogs) || 0,
-          gross_profit: Number(d.gross_profit ?? d.grossProfit) || 0,
-          expenses: Number(d.expenses) || 0,
-          purchases: Number(d.purchases) || 0,
-          net_profit: Number(d.net_profit ?? d.netProfit) || 0,
-        }));
-        
-        // insertMany with ordered: false to skip any existing duplicates gracefully
-        const result = await HistoricalDailyAnalytics.insertMany(dailyDocs, { ordered: false }).catch((e) => {
-           if (e.code === 11000) return e.insertedDocs || []; // Handle partial success
-           throw e;
-        });
-        dailyInserted = Array.isArray(result) ? result.length : dailyDocs.length;
+        const dailyOps = dailyItems
+          .filter((d: any) => typeof d?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.date))
+          .map((d: any) => {
+            const grossSales = Number(d.gross_sales ?? d.grossSales) || 0;
+            const discounts = Number(d.discounts ?? d.discount) || 0;
+            const tax = Number(d.tax) || 0;
+            const netSales = Number(d.net_sales ?? d.netSales) || 0;
+            const salesReturns = Number(d.sales_returns ?? d.salesReturns) || 0;
+            const cogsReversed = Number(d.cogs_reversed ?? d.cogsReversed) || 0;
+            const cogs = Number(d.cogs) || 0;
+            const grossProfit = Number(d.gross_profit ?? d.grossProfit) || 0;
+            const expenses = Number(d.expenses) || 0;
+            const purchases = Number(d.purchases) || 0;
+            const explicitNetProfit = d.net_profit ?? d.netProfit;
+            const netProfit =
+              typeof explicitNetProfit === "number" && Number.isFinite(explicitNetProfit)
+                ? explicitNetProfit
+                : Math.round((grossProfit - expenses) * 100) / 100;
+
+            return {
+              updateOne: {
+                filter: {
+                  client_id: license.client_id,
+                  license_id: license.id,
+                  date: d.date,
+                },
+                update: {
+                  $set: {
+                    gross_sales: grossSales,
+                    discounts,
+                    tax,
+                    net_sales: netSales,
+                    sales_returns: salesReturns,
+                    cogs_reversed: cogsReversed,
+                    cogs,
+                    gross_profit: grossProfit,
+                    expenses,
+                    purchases,
+                    net_profit: netProfit,
+                  },
+                  $setOnInsert: {
+                    client_id: license.client_id,
+                    license_id: license.id,
+                    date: d.date,
+                  },
+                },
+                upsert: true,
+              },
+            };
+          });
+
+        if (dailyOps.length > 0) {
+          await HistoricalDailyAnalytics.bulkWrite(dailyOps, { ordered: false });
+          dailyInserted = dailyOps.length;
+        }
       }
 
-      // ── Step 5: Ingest Top Products ────────────────────────────────────────
+      // ── Step 5: Idempotent Replace of Top Products (Zero Duplicates!) ─────
       let topInserted = 0;
       if (Array.isArray(topProductItems) && topProductItems.length > 0) {
-        const topDocs = topProductItems.map((p: any) => ({
+        await HistoricalTopProduct.deleteMany({ license_id: license.id });
+        const topDocs = topProductItems.slice(0, 500).map((p: any) => ({
           client_id: license.client_id,
           license_id: license.id,
           product_id: p.product_id || p.productId,
@@ -261,8 +311,8 @@ export async function POST(req: NextRequest) {
           gross_profit: Number(p.gross_profit ?? p.grossProfit) || 0,
         }));
         const result = await HistoricalTopProduct.insertMany(topDocs, { ordered: false }).catch((e) => {
-           if (e.code === 11000) return e.insertedDocs || [];
-           throw e;
+          if (e.code === 11000) return e.insertedDocs || [];
+          throw e;
         });
         topInserted = Array.isArray(result) ? result.length : topDocs.length;
       }
