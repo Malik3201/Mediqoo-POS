@@ -70,7 +70,84 @@ export async function GET(req: NextRequest) {
       }).lean<any>();
 
       if (!purDoc) {
-        return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
+        // Fallback to historical / synced GRN stored in OwnerPortalState.recent_purchases
+        const snapPur = (portalState?.recent_purchases || []).find(
+          (rp: any) => rp && (rp.id === decoded || rp.grn === decoded || rp.purchase_number === decoded)
+        );
+        if (!snapPur) {
+          return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
+        }
+        const purId = snapPur.id || decoded;
+        const grnNo = snapPur.grn || snapPur.purchase_number || purId;
+        const snapRelatedReturns = (portalState?.purchase_returns || [])
+          .filter(
+            (pr: any) =>
+              (pr.purchase_id && (pr.purchase_id === purId || pr.purchase_id === grnNo)) ||
+              (pr.purchase_number && (pr.purchase_number === grnNo || pr.purchase_number === purId))
+          )
+          .map((r: any) => ({
+            id: r.id || r.number,
+            return_number: r.number,
+            date: r.date,
+            total: Number(r.total) || 0,
+            reason: r.reason || null,
+            operator_name: r.operator_name || null,
+            items: r.items || [],
+          }));
+        const snapLines = Array.isArray(snapPur.lines)
+          ? snapPur.lines.map((l: any, idx: number) => ({
+              index: idx + 1,
+              product_id: l.product_id || l.productId || l.code || l.name,
+              code: l.code || null,
+              name: l.name || l.product_name || l.product_id,
+              unit: l.unit || "unit",
+              multiplier: Number(l.multiplier ?? 1),
+              qty: Number(l.qty) || 0,
+              free_qty: Number(l.free_qty ?? l.freeQty ?? 0),
+              cost: Math.round(Number(l.cost ?? 0) * 100) / 100,
+              discount_pct: Number(l.discount_pct ?? l.discountPct ?? 0),
+              tax_amount: Math.round(Number(l.tax_amount ?? l.taxAmount ?? 0) * 100) / 100,
+              line_total: Math.round(Number(l.line_total ?? l.lineTotal ?? (Number(l.qty) || 0) * (Number(l.cost) || 0)) * 100) / 100,
+              batch_no: l.batch_no || l.batchNo || null,
+              expiry: l.expiry || null,
+              sale_price: l.sale_price !== undefined ? Number(l.sale_price) : null,
+            }))
+          : [];
+        const purTot = Number(snapPur.purchase_total ?? snapPur.total ?? 0);
+        const paid = snapPur.paid_amount !== undefined && snapPur.paid_amount !== null ? Number(snapPur.paid_amount) : null;
+        const isLegacyExcluded = Boolean(snapPur.exclude_from_supplier_balance || snapPur.migration_imported);
+
+        return NextResponse.json({
+          purchase: {
+            id: purId,
+            event_id: `snap_${purId}`,
+            grn: grnNo,
+            occurred_at: snapPur.date ? new Date(snapPur.date).toISOString() : new Date().toISOString(),
+            supplier_id: snapPur.supplier_id || null,
+            supplier_name: snapPur.supplier_name || "Supplier",
+            subtotal: Math.round(Number(snapPur.subtotal ?? purTot) * 100) / 100,
+            discount: Math.round(Number(snapPur.discount ?? 0) * 100) / 100,
+            tax_amount: Math.round(Number(snapPur.tax_amount ?? 0) * 100) / 100,
+            purchase_total: Math.round(purTot * 100) / 100,
+            paid_amount: paid !== null ? Math.round(paid * 100) / 100 : null,
+            payment_verification_status: isLegacyExcluded
+              ? "historical_unverified"
+              : (paid ?? 0) >= purTot - 0.01 && purTot > 0
+              ? "paid"
+              : (paid ?? 0) > 0
+              ? "partial"
+              : "credit_payable",
+            operator_name: snapPur.operator_name || null,
+            terminal_number: 1,
+            notes: snapPur.notes || null,
+            migration_imported: Boolean(snapPur.migration_imported),
+            exclude_from_supplier_balance: Boolean(snapPur.exclude_from_supplier_balance),
+            items_archived: false,
+            has_line_details: snapLines.length > 0,
+            lines: snapLines,
+            related_returns: snapRelatedReturns,
+          },
+        });
       }
 
       const p = purDoc.payload || {};
@@ -318,7 +395,7 @@ export async function GET(req: NextRequest) {
         ? `${new Date(lastDoc.occurred_at).toISOString()}|${lastDoc.event_id}`
         : null;
 
-    const purchases = pageDocs.map((e: any) => {
+    const livePurchases = pageDocs.map((e: any) => {
       const p = e.payload || {};
       const lines = Array.isArray(p.lines) ? p.lines : [];
       const isLegacyExcluded = Boolean(p.exclude_from_supplier_balance || p.excludeFromSupplierBalance || p.migration_imported || p.migrationImported);
@@ -350,6 +427,109 @@ export async function GET(req: NextRequest) {
         exclude_from_supplier_balance: Boolean(p.exclude_from_supplier_balance || p.excludeFromSupplierBalance),
       };
     });
+
+    // Merge historical / snapshot GRNs from OwnerPortalState.recent_purchases (zero duplicates!)
+    const seenPurchaseIds = new Set<string>();
+    const seenGrns = new Set<string>();
+    for (const lp of livePurchases) {
+      if (lp.id) seenPurchaseIds.add(String(lp.id));
+      if (lp.grn) seenGrns.add(String(lp.grn));
+    }
+
+    const qLowerFilter = q.toLowerCase();
+    const supLowerFilter = supplierFilter && supplierFilter !== "all" ? supplierFilter.toLowerCase() : "";
+
+    const filteredSnapPurchases = (portalState?.recent_purchases || [])
+      .filter((rp: any) => {
+        if (!rp) return false;
+        const rpId = String(rp.id || "");
+        const rpGrn = String(rp.grn || rp.purchase_number || rpId);
+        if ((rpId && seenPurchaseIds.has(rpId)) || (rpGrn && seenGrns.has(rpGrn))) return false;
+        const rpDate = rp.date ? new Date(rp.date) : null;
+        if (rpDate && !isNaN(rpDate.getTime())) {
+          if (rangeStart && rpDate < rangeStart) return false;
+          if (rangeEnd && rpDate > rangeEnd) return false;
+        }
+        if (supLowerFilter) {
+          const sName = String(rp.supplier_name || "").toLowerCase();
+          const sId = String(rp.supplier_id || "").toLowerCase();
+          if (sName !== supLowerFilter && sId !== supLowerFilter) return false;
+        }
+        if (qLowerFilter) {
+          const hay = `${rpGrn} ${rp.supplier_name || ""} ${(rp.lines || []).map((l: any) => l.name || "").join(" ")}`.toLowerCase();
+          if (!hay.includes(qLowerFilter)) return false;
+        }
+        return true;
+      })
+      .map((rp: any) => {
+        const rpId = String(rp.id || rp.grn || "");
+        const rpGrn = String(rp.grn || rp.purchase_number || rpId);
+        const purTot = Number(rp.purchase_total ?? rp.total ?? 0);
+        const paid = rp.paid_amount !== undefined && rp.paid_amount !== null ? Number(rp.paid_amount) : null;
+        const isLegacyExcluded = Boolean(rp.exclude_from_supplier_balance || rp.migration_imported);
+        const lines = Array.isArray(rp.lines) ? rp.lines : [];
+        return {
+          id: rpId,
+          event_id: `snap_${rpId}`,
+          grn: rpGrn,
+          occurred_at: rp.date ? new Date(rp.date).toISOString() : new Date().toISOString(),
+          supplier_id: rp.supplier_id || null,
+          supplier_name: rp.supplier_name || "Supplier",
+          subtotal: Math.round(Number(rp.subtotal ?? purTot) * 100) / 100,
+          discount: Math.round(Number(rp.discount ?? 0) * 100) / 100,
+          tax_amount: Math.round(Number(rp.tax_amount ?? 0) * 100) / 100,
+          purchase_total: Math.round(purTot * 100) / 100,
+          paid_amount: paid !== null ? Math.round(paid * 100) / 100 : null,
+          payment_verification_status: isLegacyExcluded
+            ? "historical_unverified"
+            : (paid ?? 0) >= purTot - 0.01 && purTot > 0
+            ? "paid"
+            : (paid ?? 0) > 0
+            ? "partial"
+            : "credit_payable",
+          lines_count: Number(rp.lines_count ?? lines.length),
+          has_line_details: lines.length > 0,
+          operator_name: rp.operator_name || null,
+          migration_imported: Boolean(rp.migration_imported),
+          exclude_from_supplier_balance: Boolean(rp.exclude_from_supplier_balance),
+        };
+      })
+      .sort((a: any, b: any) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+
+    let snapPageSlice = filteredSnapPurchases;
+    if (cursor && cursor.includes("|")) {
+      const [cursorIso, cursorId] = cursor.split("|");
+      const cursorMs = new Date(cursorIso).getTime();
+      if (!isNaN(cursorMs)) {
+        snapPageSlice = filteredSnapPurchases.filter((sp: any) => {
+          const t = new Date(sp.occurred_at).getTime();
+          return t < cursorMs || (t === cursorMs && sp.event_id < cursorId);
+        });
+      }
+    }
+
+    let purchases = livePurchases;
+    let mergedHasMore = hasMore;
+    let mergedNextCursor = nextCursor;
+
+    if (purchases.length < limit && snapPageSlice.length > 0) {
+      const needed = limit - purchases.length;
+      const take = snapPageSlice.slice(0, needed);
+      purchases = [...purchases, ...take];
+      if (snapPageSlice.length > needed && take.length > 0) {
+        const lastSnap = take[take.length - 1];
+        mergedHasMore = true;
+        mergedNextCursor = `${lastSnap.occurred_at}|${lastSnap.event_id}`;
+      }
+    } else if (!mergedHasMore && purchases.length === limit && snapPageSlice.length > 0 && lastDoc) {
+      mergedHasMore = true;
+      mergedNextCursor = `${new Date(lastDoc.occurred_at).toISOString()}|${lastDoc.event_id}`;
+    }
+
+    const combinedPurchasesCount = (summaryAgg[0]?.total_count ?? 0) + filteredSnapPurchases.length;
+    const combinedPurchasesAmount =
+      (summaryAgg[0]?.total_amount ?? 0) +
+      filteredSnapPurchases.reduce((s: number, p: any) => s + (Number(p.purchase_total) || 0), 0);
 
     // Build Supplier Directory merging OwnerPortalState.suppliers + supplierAggFromEvents
     const stateSuppliers: any[] = portalState?.suppliers || [];
@@ -440,12 +620,12 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       purchases,
-      next_cursor: nextCursor,
-      has_more: hasMore,
+      next_cursor: mergedNextCursor,
+      has_more: mergedHasMore,
       suppliers: suppliersDirectory,
       summary: {
-        purchases_count: summaryAgg[0]?.total_count ?? 0,
-        purchases_amount: Math.round((summaryAgg[0]?.total_amount ?? 0) * 100) / 100,
+        purchases_count: combinedPurchasesCount,
+        purchases_amount: Math.round(combinedPurchasesAmount * 100) / 100,
         suppliers_count: suppliersDirectory.length,
         total_verified_payable: Math.round(totalVerifiedPayable * 100) / 100,
         unverified_suppliers_count: unverifiedSuppliersCount,

@@ -149,6 +149,47 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // Merge historical / snapshot Sales Returns from OwnerPortalState.recent_sales_returns (deduped)
+    const seenReturnIds = new Set<string>(salesReturns.map((r) => String(r.id || r.return_number)));
+    const seenReturnNos = new Set<string>(salesReturns.map((r) => String(r.return_number || "")));
+    for (const sr of portalState?.recent_sales_returns || []) {
+      if (!sr) continue;
+      const key = String(sr.id || sr.return_number || "");
+      const retNo = String(sr.return_number || key);
+      if ((key && seenReturnIds.has(key)) || (retNo && seenReturnNos.has(retNo))) continue;
+      const rDate = sr.date ? new Date(sr.date) : null;
+      if (rDate && !isNaN(rDate.getTime())) {
+        if (rangeStart && rDate < rangeStart) continue;
+        if (rangeEnd && rDate > rangeEnd) continue;
+      }
+      const rm = String(sr.refund_method || "cash").toLowerCase();
+      if (refundFilter !== "all" && rm !== refundFilter) continue;
+      const items = Array.isArray(sr.items) ? sr.items : [];
+      salesReturns.push({
+        id: key,
+        event_id: `snap_${key}`,
+        return_number: retNo,
+        return_type: sr.return_type || (sr.invoice_id || sr.invoice_number ? "INVOICE" : "LOOSE"),
+        invoice_id: sr.invoice_id || null,
+        invoice_number: sr.invoice_number || null,
+        customer_id: sr.customer_id || null,
+        customer_name: sr.customer_name || "Walk-in Customer",
+        refund_method: rm,
+        reason: sr.reason || null,
+        cashier: sr.cashier || "POS",
+        terminal_number: 1,
+        occurred_at: sr.date ? new Date(sr.date).toISOString() : new Date().toISOString(),
+        subtotal: Math.round(Number(sr.subtotal ?? sr.return_amount ?? 0) * 100) / 100,
+        discount: Math.round(Number(sr.discount ?? 0) * 100) / 100,
+        tax: Math.round(Number(sr.tax ?? 0) * 100) / 100,
+        return_amount: Math.round(Number(sr.return_amount ?? 0) * 100) / 100,
+        cogs_reversed: Math.round(Number(sr.cogs_reversed ?? 0) * 100) / 100,
+        items_count: Number(sr.items_count ?? items.length),
+        items,
+      });
+    }
+    salesReturns.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+
     // Merge purchase returns from OwnerPortalState + purchase.returned events
     const purchaseReturnsMap = new Map<string, any>();
     const statePurchaseReturns: any[] = portalState?.purchase_returns || [];

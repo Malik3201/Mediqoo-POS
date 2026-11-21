@@ -165,6 +165,8 @@ export async function POST(req: NextRequest) {
               suppliers: [],
               supplier_payments: [],
               purchase_returns: [],
+              recent_purchases: [],
+              recent_sales_returns: [],
               current_drawer: null,
               drawer_sessions: [],
               daily_closings: [],
@@ -221,13 +223,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Out-of-order protection: check existing state timestamp
-    const existingState = await OwnerPortalState.findOne({
-      client_id: license.client_id,
-      license_id: license.id,
-    })
-      .select("captured_at last_retention_compaction_at")
-      .lean<{ captured_at?: Date; last_retention_compaction_at?: Date }>();
+    // Out-of-order + empty-snapshot protection: check existing state & inventory snapshot
+    const [existingState, existingInv] = await Promise.all([
+      OwnerPortalState.findOne({
+        client_id: license.client_id,
+        license_id: license.id,
+      })
+        .select("captured_at last_retention_compaction_at customers suppliers products_intelligence")
+        .lean<{
+          captured_at?: Date;
+          last_retention_compaction_at?: Date;
+          customers?: any[];
+          suppliers?: any[];
+          products_intelligence?: any[];
+        }>(),
+      InventorySnapshot.findOne({
+        client_id: license.client_id,
+        license_id: license.id,
+      })
+        .select("stock_value low_stock_count out_of_stock_count")
+        .lean<{ stock_value?: number; low_stock_count?: number; out_of_stock_count?: number }>(),
+    ]);
 
     if (
       existingState?.captured_at &&
@@ -241,6 +257,51 @@ export async function POST(req: NextRequest) {
     const lowStockCount = Number(snapshot.low_stock_count ?? 0);
     const outOfStockCount = Number(snapshot.out_of_stock_count ?? 0);
     const expiringSoonCount = Number(snapshot.expiring_soon_count ?? 0);
+
+    const statePayload = portal_state || snapshot.portal_state;
+
+    // Empty-snapshot protection: never let an unloaded startup/dev POS overwrite populated pharmacy data
+    // unless reset_portal_data was explicitly requested.
+    if (!reset_portal_data) {
+      const incomingHasInventory =
+        stockValue > 0 || lowStockCount > 0 || outOfStockCount > 0 || expiringSoonCount > 0;
+      const incomingHasPortalData =
+        Boolean(statePayload && typeof statePayload === "object") &&
+        ((Array.isArray(statePayload.customers) && statePayload.customers.length > 0) ||
+          (Array.isArray(statePayload.suppliers) && statePayload.suppliers.length > 0) ||
+          (Array.isArray(statePayload.products_intelligence) &&
+            statePayload.products_intelligence.length > 0) ||
+          (Array.isArray(statePayload.recent_purchases) &&
+            statePayload.recent_purchases.length > 0));
+
+      const existingHasData =
+        Number(existingInv?.stock_value ?? 0) > 0 ||
+        (existingState?.customers?.length ?? 0) > 0 ||
+        (existingState?.suppliers?.length ?? 0) > 0 ||
+        (existingState?.products_intelligence?.length ?? 0) > 0;
+
+      if (!incomingHasInventory && !incomingHasPortalData && existingHasData) {
+        let analyticsBootstrapNeeded = false;
+        if (isCloudDashboardEnabled(license)) {
+          const completedLatest = await AnalyticsBootstrap.findOne({
+            license_id: license.id,
+            status: "completed",
+            bootstrap_version: { $gte: 3 },
+          })
+            .select("_id")
+            .lean();
+          analyticsBootstrapNeeded = !completedLatest;
+        }
+        return NextResponse.json(
+          {
+            ok: true,
+            skipped_empty_snapshot: true,
+            analytics_bootstrap_needed: analyticsBootstrapNeeded,
+          },
+          { headers: CORS }
+        );
+      }
+    }
 
     // Upsert canonical snapshot per license (NOT per terminal — prevents double counting)
     await InventorySnapshot.findOneAndUpdate(
@@ -266,7 +327,6 @@ export async function POST(req: NextRequest) {
     const shouldCompact = Date.now() - lastCompactedAt >= COMPACTION_INTERVAL_MS;
 
     // Upsert compact OwnerPortalState if provided
-    const statePayload = portal_state || snapshot.portal_state;
     if (statePayload && typeof statePayload === "object") {
       const updateSet: Record<string, any> = {
         reported_by_terminal: seat.terminal_number,
@@ -288,6 +348,8 @@ export async function POST(req: NextRequest) {
       if (Array.isArray(statePayload.suppliers)) updateSet.suppliers = statePayload.suppliers.slice(0, 250);
       if (Array.isArray(statePayload.supplier_payments)) updateSet.supplier_payments = statePayload.supplier_payments.slice(0, 250);
       if (Array.isArray(statePayload.purchase_returns)) updateSet.purchase_returns = statePayload.purchase_returns.slice(0, 150);
+      if (Array.isArray(statePayload.recent_purchases)) updateSet.recent_purchases = statePayload.recent_purchases.slice(0, 250);
+      if (Array.isArray(statePayload.recent_sales_returns)) updateSet.recent_sales_returns = statePayload.recent_sales_returns.slice(0, 200);
       if (statePayload.current_drawer && typeof statePayload.current_drawer === "object") {
         updateSet.current_drawer = statePayload.current_drawer;
       }

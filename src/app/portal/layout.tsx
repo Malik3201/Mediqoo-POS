@@ -358,14 +358,14 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
   if (checking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#E3E8EE] px-4">
-        <div className="flex flex-col items-center gap-4 bg-white px-8 py-7 rounded-xl border border-slate-300 shadow-sm">
-          <div className="w-11 h-11 rounded-lg bg-[#0F172B] border border-slate-800 flex items-center justify-center">
-            <div className="w-5 h-5 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-[#F3F5FA] px-4">
+        <div className="flex flex-col items-center gap-4 bg-white px-8 py-7 rounded-3xl border border-indigo-950/[0.08] shadow-[0_12px_36px_-10px_rgba(19,27,58,0.14)]">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#131B3A] via-[#1C2C62] to-[#0F4C5C] flex items-center justify-center shadow-md">
+            <div className="w-5 h-5 border-2 border-teal-300 border-t-transparent rounded-full animate-spin" />
           </div>
           <div className="text-center space-y-0.5">
-            <p className="text-sm font-extrabold text-[#0F172B]">AivraSol Owner Portal</p>
-            <p className="text-xs text-slate-500">Syncing encrypted pharmacy command center…</p>
+            <p className="text-sm font-extrabold text-[#131B3A]">AivraSol Executive Portal</p>
+            <p className="text-xs text-slate-500">Connecting your live pharmacy insights…</p>
           </div>
         </div>
       </div>
@@ -414,25 +414,25 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         key={item.href}
         href={item.href}
         title={sidebarCollapsed ? item.label : undefined}
-        className={`relative group flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-semibold transition-all ${
+        className={`relative group flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
           active
-            ? "bg-slate-800/95 text-white border-l-[3px] border-l-emerald-400 rounded-l-none shadow-xs"
-            : "text-slate-300 hover:text-white hover:bg-slate-800/60"
-        } ${sidebarCollapsed ? "justify-center px-2 border-l-0 rounded-lg" : ""}`}
+            ? "bg-gradient-to-r from-teal-500/20 via-cyan-500/10 to-transparent text-white ring-1 ring-teal-400/35 shadow-xs"
+            : "text-indigo-200/80 hover:text-white hover:bg-white/[0.06]"
+        } ${sidebarCollapsed ? "justify-center px-2" : ""}`}
       >
         <Icon
           className={`w-[18px] h-[18px] shrink-0 transition-colors ${
-            active ? "text-emerald-400" : "text-slate-400 group-hover:text-emerald-400"
+            active ? "text-teal-300" : "text-indigo-300/65 group-hover:text-teal-300"
           }`}
         />
         {!sidebarCollapsed && <span className="truncate flex-1">{item.label}</span>}
         {showWebBadge && !sidebarCollapsed && (
-          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-600 text-white text-[10px] font-extrabold shadow-2xs">
+          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-extrabold shadow-2xs">
             {onlineOrderBadgeCount}
           </span>
         )}
         {showWebBadge && sidebarCollapsed && (
-          <span className="absolute top-1 right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold">
+          <span className="absolute top-1 right-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold">
             {onlineOrderBadgeCount}
           </span>
         )}
@@ -441,59 +441,59 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   };
 
   return (
-    <div className="min-h-screen bg-[#E3E8EE] text-slate-900 flex flex-col">
-      {/* Executive Top Header Bar — Deep Obsidian Slate */}
-      <header className="sticky top-0 z-30 h-14 sm:h-16 bg-[#0F172B] border-b border-slate-800 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3 text-white shadow-sm">
+    <div className="min-h-screen bg-[#F3F5FA] text-[#131B3A] flex flex-col">
+      {/* Executive Top Header Bar — Royal Midnight Indigo & Electric Teal */}
+      <header className="sticky top-0 z-30 h-14 sm:h-16 bg-gradient-to-r from-[#111834] via-[#17234E] to-[#112A48] border-b border-white/10 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3 text-white shadow-[0_4px_20px_-6px_rgba(17,24,52,0.45)]">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <Link
             href="/portal/dashboard"
-            className="flex items-center gap-2 bg-slate-900 border border-slate-700/80 rounded-lg px-2 sm:px-2.5 py-1 shadow-xs hover:border-emerald-500/50 transition-colors shrink-0 group"
-            title="AivraSol Owner Portal"
+            className="flex items-center gap-2 bg-white/[0.08] border border-white/15 rounded-xl px-2 sm:px-2.5 py-1.5 shadow-xs hover:border-teal-400/50 transition-colors shrink-0 group"
+            title="AivraSol Executive Owner Portal"
           >
-            <div className="w-5 h-5 rounded bg-emerald-500 flex items-center justify-center font-black text-[#0F172B] text-xs">
+            <div className="w-5 h-5 rounded-md bg-gradient-to-br from-teal-300 to-cyan-400 flex items-center justify-center font-black text-[#111834] text-xs shadow-xs">
               A
             </div>
             <span className="font-extrabold text-[13px] tracking-tight text-white hidden xs:inline">
-              Aivra<span className="text-emerald-400">Sol</span>
+              Aivra<span className="text-teal-300">Sol</span>
             </span>
           </Link>
-          <div className="h-6 w-px bg-slate-700/85 shrink-0" />
+          <div className="h-6 w-px bg-white/15 shrink-0" />
           <Link
             href="/portal/profile"
-            className="flex items-center gap-2 min-w-0 flex-1 group hover:opacity-95 transition-opacity"
+            className="flex items-center gap-2.5 min-w-0 flex-1 group hover:opacity-95 transition-opacity"
             title="View Pharmacy Profile & Owner Card"
           >
             {me?.pharmacy_logo && !logoError ? (
               <img
                 src={me.pharmacy_logo}
                 alt={me.client_name}
-                className="w-8 h-8 rounded-lg object-contain bg-white p-0.5 border border-slate-700 shrink-0"
+                className="w-8 h-8 rounded-xl object-contain bg-white p-0.5 border border-white/20 shrink-0"
                 onError={() => setLogoError(true)}
               />
             ) : (
               <div
-                className="w-8 h-8 rounded-lg bg-emerald-950/60 border border-emerald-600/40 flex items-center justify-center text-emerald-400 font-black text-sm shrink-0"
+                className="w-8 h-8 rounded-xl bg-teal-400/15 border border-teal-400/35 flex items-center justify-center text-teal-300 font-black text-sm shrink-0"
               >
                 {me?.client_name ? me.client_name.charAt(0).toUpperCase() : <Building2 className="w-4 h-4" />}
               </div>
             )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 min-w-0">
-                <p className="text-[13px] sm:text-sm font-extrabold text-white truncate leading-tight group-hover:text-emerald-300 transition-colors">
+                <p className="text-[13px] sm:text-sm font-extrabold text-white truncate leading-tight group-hover:text-teal-200 transition-colors">
                   {me?.client_name || "My Pharmacy"}
                 </p>
                 {currentNav && (
-                  <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-[10.5px] font-bold text-slate-300 shrink-0">
+                  <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full bg-white/10 border border-white/15 text-[10px] font-bold text-indigo-100 shrink-0">
                     {currentNav.shortLabel}
                   </span>
                 )}
               </div>
               <p className="text-[10.5px] sm:text-[11px] truncate leading-tight mt-0.5">
-                <span className="text-emerald-400 font-semibold">
+                <span className="text-teal-300 font-bold tracking-wide uppercase text-[9.5px]">
                   Owner Portal
                 </span>
-                <span className="text-slate-400 ml-1.5 hidden sm:inline">
-                  • {me?.email || "Command Center"}
+                <span className="text-indigo-200/70 ml-1.5 hidden sm:inline">
+                  • {me?.email || "Executive View"}
                 </span>
               </p>
             </div>
@@ -505,7 +505,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             <button
               type="button"
               onClick={openOnlineOrdersView}
-              className="inline-flex items-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all active:scale-95"
+              className="inline-flex items-center gap-1.5 h-8 sm:h-9 px-2.5 sm:px-3 rounded-xl text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white shadow-xs transition-all active:scale-95"
               title="New Online Orders Pending Action"
             >
               <ShoppingBag className="w-3.5 h-3.5" />
@@ -518,23 +518,23 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <Link
             href="/portal/profile"
-            className={`inline-flex items-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`inline-flex items-center gap-1.5 h-8 sm:h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/profile")
-                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                : "bg-slate-800/80 text-slate-200 border-slate-700 hover:bg-slate-800 hover:text-white"
+                ? "bg-teal-400/20 text-teal-200 border-teal-400/40"
+                : "bg-white/[0.08] text-indigo-100 border-white/15 hover:bg-white/15 hover:text-white"
             }`}
             title="Owner Profile & Card"
           >
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <ShieldCheck className="w-4 h-4 text-teal-300" />
             <span className="hidden md:inline">Profile</span>
           </Link>
 
           <Link
             href="/portal/alerts"
-            className={`inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2.5 sm:px-3 rounded-xl text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/alerts")
-                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                : "bg-slate-800/80 text-slate-200 border-slate-700 hover:bg-slate-800 hover:text-white"
+                ? "bg-teal-400/20 text-teal-200 border-teal-400/40"
+                : "bg-white/[0.08] text-indigo-100 border-white/15 hover:bg-white/15 hover:text-white"
             }`}
             title="Owner Alerts"
           >
@@ -544,10 +544,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <Link
             href="/portal/billing"
-            className={`hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`hidden sm:inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/billing")
-                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                : "bg-slate-800/80 text-slate-200 border-slate-700 hover:bg-slate-800 hover:text-white"
+                ? "bg-teal-400/20 text-teal-200 border-teal-400/40"
+                : "bg-white/[0.08] text-indigo-100 border-white/15 hover:bg-white/15 hover:text-white"
             }`}
           >
             <CreditCard className="w-4 h-4" />
@@ -556,7 +556,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <button
             onClick={handleLogout}
-            className="inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-lg text-xs font-semibold text-slate-300 hover:text-rose-300 hover:bg-rose-950/60 border border-transparent hover:border-rose-800/70 transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 h-8 sm:h-9 px-2 sm:px-3 rounded-xl text-xs font-semibold text-indigo-200 hover:text-rose-200 hover:bg-rose-500/20 border border-transparent hover:border-rose-400/30 transition-colors"
             title="Sign out"
             aria-label="Sign out"
           >
@@ -619,17 +619,17 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
       {/* Main Content + Desktop Collapsible Sidebar */}
       <div className="flex-1 flex min-h-0">
-        {/* Desktop Executive Sidebar — Deep Obsidian Slate */}
+        {/* Desktop Executive Sidebar — Royal Midnight Indigo */}
         <aside
-          className={`hidden lg:flex flex-col bg-[#11192C] border-r border-slate-800 shrink-0 transition-all duration-200 sticky top-16 h-[calc(100vh-4rem)] text-slate-300 ${
-            sidebarCollapsed ? "w-[76px]" : "w-[256px]"
+          className={`hidden lg:flex flex-col bg-[#111834] border-r border-white/10 shrink-0 transition-all duration-200 sticky top-16 h-[calc(100vh-4rem)] text-indigo-100 ${
+            sidebarCollapsed ? "w-[78px]" : "w-[260px]"
           }`}
         >
           <div className="flex-1 py-4 px-3 space-y-5 overflow-y-auto portal-scroll">
             {sidebarSections.map((group) => (
               <div key={group.title} className="space-y-1">
                 {!sidebarCollapsed && (
-                  <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-indigo-300/50">
                     {group.title}
                   </p>
                 )}
@@ -637,9 +637,9 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               </div>
             ))}
 
-            <div className="space-y-1 pt-3 border-t border-slate-800/80">
+            <div className="space-y-1 pt-3 border-t border-white/10">
               {!sidebarCollapsed && (
-                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-indigo-300/50">
                   Backups &amp; Plan
                 </p>
               )}
@@ -648,19 +648,19 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </div>
 
           {/* Owner Status + Collapse Control */}
-          <div className="p-3 border-t border-slate-800/80 space-y-2">
+          <div className="p-3 border-t border-white/10 space-y-2">
             {!sidebarCollapsed && me && (
-              <div className="px-3 py-2.5 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center gap-2.5 text-[11px]">
-                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 flex items-center gap-2.5 text-[11px]">
+                <ShieldCheck className="w-4 h-4 text-teal-300 shrink-0" />
                 <div className="min-w-0">
                   <p className="font-bold text-white truncate">{me.client_name}</p>
-                  <p className="text-[10px] text-emerald-400 font-semibold">Live POS Cloud Sync</p>
+                  <p className="text-[10px] text-teal-300 font-semibold">Live POS Cloud Sync</p>
                 </div>
               </div>
             )}
             <button
               onClick={() => setSidebarCollapsed((c) => !c)}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-indigo-200/75 hover:text-white hover:bg-white/[0.08] transition-colors"
               title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               {sidebarCollapsed ? (
@@ -675,106 +675,108 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
           </div>
         </aside>
 
-        {/* Main Workspace — generous bottom clearance for the mobile bottom bar */}
-        <main className="flex-1 min-w-0 pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] lg:pb-12">
+        {/* Main Workspace — generous bottom clearance for the floating mobile dock */}
+        <main className="flex-1 min-w-0 pb-[calc(6.75rem+env(safe-area-inset-bottom,0px))] lg:pb-12">
           <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 py-4 sm:py-6 animate-portal-in">
             {children}
           </div>
         </main>
       </div>
 
-      {/* Executive Mobile Bottom Navigation Dock */}
-      <nav
-        aria-label="Mobile Primary Navigation"
-        className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-[#0F172B] border-t border-slate-800 px-1.5 pt-1.5 pb-[calc(0.55rem+env(safe-area-inset-bottom,0px))] min-h-[72px] flex items-center justify-around shadow-[0_-8px_28px_rgba(15,23,42,0.22)]"
-      >
-        {mobileBottomTabs.map((item) => {
-          const Icon = item.icon;
-          const active = isRouteActive(item.href);
-          const showWebBadge =
-            item.href === "/portal/website" && onlineOrderBadgeCount > 0;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex-1 max-w-[82px] min-h-[52px] py-1 px-0.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
-            >
-              <div
-                className={`relative w-11 h-7 rounded-lg flex items-center justify-center transition-all ${
-                  active
-                    ? "bg-slate-800 text-emerald-400 ring-1 ring-emerald-500/40"
-                    : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-                }`}
-              >
-                <Icon className="w-[19px] h-[19px]" strokeWidth={active ? 2.3 : 1.9} />
-                {showWebBadge && (
-                  <span className="absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[17px] h-[17px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold shadow-xs">
-                    {onlineOrderBadgeCount}
-                  </span>
-                )}
-              </div>
-              <span
-                className={`text-[11px] tracking-tight leading-none ${
-                  active
-                    ? "text-white font-bold"
-                    : "text-slate-400 font-medium"
-                }`}
-              >
-                {item.shortLabel}
-              </span>
-            </Link>
-          );
-        })}
-
-        <button
-          type="button"
-          onClick={() => setMobileMoreOpen((v) => !v)}
-          className="flex-1 max-w-[82px] min-h-[52px] py-1 px-0.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
+      {/* App-Grade Floating Executive Mobile Bottom Dock */}
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 px-3 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] pt-1 pointer-events-none">
+        <nav
+          aria-label="Mobile Primary Navigation"
+          className="pointer-events-auto mx-auto max-w-md bg-[#111834]/95 backdrop-blur-lg border border-white/15 rounded-2xl px-1.5 py-1.5 flex items-center justify-around shadow-[0_12px_32px_-4px_rgba(11,16,38,0.48)]"
         >
-          <div
-            className={`w-11 h-7 rounded-lg flex items-center justify-center transition-all ${
-              isMoreActive || mobileMoreOpen
-                ? "bg-slate-800 text-emerald-400 ring-1 ring-emerald-500/40"
-                : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-            }`}
-          >
-            {mobileMoreOpen ? (
-              <X className="w-[19px] h-[19px]" strokeWidth={2.3} />
-            ) : (
-              <MoreHorizontal className="w-[19px] h-[19px]" strokeWidth={2.1} />
-            )}
-          </div>
-          <span
-            className={`text-[11px] tracking-tight leading-none ${
-              isMoreActive || mobileMoreOpen
-                ? "text-white font-bold"
-                : "text-slate-400 font-medium"
-            }`}
-          >
-            Menu
-          </span>
-        </button>
-      </nav>
+          {mobileBottomTabs.map((item) => {
+            const Icon = item.icon;
+            const active = isRouteActive(item.href);
+            const showWebBadge =
+              item.href === "/portal/website" && onlineOrderBadgeCount > 0;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex-1 max-w-[78px] min-h-[50px] py-1 px-0.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
+              >
+                <div
+                  className={`relative w-11 h-7 rounded-xl flex items-center justify-center transition-all ${
+                    active
+                      ? "bg-gradient-to-br from-teal-400 to-cyan-500 text-[#0E1630] shadow-[0_4px_12px_rgba(45,212,191,0.4)]"
+                      : "text-indigo-200/75 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <Icon className="w-[18px] h-[18px]" strokeWidth={active ? 2.4 : 1.9} />
+                  {showWebBadge && (
+                    <span className="absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[17px] h-[17px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-extrabold shadow-xs">
+                      {onlineOrderBadgeCount}
+                    </span>
+                  )}
+                </div>
+                <span
+                  className={`text-[10.5px] tracking-tight leading-none ${
+                    active
+                      ? "text-teal-300 font-extrabold"
+                      : "text-indigo-200/70 font-medium"
+                  }`}
+                >
+                  {item.shortLabel}
+                </span>
+              </Link>
+            );
+          })}
 
-      {/* Mobile "Menu / More" Launcher Sheet */}
+          <button
+            type="button"
+            onClick={() => setMobileMoreOpen((v) => !v)}
+            className="flex-1 max-w-[78px] min-h-[50px] py-1 px-0.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
+          >
+            <div
+              className={`w-11 h-7 rounded-xl flex items-center justify-center transition-all ${
+                isMoreActive || mobileMoreOpen
+                  ? "bg-gradient-to-br from-teal-400 to-cyan-500 text-[#0E1630] shadow-[0_4px_12px_rgba(45,212,191,0.4)]"
+                  : "text-indigo-200/75 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              {mobileMoreOpen ? (
+                <X className="w-[18px] h-[18px]" strokeWidth={2.4} />
+              ) : (
+                <MoreHorizontal className="w-[18px] h-[18px]" strokeWidth={2.1} />
+              )}
+            </div>
+            <span
+              className={`text-[10.5px] tracking-tight leading-none ${
+                isMoreActive || mobileMoreOpen
+                  ? "text-teal-300 font-extrabold"
+                  : "text-indigo-200/70 font-medium"
+              }`}
+            >
+              More
+            </span>
+          </button>
+        </nav>
+      </div>
+
+      {/* Mobile "More" App-Grade Launcher Sheet */}
       {mobileMoreOpen && (
-        <div className="lg:hidden fixed inset-0 z-30 flex flex-col justify-end bg-slate-950/60 backdrop-blur-[2px]">
+        <div className="lg:hidden fixed inset-0 z-30 flex flex-col justify-end bg-[#0B1026]/65 backdrop-blur-[3px]">
           <div className="flex-1" onClick={() => setMobileMoreOpen(false)} />
-          <div className="bg-[#E8EDF2] rounded-t-2xl border-t border-slate-300 overflow-hidden pb-[calc(6.25rem+env(safe-area-inset-bottom,0px))] shadow-2xl max-h-[84dvh] overflow-y-auto animate-portal-drawer">
-            <div className="bg-[#0F172B] px-4 pt-2.5 pb-3.5 text-white border-b border-slate-800 space-y-2.5">
-              <div className="w-10 h-1 rounded-full bg-slate-600 mx-auto" />
+          <div className="bg-[#F3F5FA] rounded-t-3xl border-t border-white/20 overflow-hidden pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] shadow-2xl max-h-[84dvh] overflow-y-auto animate-portal-drawer">
+            <div className="bg-gradient-to-r from-[#111834] via-[#17234E] to-[#112A48] px-4 pt-2.5 pb-4 text-white border-b border-white/10 space-y-2.5">
+              <div className="w-11 h-1 rounded-full bg-indigo-300/35 mx-auto" />
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
                   <span className="text-sm font-extrabold text-white block truncate">
                     {me?.client_name || "Owner Portal Modules"}
                   </span>
-                  <span className="text-xs text-slate-400 truncate block">
-                    {me?.email || "Tap any section to monitor"}
+                  <span className="text-xs text-teal-300/90 truncate block">
+                    {me?.email || "Choose a section to explore"}
                   </span>
                 </div>
                 <button
                   onClick={() => setMobileMoreOpen(false)}
-                  className="w-9 h-9 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white shrink-0"
+                  className="w-9 h-9 rounded-xl bg-white/10 border border-white/15 flex items-center justify-center text-indigo-100 hover:text-white shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -790,25 +792,25 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileMoreOpen(false)}
-                    className={`flex flex-col gap-2 p-3.5 rounded-xl border transition-all active:scale-[0.98] ${
+                    className={`flex flex-col gap-2 p-3.5 rounded-2xl border transition-all active:scale-[0.98] ${
                       active
-                        ? "bg-[#0F172B] border-slate-900 border-t-[3px] border-t-emerald-400 text-white shadow-sm"
-                        : "bg-white border-slate-300/90 text-[#0F172B] hover:border-slate-400 shadow-2xs"
+                        ? "bg-gradient-to-br from-[#131B3A] to-[#1A355B] border-indigo-800 text-white shadow-md"
+                        : "bg-white border-indigo-950/[0.08] text-[#131B3A] hover:border-indigo-300 shadow-2xs"
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                        className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                           active
-                            ? "bg-slate-800 text-emerald-400"
-                            : "bg-slate-100 border border-slate-200 text-slate-700"
+                            ? "bg-teal-400/20 text-teal-300"
+                            : "bg-indigo-50 border border-indigo-100 text-indigo-700"
                         }`}
                       >
                         <Icon className="w-4 h-4" />
                       </div>
                       <ChevronRight
                         className={`w-4 h-4 shrink-0 ${
-                          active ? "text-emerald-400" : "text-slate-400"
+                          active ? "text-teal-300" : "text-slate-400"
                         }`}
                       />
                     </div>
@@ -816,7 +818,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                       <p className="text-xs font-extrabold truncate">{item.shortLabel}</p>
                       <p
                         className={`text-[11px] truncate mt-0.5 ${
-                          active ? "text-slate-300" : "text-slate-500"
+                          active ? "text-indigo-200/80" : "text-slate-500"
                         }`}
                       >
                         {item.subtitle}

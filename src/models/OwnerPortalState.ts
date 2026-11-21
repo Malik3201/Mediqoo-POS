@@ -301,6 +301,8 @@ export interface IOwnerPortalState extends Document {
   suppliers: IPortalSupplierSnapshot[];
   supplier_payments: IPortalSupplierPaymentSnapshot[];
   purchase_returns: IPortalPurchaseReturnSnapshot[];
+  recent_purchases?: Array<any>;
+  recent_sales_returns?: Array<any>;
   current_drawer?: IPortalCurrentDrawerSnapshot;
   drawer_sessions: IPortalDrawerSessionSnapshot[];
   daily_closings: IPortalDailyClosingSnapshot[];
@@ -336,6 +338,8 @@ const OwnerPortalStateSchema = new Schema<IOwnerPortalState>(
     suppliers: { type: [Schema.Types.Mixed] as any, default: [] },
     supplier_payments: { type: [Schema.Types.Mixed] as any, default: [] },
     purchase_returns: { type: [Schema.Types.Mixed] as any, default: [] },
+    recent_purchases: { type: [Schema.Types.Mixed] as any, default: [] },
+    recent_sales_returns: { type: [Schema.Types.Mixed] as any, default: [] },
     current_drawer: { type: Schema.Types.Mixed },
     drawer_sessions: { type: [Schema.Types.Mixed] as any, default: [] },
     daily_closings: { type: [Schema.Types.Mixed] as any, default: [] },
