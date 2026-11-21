@@ -8,6 +8,7 @@ import InventorySnapshot from "@/models/InventorySnapshot";
 import OwnerPortalState from "@/models/OwnerPortalState";
 import OwnerActionState from "@/models/OwnerActionState";
 import OwnerCustomerMeta from "@/models/OwnerCustomerMeta";
+import AnalyticsBootstrap from "@/models/AnalyticsBootstrap";
 import HistoricalDailyAnalytics from "@/models/HistoricalDailyAnalytics";
 import {
   getClientDateRange,
@@ -62,30 +63,61 @@ export async function GET(req: NextRequest) {
       startUtc = new Date(endUtc.getTime() - 90 * 86400_000);
     }
 
-    // Fetch events in range (bounded projection) + expenses + historical daily summaries
+    // Fetch bootstrap cutoff + historical daily summaries + bounded live events & expenses
     const startDateKey = formatLocalDate(startUtc, timezone);
     const endDateKey = formatLocalDate(endUtc, timezone);
 
-    const [events, expenses, histDaily, customerMetas] = await Promise.all([
-      AnalyticsEvent.find({
-        client_id: clientId,
-        occurred_at: { $gte: startUtc, $lte: endUtc },
-      })
-        .sort({ occurred_at: -1 })
-        .limit(600)
-        .lean<any[]>(),
-      CloudExpense.find({
-        client_id: clientId,
-        occurred_at: { $gte: startUtc, $lte: endUtc },
-      })
-        .sort({ occurred_at: -1 })
-        .lean<any[]>(),
-      HistoricalDailyAnalytics.find({
-        client_id: clientId,
-        date: { $gte: startDateKey, $lte: endDateKey },
-      })
-        .sort({ date: 1 })
-        .lean<any[]>(),
+    const latestBootstrap = await AnalyticsBootstrap.findOne({
+      client_id: clientId,
+      status: "completed",
+    })
+      .sort({ bootstrap_version: -1, completed_at: -1 })
+      .select("bootstrap_cutoff_date bootstrap_cutoff_utc")
+      .lean<{ bootstrap_cutoff_date?: string; bootstrap_cutoff_utc?: Date }>();
+
+    const cutoffUtc = latestBootstrap?.bootstrap_cutoff_utc
+      ? new Date(latestBootstrap.bootstrap_cutoff_utc)
+      : null;
+    const cutoffDateKey = latestBootstrap?.bootstrap_cutoff_date || null;
+
+    const effectiveHistEndKey =
+      cutoffDateKey && cutoffDateKey < endDateKey ? cutoffDateKey : endDateKey;
+
+    const histDaily =
+      startDateKey <= effectiveHistEndKey
+        ? await HistoricalDailyAnalytics.find({
+            client_id: clientId,
+            date: { $gte: startDateKey, $lte: effectiveHistEndKey },
+          })
+            .sort({ date: 1 })
+            .lean<any[]>()
+        : [];
+
+    // Respect cutoffUtc when historical data exists so live events & historical rows NEVER double-count
+    const liveStartUtc =
+      histDaily.length > 0 && cutoffUtc && cutoffUtc.getTime() > startUtc.getTime()
+        ? cutoffUtc
+        : startUtc;
+
+    const [events, expenses, customerMetas] = await Promise.all([
+      liveStartUtc.getTime() <= endUtc.getTime()
+        ? AnalyticsEvent.find({
+            client_id: clientId,
+            occurred_at: { $gte: liveStartUtc, $lte: endUtc },
+          })
+            .sort({ occurred_at: -1 })
+            .limit(1000)
+            .lean<any[]>()
+        : Promise.resolve([] as any[]),
+      liveStartUtc.getTime() <= endUtc.getTime()
+        ? CloudExpense.find({
+            client_id: clientId,
+            is_deleted: { $ne: true },
+            occurred_at: { $gte: liveStartUtc, $lte: endUtc },
+          })
+            .sort({ occurred_at: -1 })
+            .lean<any[]>()
+        : Promise.resolve([] as any[]),
       OwnerCustomerMeta.find({ client_id: clientId }).lean<any[]>(),
     ]);
 
@@ -98,6 +130,7 @@ export async function GET(req: NextRequest) {
     let invoicesWithReliableCost = 0;
     let invoicesCount = 0;
     let returnsCount = 0;
+    let histExpensesTotal = 0;
 
     const paymentBreakdown = {
       cash: { count: 0, amount: 0 },
@@ -120,21 +153,60 @@ export async function GET(req: NextRequest) {
       }
     >();
 
-    // Seed from historical daily analytics if available
+    // Seed BOTH daily series AND top-level report KPIs from canonical HistoricalDailyAnalytics fields
     for (const hd of histDaily) {
-      dailyMap.set(hd.date, {
-        date: hd.date,
-        invoices: Number(hd.sales_count || 0),
-        gross_sales: Number(hd.gross_sales || 0) + Number(hd.discounts_total || 0),
-        discounts: Number(hd.discounts_total || 0),
-        returns: Number(hd.returns_total || 0),
-        net_sales: Number(hd.gross_sales || 0) - Number(hd.returns_total || 0),
-        cogs: Number(hd.cogs_total || 0),
-        gross_profit:
-          Number(hd.gross_sales || 0) -
-          Number(hd.returns_total || 0) -
-          Number(hd.cogs_total || 0),
-      });
+      const invCnt = Number(hd.invoice_count || 0);
+      const retCnt = Number(hd.return_count || 0);
+      const rawGross = Number(hd.gross_sales || 0);
+      const disc = Number(hd.discounts || 0);
+      const billedSales =
+        Number(hd.net_sales) > 0 || disc > 0 ? Number(hd.net_sales || 0) : rawGross;
+      const retAmt = Number(hd.sales_returns || 0);
+      const dayNetSales = billedSales - retAmt;
+      const dayNetCogs = Math.max(
+        0,
+        Number(hd.cogs || 0) - Number(hd.cogs_reversed || 0)
+      );
+      const dayGrossProfit = dayNetSales - dayNetCogs;
+
+      invoicesCount += invCnt;
+      returnsCount += retCnt;
+      grossRevenue += rawGross;
+      totalDiscounts += disc;
+      totalReturns += retAmt;
+      netSales += dayNetSales;
+      totalCogs += dayNetCogs;
+      if (dayNetCogs > 0) {
+        invoicesWithReliableCost += Math.max(1, invCnt);
+      }
+      histExpensesTotal += Number(hd.expenses || 0);
+
+      paymentBreakdown.cash.amount += Number(hd.cash_sales || 0);
+      paymentBreakdown.card.amount += Number(hd.card_sales || 0);
+      paymentBreakdown.wallet.amount += Number(hd.wallet_sales || 0);
+      paymentBreakdown.credit.amount += Number(hd.credit_sales || 0);
+
+      const prev = dailyMap.get(hd.date);
+      if (prev) {
+        prev.invoices += invCnt;
+        prev.gross_sales += rawGross;
+        prev.discounts += disc;
+        prev.returns += retAmt;
+        prev.net_sales += dayNetSales;
+        prev.cogs += dayNetCogs;
+        prev.gross_profit += dayGrossProfit;
+      } else {
+        dailyMap.set(hd.date, {
+          date: hd.date,
+          invoices: invCnt,
+          gross_sales: rawGross,
+          discounts: disc,
+          returns: retAmt,
+          net_sales: dayNetSales,
+          cogs: dayNetCogs,
+          gross_profit: dayGrossProfit,
+        });
+      }
     }
 
     const productSalesMap = new Map<
@@ -460,10 +532,9 @@ export async function GET(req: NextRequest) {
         : 0;
 
     // Expenses & Financial Summary
-    const verifiedExpensesTotal = expenses.reduce(
-      (sum, e) => sum + Number(e.amount || 0),
-      0
-    );
+    const verifiedExpensesTotal =
+      histExpensesTotal +
+      expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
     const operatingSurplusAfterVerifiedExpenses = Number(
       (grossProfit - verifiedExpensesTotal).toFixed(2)
     );

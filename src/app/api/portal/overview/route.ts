@@ -149,6 +149,32 @@ export async function GET(req: NextRequest) {
 
       let histSummary = ZERO_FINANCIAL_SUMMARY;
       let histInvoiceCount = 0;
+      let histReturnCount = 0;
+      let histPurchaseCount = 0;
+      let histCardSales = 0;
+      let histWalletSales = 0;
+      let histDiscountTotal = 0;
+
+      const histGroupSpec = {
+        _id: null,
+        gross_sales: { $sum: "$gross_sales" },
+        discounts: { $sum: "$discounts" },
+        net_sales: { $sum: "$net_sales" },
+        sales_returns: { $sum: "$sales_returns" },
+        cogs: { $sum: "$cogs" },
+        cogs_reversed: { $sum: "$cogs_reversed" },
+        gross_profit: { $sum: "$gross_profit" },
+        net_profit: { $sum: "$net_profit" },
+        expenses: { $sum: "$expenses" },
+        purchases: { $sum: "$purchases" },
+        invoice_count: { $sum: { $ifNull: ["$invoice_count", 0] } },
+        return_count: { $sum: { $ifNull: ["$return_count", 0] } },
+        purchase_count: { $sum: { $ifNull: ["$purchase_count", 0] } },
+        cash_sales: { $sum: { $ifNull: ["$cash_sales", 0] } },
+        card_sales: { $sum: { $ifNull: ["$card_sales", 0] } },
+        wallet_sales: { $sum: { $ifNull: ["$wallet_sales", 0] } },
+        credit_sales: { $sum: { $ifNull: ["$credit_sales", 0] } },
+      };
 
       if (historical) {
         const [histAgg, histSalesCount] = await Promise.all([
@@ -159,19 +185,7 @@ export async function GET(req: NextRequest) {
                 date: { $gte: historical.startDate, $lte: historical.endDate },
               },
             },
-            {
-              $group: {
-                _id: null,
-                gross_sales: { $sum: "$gross_sales" },
-                sales_returns: { $sum: "$sales_returns" },
-                cogs: { $sum: "$cogs" },
-                cogs_reversed: { $sum: "$cogs_reversed" },
-                gross_profit: { $sum: "$gross_profit" },
-                net_profit: { $sum: "$net_profit" },
-                expenses: { $sum: "$expenses" },
-                purchases: { $sum: "$purchases" },
-              },
-            },
+            { $group: histGroupSpec },
           ]),
           HistoricalRecentSale.countDocuments({
             client_id: clientId,
@@ -180,8 +194,18 @@ export async function GET(req: NextRequest) {
         ]);
         if (histAgg.length > 0) {
           histSummary = historicalToFinancialSummary(histAgg[0]);
+          histInvoiceCount =
+            Number(histAgg[0].invoice_count) > 0
+              ? Number(histAgg[0].invoice_count)
+              : histSalesCount;
+          histReturnCount = Number(histAgg[0].return_count) || 0;
+          histPurchaseCount = Number(histAgg[0].purchase_count) || 0;
+          histCardSales = Math.round((Number(histAgg[0].card_sales) || 0) * 100) / 100;
+          histWalletSales = Math.round((Number(histAgg[0].wallet_sales) || 0) * 100) / 100;
+          histDiscountTotal = Math.round((Number(histAgg[0].discounts) || 0) * 100) / 100;
+        } else {
+          histInvoiceCount = histSalesCount;
         }
-        histInvoiceCount = histSalesCount;
       } else if (period !== "today") {
         // If no explicit cutoff split but HistoricalDailyAnalytics has rows within period
         const stStr = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, "0")}-${String(start.getUTCDate()).padStart(2, "0")}`;
@@ -193,22 +217,16 @@ export async function GET(req: NextRequest) {
               date: { $gte: stStr, $lte: enStr },
             },
           },
-          {
-            $group: {
-              _id: null,
-              gross_sales: { $sum: "$gross_sales" },
-              sales_returns: { $sum: "$sales_returns" },
-              cogs: { $sum: "$cogs" },
-              cogs_reversed: { $sum: "$cogs_reversed" },
-              gross_profit: { $sum: "$gross_profit" },
-              net_profit: { $sum: "$net_profit" },
-              expenses: { $sum: "$expenses" },
-              purchases: { $sum: "$purchases" },
-            },
-          },
+          { $group: histGroupSpec },
         ]);
         if (histAgg.length > 0) {
           histSummary = historicalToFinancialSummary(histAgg[0]);
+          histInvoiceCount = Number(histAgg[0].invoice_count) || 0;
+          histReturnCount = Number(histAgg[0].return_count) || 0;
+          histPurchaseCount = Number(histAgg[0].purchase_count) || 0;
+          histCardSales = Math.round((Number(histAgg[0].card_sales) || 0) * 100) / 100;
+          histWalletSales = Math.round((Number(histAgg[0].wallet_sales) || 0) * 100) / 100;
+          histDiscountTotal = Math.round((Number(histAgg[0].discounts) || 0) * 100) / 100;
         }
       }
 
@@ -460,6 +478,11 @@ export async function GET(req: NextRequest) {
 
       const summary = mergeFinancialSummaries(histSummary, liveSummary);
       const invoiceCount = histInvoiceCount + liveInvoiceCount;
+      const returnCount = histReturnCount + liveReturnCount;
+      const purchaseCount = histPurchaseCount + livePurchaseCount;
+      const totalCardSales = Math.round((histCardSales + cardSales) * 100) / 100;
+      const totalWalletSales = Math.round((histWalletSales + walletSales) * 100) / 100;
+      const totalDiscount = Math.round((histDiscountTotal + discountTotal) * 100) / 100;
       const averageBill =
         invoiceCount > 0 ? Math.round((summary.gross_sales / invoiceCount) * 100) / 100 : 0;
       const hasReliableCosts =
@@ -472,12 +495,12 @@ export async function GET(req: NextRequest) {
       return {
         ...summary,
         invoice_count: invoiceCount,
-        return_count: liveReturnCount,
-        purchase_count: livePurchaseCount,
+        return_count: returnCount,
+        purchase_count: purchaseCount,
         average_bill: averageBill,
-        card_sales: cardSales,
-        wallet_sales: walletSales,
-        discount_total: discountTotal,
+        card_sales: totalCardSales,
+        wallet_sales: totalWalletSales,
+        discount_total: totalDiscount,
         high_discount_count: highDiscountCount,
         has_reliable_costs: hasReliableCosts,
         gross_margin_pct: grossMarginPct,
@@ -806,12 +829,12 @@ export async function GET(req: NextRequest) {
           occurred_at: h.occurred_at ? new Date(h.occurred_at).toISOString() : new Date().toISOString(),
           invoice_number: h.invoice_number,
           customer_name: h.customer_name || "Walk-in Customer",
-          cashier: "Historical",
+          cashier: (h as any).cashier || "Historical POS",
           gross_sales: Math.round(Number(h.gross_sales || 0) * 100) / 100,
           discount: Math.round(Number(h.discount || 0) * 100) / 100,
           net_sales: Math.round(Number(h.net_sales || 0) * 100) / 100,
           payment_method: String(h.payment_method || "cash").toLowerCase(),
-          items_count: Number(h.items_count || 1),
+          items_count: Number((h as any).items_count || 0),
           terminal_number: 1,
         });
       }

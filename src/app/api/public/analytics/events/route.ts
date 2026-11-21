@@ -534,16 +534,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Piggyback bootstrap-needed status (0 extra Vercel requests!)
-    const completedV2 = await AnalyticsBootstrap.findOne({
+    const completedLatest = await AnalyticsBootstrap.findOne({
       license_id: license.id,
       status: "completed",
-      bootstrap_version: { $gte: 2 },
+      bootstrap_version: { $gte: 3 },
     })
       .select("_id")
       .lean();
 
     return NextResponse.json(
-      { ok: true, results, analytics_bootstrap_needed: !completedV2 },
+      { ok: true, results, analytics_bootstrap_needed: !completedLatest },
       { headers: CORS }
     );
   } catch (e: any) {

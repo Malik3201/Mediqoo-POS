@@ -50,6 +50,15 @@ export interface IHistoricalDailyAnalytics extends Document {
   // Net
   net_profit: number;     // gross_profit - expenses
 
+  // Counts & payment breakdown (v3 bootstrap parity with POS)
+  invoice_count?: number;
+  return_count?: number;
+  purchase_count?: number;
+  cash_sales?: number;
+  card_sales?: number;
+  wallet_sales?: number;
+  credit_sales?: number;
+
   created_at: Date;
   updated_at: Date;
 }
@@ -74,6 +83,14 @@ const HistoricalDailyAnalyticsSchema = new Schema<IHistoricalDailyAnalytics>(
     expenses: { type: Number, default: 0 },
     purchases: { type: Number, default: 0 },
     net_profit: { type: Number, default: 0 },
+
+    invoice_count: { type: Number, default: 0 },
+    return_count: { type: Number, default: 0 },
+    purchase_count: { type: Number, default: 0 },
+    cash_sales: { type: Number, default: 0 },
+    card_sales: { type: Number, default: 0 },
+    wallet_sales: { type: Number, default: 0 },
+    credit_sales: { type: Number, default: 0 },
   },
   {
     timestamps: { createdAt: "created_at", updatedAt: "updated_at" },

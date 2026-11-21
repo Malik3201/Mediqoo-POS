@@ -255,6 +255,13 @@ export async function POST(req: NextRequest) {
               typeof explicitNetProfit === "number" && Number.isFinite(explicitNetProfit)
                 ? explicitNetProfit
                 : Math.round((grossProfit - expenses) * 100) / 100;
+            const invoiceCount = Number(d.invoice_count ?? d.invoiceCount) || 0;
+            const returnCount = Number(d.return_count ?? d.returnCount) || 0;
+            const purchaseCount = Number(d.purchase_count ?? d.purchaseCount) || 0;
+            const cashSales = Number(d.cash_sales ?? d.cashSales) || 0;
+            const cardSales = Number(d.card_sales ?? d.cardSales) || 0;
+            const walletSales = Number(d.wallet_sales ?? d.walletSales) || 0;
+            const creditSales = Number(d.credit_sales ?? d.creditSales) || 0;
 
             return {
               updateOne: {
@@ -276,6 +283,13 @@ export async function POST(req: NextRequest) {
                     expenses,
                     purchases,
                     net_profit: netProfit,
+                    invoice_count: invoiceCount,
+                    return_count: returnCount,
+                    purchase_count: purchaseCount,
+                    cash_sales: cashSales,
+                    card_sales: cardSales,
+                    wallet_sales: walletSales,
+                    credit_sales: creditSales,
                   },
                   $setOnInsert: {
                     client_id: license.client_id,
@@ -317,32 +331,41 @@ export async function POST(req: NextRequest) {
         topInserted = Array.isArray(result) ? result.length : topDocs.length;
       }
 
-      // ── Step 6: Ingest Recent Sales ────────────────────────────────────────
+      // ── Step 6: Ingest Recent Sales (up to 2,500 compact headers for exact Explorer parity) ──
       let recentInserted = 0;
       if (Array.isArray(recentSalesItems) && recentSalesItems.length > 0) {
-        // Clear previous partial writes for this license to guarantee idempotency on retry
+        // Clear previous writes for this license to guarantee idempotency on retry/upgrade
         await HistoricalRecentSale.deleteMany({ license_id: license.id });
 
-        // Limit to 100 for safety
-        const limitedSales = recentSalesItems.slice(0, 100);
+        const limitedSales = recentSalesItems.slice(0, 2500);
         const saleDocs = limitedSales.map((s: any) => {
           let occurred = new Date(s.occurred_at || s.occurredAt);
           if (isNaN(occurred.getTime())) occurred = new Date();
-          
+          const gross = Number(s.gross_sales ?? s.grossSales) || 0;
+          const net = Number(s.net_sales ?? s.netSales) || 0;
+          const disc =
+            s.discount !== undefined
+              ? Number(s.discount) || 0
+              : Math.max(0, Math.round((gross - net) * 100) / 100);
           return {
             client_id: license.client_id,
             license_id: license.id,
             occurred_at: occurred,
             invoice_number: s.invoice_number || s.invoiceNumber,
-            gross_sales: Number(s.gross_sales ?? s.grossSales) || 0,
-            net_sales: Number(s.net_sales ?? s.netSales) || 0,
+            gross_sales: gross,
+            discount: disc,
+            tax: Number(s.tax) || 0,
+            net_sales: net,
+            credit_amount: Number(s.credit_amount ?? s.creditAmount) || 0,
             payment_method: s.payment_method || s.paymentMethod,
             customer_name: s.customer_name || s.customerName,
+            cashier: s.cashier || undefined,
+            items_count: Number(s.items_count ?? s.itemsCount) || 0,
           };
         });
         const result = await HistoricalRecentSale.insertMany(saleDocs, { ordered: false }).catch((e) => {
-           if (e.code === 11000) return e.insertedDocs || [];
-           throw e;
+          if (e.code === 11000) return e.insertedDocs || [];
+          throw e;
         });
         recentInserted = Array.isArray(result) ? result.length : saleDocs.length;
       }

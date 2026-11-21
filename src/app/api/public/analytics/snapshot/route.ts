@@ -352,14 +352,14 @@ export async function POST(req: NextRequest) {
     // Piggyback bootstrap-needed signal (zero extra Vercel calls for auto-healing existing pharmacies)
     let analyticsBootstrapNeeded = false;
     if (!reset_portal_data && isCloudDashboardEnabled(license)) {
-      const completedV2 = await AnalyticsBootstrap.findOne({
+      const completedLatest = await AnalyticsBootstrap.findOne({
         license_id: license.id,
         status: "completed",
-        bootstrap_version: { $gte: 2 },
+        bootstrap_version: { $gte: 3 },
       })
         .select("_id")
         .lean();
-      analyticsBootstrapNeeded = !completedV2;
+      analyticsBootstrapNeeded = !completedLatest;
     }
 
     return NextResponse.json(

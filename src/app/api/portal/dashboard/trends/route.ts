@@ -108,7 +108,11 @@ export async function GET(req: NextRequest) {
           // Use Historical data for this license on this day
           const hd = histData.find(h => h.license_id === licId && h.date === date);
           if (hd) {
-            gross_sales += (hd.gross_sales || 0);
+            const billedSales =
+              Number(hd.net_sales) > 0 || Number(hd.discounts) > 0
+                ? Number(hd.net_sales || 0)
+                : Number(hd.gross_sales || 0);
+            gross_sales += billedSales;
             sales_returns += (hd.sales_returns || 0);
             cogs += (hd.cogs || 0);
             cogs_reversed += (hd.cogs_reversed || 0);
@@ -126,7 +130,7 @@ export async function GET(req: NextRequest) {
              return e.license_id === licId && t >= start.getTime() && t <= end.getTime();
           });
 
-          gross_sales += sum(dayEvents, "sale.completed", "gross_sales");
+          gross_sales += sumSaleBilled(dayEvents);
           sales_returns += sum(dayEvents, "sale.returned", "return_amount");
           cogs += sum(dayEvents, "sale.completed", "cogs");
           cogs_reversed += sum(dayEvents, "sale.returned", "cogs_reversed");
@@ -163,6 +167,23 @@ function sum(events: any[], type: string, field: string): number {
   return events
     .filter((e) => e.type === type)
     .reduce((acc, e) => acc + (Number(e.payload?.[field]) || 0), 0);
+}
+
+function sumSaleBilled(events: any[]): number {
+  return events
+    .filter((e) => e.type === "sale.completed")
+    .reduce(
+      (acc, e) =>
+        acc +
+        (Number(
+          e.payload?.net_sales ??
+            e.payload?.netSales ??
+            e.payload?.gross_sales ??
+            e.payload?.grossSales ??
+            0
+        ) || 0),
+      0
+    );
 }
 
 function r2(n: number): number {

@@ -117,6 +117,8 @@ export async function GET(req: NextRequest) {
             $group: {
               _id: null,
               gross_sales: { $sum: "$gross_sales" },
+              discounts: { $sum: "$discounts" },
+              net_sales: { $sum: "$net_sales" },
               sales_returns: { $sum: "$sales_returns" },
               cogs: { $sum: "$cogs" },
               cogs_reversed: { $sum: "$cogs_reversed" },
@@ -124,6 +126,8 @@ export async function GET(req: NextRequest) {
               net_profit: { $sum: "$net_profit" },
               expenses: { $sum: "$expenses" },
               purchases: { $sum: "$purchases" },
+              cash_sales: { $sum: { $ifNull: ["$cash_sales", 0] } },
+              credit_sales: { $sum: { $ifNull: ["$credit_sales", 0] } },
             },
           },
         ]);

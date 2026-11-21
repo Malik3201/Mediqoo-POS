@@ -23,9 +23,14 @@ export interface IHistoricalRecentSale extends Document {
   occurred_at: Date;          // absolute UTC timestamp
   invoice_number?: string;
   gross_sales: number;
+  discount?: number;
+  tax?: number;
   net_sales: number;
+  credit_amount?: number;
   payment_method?: string;
   customer_name?: string;
+  cashier?: string;
+  items_count?: number;
   created_at: Date;
 }
 
@@ -37,9 +42,14 @@ const HistoricalRecentSaleSchema = new Schema<IHistoricalRecentSale>(
     occurred_at: { type: Date, required: true },
     invoice_number: { type: String },
     gross_sales: { type: Number, default: 0 },
+    discount: { type: Number, default: 0 },
+    tax: { type: Number, default: 0 },
     net_sales: { type: Number, default: 0 },
+    credit_amount: { type: Number, default: 0 },
     payment_method: { type: String },
     customer_name: { type: String },
+    cashier: { type: String },
+    items_count: { type: Number, default: 0 },
   },
   {
     timestamps: { createdAt: "created_at", updatedAt: false },

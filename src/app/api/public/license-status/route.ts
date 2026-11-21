@@ -280,14 +280,14 @@ export async function POST(req: NextRequest) {
     if (cloudDashEnabled && isOperational) {
       try {
         const AnalyticsBootstrap = (await import("@/models/AnalyticsBootstrap")).default;
-        const completedV2 = await AnalyticsBootstrap.findOne({
+        const completedLatest = await AnalyticsBootstrap.findOne({
           license_id: license.id,
           status: "completed",
-          bootstrap_version: { $gte: 2 },
+          bootstrap_version: { $gte: 3 },
         })
           .select("_id")
           .lean();
-        analyticsBootstrapNeeded = !completedV2;
+        analyticsBootstrapNeeded = !completedLatest;
       } catch {
         analyticsBootstrapNeeded = false;
       }

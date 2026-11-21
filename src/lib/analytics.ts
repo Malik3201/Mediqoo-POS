@@ -410,10 +410,18 @@ export const ZERO_FINANCIAL_SUMMARY: FinancialSummary = {
 
 /**
  * Builds a FinancialSummary from HistoricalDailyAnalytics aggregate result.
- * Note: historical data does not distinguish cash_sales vs credit_sales.
+ *
+ * IMPORTANT POS PARITY:
+ * In POS, `inv.subtotal` is pre-discount subtotal (stored as `gross_sales` in HistoricalDailyAnalytics),
+ * while `inv.total` is billed invoice revenue after discounts+tax (stored as `net_sales` in HistoricalDailyAnalytics).
+ * Live `computeFinancialSummary()` sets `gross_sales = sum(inv.total)` and `net_sales = sum(inv.total) - returns`.
+ * Therefore historical `gross_sales` MUST use `agg.net_sales` (billed revenue after discounts) whenever available
+ * so Portal Revenue matches POS Revenue down to the paisa!
  */
 export function historicalToFinancialSummary(agg: {
   gross_sales: number;
+  discounts?: number;
+  net_sales?: number;
   sales_returns: number;
   cogs: number;
   cogs_reversed: number;
@@ -421,21 +429,33 @@ export function historicalToFinancialSummary(agg: {
   net_profit: number;
   expenses: number;
   purchases: number;
+  cash_sales?: number;
+  credit_sales?: number;
 }): FinancialSummary {
-  const net_cogs = round2((agg.cogs ?? 0) - (agg.cogs_reversed ?? 0));
+  const hasBilledNet = typeof agg.net_sales === "number" && (agg.net_sales > 0 || (agg.discounts ?? 0) > 0);
+  const billedSales = round2(hasBilledNet ? (agg.net_sales ?? 0) : (agg.gross_sales ?? 0));
+  const salesReturns = round2(agg.sales_returns ?? 0);
+  const netSales = round2(billedSales - salesReturns);
+  const saleCogs = round2(agg.cogs ?? 0);
+  const returnedCogs = round2(agg.cogs_reversed ?? 0);
+  const netCogs = round2(saleCogs - returnedCogs);
+  const grossProfit = round2(netSales - netCogs);
+  const expenses = round2(agg.expenses ?? 0);
+  const netProfit = round2(grossProfit - expenses);
+
   return {
-    gross_sales: round2(agg.gross_sales ?? 0),
-    sales_returns: round2(agg.sales_returns ?? 0),
-    net_sales: round2((agg.gross_sales ?? 0) - (agg.sales_returns ?? 0)),
-    sale_cogs: round2(agg.cogs ?? 0),
-    returned_cogs: round2(agg.cogs_reversed ?? 0),
-    net_cogs,
-    gross_profit: round2(agg.gross_profit ?? 0),
+    gross_sales: billedSales,
+    sales_returns: salesReturns,
+    net_sales: netSales,
+    sale_cogs: saleCogs,
+    returned_cogs: returnedCogs,
+    net_cogs: netCogs,
+    gross_profit: grossProfit,
     purchases: round2(agg.purchases ?? 0),
-    cash_sales: 0,   // not available in historical daily summaries
-    credit_sales: 0, // not available in historical daily summaries
-    expenses: round2(agg.expenses ?? 0),
-    net_profit: round2(agg.net_profit ?? 0),
+    cash_sales: round2(agg.cash_sales ?? 0),
+    credit_sales: round2(agg.credit_sales ?? 0),
+    expenses,
+    net_profit: netProfit,
   };
 }
 
