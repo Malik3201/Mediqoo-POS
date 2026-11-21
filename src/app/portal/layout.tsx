@@ -446,19 +446,6 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <header className="sticky top-0 z-30 h-14 sm:h-16 bg-gradient-to-r from-[#111834] via-[#17234E] to-[#112A48] border-b border-white/10 px-3 sm:px-5 lg:px-6 flex items-center justify-between gap-2 sm:gap-3 text-white shadow-[0_4px_20px_-6px_rgba(17,24,52,0.45)]">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <Link
-            href="/portal/dashboard"
-            className="flex items-center gap-2 bg-white/[0.08] border border-white/15 rounded-xl px-2 sm:px-2.5 py-1.5 shadow-xs hover:border-teal-400/50 transition-colors shrink-0 group"
-            title="AivraSol Executive Owner Portal"
-          >
-            <div className="w-5 h-5 rounded-md bg-gradient-to-br from-teal-300 to-cyan-400 flex items-center justify-center font-black text-[#111834] text-xs shadow-xs">
-              A
-            </div>
-            <span className="font-extrabold text-[13px] tracking-tight text-white hidden xs:inline">
-              Aivra<span className="text-teal-300">Sol</span>
-            </span>
-          </Link>
-          <div className="h-6 w-px bg-white/15 shrink-0" />
-          <Link
             href="/portal/profile"
             className="flex items-center gap-2.5 min-w-0 flex-1 group hover:opacity-95 transition-opacity"
             title="View Pharmacy Profile & Owner Card"
