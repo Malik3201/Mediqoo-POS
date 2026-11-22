@@ -7,6 +7,7 @@ import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import { deriveOperationalStatus, deriveBillingStatus } from "@/lib/status";
+import { resolveCloudServicesState, type CloudServicesSummary } from "@/lib/cloud-services";
 import { format } from "date-fns";
 import { RenewalVoucherModal } from "@/components/billing/RenewalVoucherModal";
 
@@ -183,6 +184,7 @@ export default function LicensesPage() {
   const [revokeReason, setRevokeReason] = useState("");
   const [terminalLicense, setTerminalLicense] = useState<License | null>(null);
   const [whatsappTarget, setWhatsappTarget] = useState<License | null>(null);
+  const [cloudServicesTarget, setCloudServicesTarget] = useState<any | null>(null);
   const [billingTarget, setBillingTarget] = useState<License | null>(null);
   const [billingForm, setBillingForm] = useState({
     enabled: false,
@@ -394,52 +396,6 @@ export default function LicensesPage() {
         data: { status: "active", revoked_at: null, revoked_reason: null }
       });
       toast.success("License reactivated");
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  }
-
-  async function toggleCloud(lic: License) {
-    const currentVal = lic.features?.cloud_dashboard === true;
-    try {
-      const res = await fetch(`/api/admin/licenses/${lic.id}/cloud`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !currentVal })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to toggle cloud dashboard");
-      
-      await queryClient.invalidateQueries({ queryKey: ["licenses"] });
-      
-      toast.success(
-        data.changed 
-          ? `Cloud Dashboard ${!currentVal ? "enabled" : "disabled"}` 
-          : "Cloud Dashboard state already matches"
-      );
-    } catch (error: any) {
-      toast.error(error.message);
-    }
-  }
-
-  async function toggleCloudBackup(lic: License) {
-    const currentVal = lic.features?.cloud_backup === true;
-    try {
-      const res = await fetch(`/api/admin/licenses/${lic.id}/cloud-backup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !currentVal })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to toggle cloud backup");
-      
-      await queryClient.invalidateQueries({ queryKey: ["licenses"] });
-      
-      toast.success(
-        data.changed 
-          ? `Cloud Backup ${!currentVal ? "enabled" : "disabled"}` 
-          : "Cloud Backup state already matches"
-      );
     } catch (error: any) {
       toast.error(error.message);
     }
@@ -817,24 +773,22 @@ export default function LicensesPage() {
               <TableHead>Expires</TableHead>
               <TableHead>Billing</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Cloud</TableHead>
-              <TableHead>Backup</TableHead>
+              <TableHead>Cloud Services</TableHead>
               <TableHead>Online Orders</TableHead>
-              <TableHead>WhatsApp Alerts</TableHead>
               <TableHead>Fresh Start</TableHead>
-              <TableHead className="w-[180px] text-right" />
+              <TableHead className="w-[140px] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                   No licenses found. Issue one to get started.
                 </TableCell>
               </TableRow>
@@ -882,95 +836,163 @@ export default function LicensesPage() {
                     </TableCell>
                     <TableCell>
                       {r.billing?.enabled ? (
-                        <div className="flex flex-col gap-1 text-xs">
-                          {r.billing.setup_type === "installation" && (
-                            <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                              Install • {r.billing.currency || "PKR"}{" "}
-                              {Number(r.billing.installation_charges || 0).toLocaleString()}
-                              {r.billing.setup_payment_status === "paid"
-                                ? " (Paid)"
-                                : r.billing.setup_payment_status === "partially_paid"
-                                ? " (Partial)"
-                                : " (Due)"}
-                            </span>
-                          )}
-                          {r.billing.setup_type === "lifetime" && (
-                            <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                              Lifetime • {r.billing.currency || "PKR"}{" "}
-                              {Number(r.billing.lifetime_amount || 0).toLocaleString()}
-                              {r.billing.setup_payment_status === "paid"
-                                ? " (Settled)"
-                                : r.billing.setup_payment_status === "partially_paid"
-                                ? " (Partial)"
-                                : " (Due)"}
-                            </span>
-                          )}
-                          {r.billing.recurring_enabled !== false ? (
-                            r.billing.model === "per_invoice" ? (
-                              <span className="font-semibold text-primary">
-                                Per Invoice • {r.billing.currency} {r.billing.rate_per_invoice ?? 1}/inv
-                              </span>
-                            ) : (
-                              <span className="font-semibold text-primary">
-                                Fixed • {r.billing.currency} {r.billing.amount?.toLocaleString()}/
-                                {r.billing.cycle?.charAt(0) === "y" ? "yr" : "mo"}
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">
-                              No Recurring Schedule
-                            </span>
-                          )}
-                          {r.billing.pending_changes && (
-                            <span className="text-amber-600 flex items-center gap-1">
-                              <Clock className="h-3 w-3" /> Scheduled change
-                            </span>
-                          )}
-                        </div>
+                        (() => {
+                          const isRenewalDue =
+                            r.billing.recurring_enabled !== false &&
+                            (billingStatus === "Overdue" ||
+                              billingStatus === "Due Today" ||
+                              billingStatus === "Due Tomorrow" ||
+                              billingStatus === "Due Soon" ||
+                              billingStatus === "Unpaid" ||
+                              billingStatus === "Partially Paid" ||
+                              operationalStatus === "Renewal Required" ||
+                              operationalStatus === "Grace Period");
+                          return (
+                            <div className="flex flex-col items-start gap-1 text-xs">
+                              {r.billing.setup_type === "installation" && (
+                                <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                                  Install • {r.billing.currency || "PKR"}{" "}
+                                  {Number(r.billing.installation_charges || 0).toLocaleString()}
+                                  {r.billing.setup_payment_status === "paid"
+                                    ? " (Paid)"
+                                    : r.billing.setup_payment_status === "partially_paid"
+                                    ? " (Partial)"
+                                    : " (Due)"}
+                                </span>
+                              )}
+                              {r.billing.setup_type === "lifetime" && (
+                                <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                                  Lifetime • {r.billing.currency || "PKR"}{" "}
+                                  {Number(r.billing.lifetime_amount || 0).toLocaleString()}
+                                  {r.billing.setup_payment_status === "paid"
+                                    ? " (Settled)"
+                                    : r.billing.setup_payment_status === "partially_paid"
+                                    ? " (Partial)"
+                                    : " (Due)"}
+                                </span>
+                              )}
+                              {r.billing.recurring_enabled !== false ? (
+                                r.billing.model === "per_invoice" ? (
+                                  <span className="font-semibold text-primary">
+                                    Per Invoice • {r.billing.currency} {r.billing.rate_per_invoice ?? 1}/inv
+                                  </span>
+                                ) : (
+                                  <span className="font-semibold text-primary">
+                                    Fixed • {r.billing.currency} {r.billing.amount?.toLocaleString()}/
+                                    {r.billing.cycle?.charAt(0) === "y" ? "yr" : "mo"}
+                                  </span>
+                                )
+                              ) : (
+                                <span className="text-[11px] text-muted-foreground">
+                                  No Recurring
+                                </span>
+                              )}
+                              {r.billing.pending_changes && (
+                                <span className="text-amber-600 flex items-center gap-1 text-[11px]">
+                                  <Clock className="h-3 w-3" /> Scheduled change
+                                </span>
+                              )}
+                              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                                <Badge variant={billingVariant(billingStatus)} className="text-[10px] uppercase tracking-wider">
+                                  {billingStatus}
+                                </Badge>
+                                {isRenewalDue ? (
+                                  <Button
+                                    size="sm"
+                                    variant="default"
+                                    className="h-6 px-2 text-[11px]"
+                                    title="Record Payment & Renew"
+                                    onClick={() => (window.location.href = "/billing")}
+                                  >
+                                    Renew
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 px-2 text-[11px]"
+                                  title="Manage Billing Settings"
+                                  onClick={() => openBilling(r)}
+                                >
+                                  Manage
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })()
                       ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
+                        <div className="flex flex-col items-start gap-1 text-xs">
+                          <span className="text-muted-foreground">Not Enabled</span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[11px]"
+                            title="Enable Billing"
+                            onClick={() => openBilling(r, true)}
+                          >
+                            Enable
+                          </Button>
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-col items-start gap-1">
-                        <Badge variant={statusVariant(operationalStatus)}>{operationalStatus}</Badge>
-                        {r.billing?.enabled && (
-                          <Badge variant={billingVariant(billingStatus)} className="text-[10px] uppercase opacity-90 tracking-wider">
-                            {billingStatus}
-                          </Badge>
-                        )}
-                      </div>
+                      <Badge variant={statusVariant(operationalStatus)}>{operationalStatus}</Badge>
                     </TableCell>
                     <TableCell>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="h-7 text-xs px-2"
-                        onClick={() => toggleCloud(r)}
-                      >
-                        {r.features?.cloud_dashboard ? "Enabled" : "Disabled"}
-                      </Button>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="h-7 text-xs px-2"
-                          onClick={() => toggleCloudBackup(r)}
-                        >
-                          {r.features?.cloud_backup ? "Enabled" : "Disabled"}
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-primary"
-                          title="Cloud Backup & Recovery Secret"
-                          onClick={() => openBackupSecurity(r)}
-                        >
-                          <ShieldCheck className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      {(() => {
+                        const cs: CloudServicesSummary =
+                          r.cloud_services ||
+                          resolveCloudServicesState({
+                            features: r.features,
+                            whatsappAlerts: r.whatsapp_alerts,
+                          });
+                        const isEnabled = cs.overallStatus === "enabled";
+                        const isAttention = cs.overallStatus === "needs_attention";
+                        const label = isEnabled
+                          ? "Enabled"
+                          : isAttention
+                          ? "Needs Attention"
+                          : "Disabled";
+                        const cls = isEnabled
+                          ? "border-emerald-500 text-emerald-700 dark:text-emerald-400 font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                          : isAttention
+                          ? "border-amber-500 bg-amber-500/10 text-amber-700 dark:text-amber-400 font-semibold hover:bg-amber-500/20"
+                          : "text-muted-foreground";
+                        const subHint = isEnabled
+                          ? cs.whatsapp.status === "connected"
+                            ? "Sync · Backup · WA Connected"
+                            : cs.whatsapp.status === "disconnected" || cs.whatsapp.status === "error"
+                            ? `WA ${cs.whatsapp.status === "disconnected" ? "Disconnected" : "Error"}`
+                            : cs.recovery === "setup_required"
+                            ? "Recovery Setup Pending"
+                            : "Sync · Backup · WA Ready"
+                          : isAttention
+                          ? cs.issues[0] || "Check details"
+                          : null;
+                        return (
+                          <div className="flex flex-col items-start gap-0.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={`h-7 text-xs px-2.5 gap-1.5 ${cls}`}
+                              onClick={() => setCloudServicesTarget(r)}
+                              title="Manage Cloud Sync, Automatic Backup, Recovery, and WhatsApp Owner Alerts"
+                            >
+                              {isAttention ? (
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                              ) : (
+                                <Cloud className="h-3.5 w-3.5 shrink-0" />
+                              )}
+                              {label}
+                            </Button>
+                            {subHint && (
+                              <span className="text-[10px] text-muted-foreground pl-0.5 max-w-[165px] truncate" title={subHint}>
+                                {subHint}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Button
@@ -984,51 +1006,6 @@ export default function LicensesPage() {
                           ? "Allowed"
                           : "Disabled"}
                       </Button>
-                    </TableCell>
-                    <TableCell>
-                      {(() => {
-                        const wa = r.whatsapp_alerts || { status: "not_configured", masked_sender: null };
-                        const st = wa.status || "not_configured";
-                        const label =
-                          st === "connected"
-                            ? "Connected"
-                            : st === "disconnected"
-                            ? "Disconnected"
-                            : st === "error"
-                            ? "Error"
-                            : st === "waiting_for_qr"
-                            ? "Waiting QR"
-                            : st === "connecting"
-                            ? "Connecting"
-                            : "Not Configured";
-                        const cls =
-                          st === "connected"
-                            ? "border-emerald-500 text-emerald-700 dark:text-emerald-400 font-semibold"
-                            : st === "disconnected" || st === "waiting_for_qr"
-                            ? "border-amber-400 text-amber-700 dark:text-amber-400 font-medium"
-                            : st === "error"
-                            ? "border-rose-400 text-rose-600 font-semibold"
-                            : "text-muted-foreground";
-                        return (
-                          <div className="flex flex-col items-start gap-0.5">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className={`h-7 text-xs px-2 ${cls}`}
-                              onClick={() => setWhatsappTarget(r)}
-                              title="View license WhatsApp Owner Alerts status"
-                            >
-                              <MessageSquare className="h-3 w-3 mr-1" />
-                              {label}
-                            </Button>
-                            {wa.masked_sender && (
-                              <span className="text-[10px] font-mono text-muted-foreground pl-0.5">
-                                {wa.masked_sender}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()}
                     </TableCell>
                     <TableCell>
                       {(() => {
@@ -1065,18 +1042,11 @@ export default function LicensesPage() {
                       })()}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end items-center gap-1">
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Cloud Backup & Recovery Secret"
-                          onClick={() => openBackupSecurity(r)}
-                        >
-                          <ShieldCheck className="h-4 w-4 text-primary" />
-                        </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
+                          className="h-8 w-8"
                           title="View terminals"
                           onClick={() => setTerminalLicense(r)}
                         >
@@ -1085,55 +1055,22 @@ export default function LicensesPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          title="Billing Settings"
-                          onClick={() => openBilling(r)}
-                        >
-                          <CreditCard className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
+                          className="h-8 w-8 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
                           title="Open or 1-Click Generate Official Payment Voucher"
-                          className="h-8 gap-1 px-2 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950/30"
                           disabled={generatingVoucherFor === r.id}
                           onClick={() => openOrGenerateLicenseVoucher(r)}
                         >
                           {generatingVoucherFor === r.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            <FileText className="h-3.5 w-3.5" />
+                            <FileText className="h-4 w-4" />
                           )}
-                          Voucher
                         </Button>
-                        {r.billing?.enabled ? (
-                          r.billing.recurring_enabled !== false && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              title="Record Payment & Renew"
-                              className="h-8 ml-1"
-                              onClick={() => (window.location.href = "/billing")}
-                            >
-                              Renew
-                            </Button>
-                          )
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            title="Enable Billing"
-                            className="h-8 ml-1"
-                            onClick={() => openBilling(r, true)}
-                          >
-                            Enable Billing
-                          </Button>
-                        )}
-                      </div>
-                      <div className="mt-2 flex justify-end gap-1">
                         {r.status === "active" ? (
                           <Button
                             size="icon"
                             variant="ghost"
+                            className="h-8 w-8"
                             title="Revoke license"
                             onClick={() => setRevokeTarget(r)}
                           >
@@ -1143,13 +1080,14 @@ export default function LicensesPage() {
                           <Button
                             size="icon"
                             variant="ghost"
+                            className="h-8 w-8"
                             title="Reactivate license"
                             onClick={() => reactivate(r.id)}
                           >
                             <RefreshCw className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button size="icon" variant="ghost" onClick={() => remove(r.id)}>
+                        <Button size="icon" variant="ghost" className="h-8 w-8" title="Delete license" onClick={() => remove(r.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -2148,6 +2086,24 @@ export default function LicensesPage() {
         </DialogContent>
       </Dialog>
 
+      {cloudServicesTarget && (
+        <CloudServicesDialog
+          license={cloudServicesTarget}
+          onClose={() => setCloudServicesTarget(null)}
+          onChanged={async () => {
+            await queryClient.invalidateQueries({ queryKey: ["licenses"] });
+          }}
+          onManageRecovery={(lic) => {
+            setCloudServicesTarget(null);
+            void openBackupSecurity(lic);
+          }}
+          onViewWhatsApp={(lic) => {
+            setCloudServicesTarget(null);
+            setWhatsappTarget(lic);
+          }}
+        />
+      )}
+
       {whatsappTarget && (
         <WhatsAppStatusDialog
           license={whatsappTarget}
@@ -2155,6 +2111,338 @@ export default function LicensesPage() {
         />
       )}
     </div>
+  );
+}
+
+function CloudServicesDialog({
+  license,
+  onClose,
+  onChanged,
+  onManageRecovery,
+  onViewWhatsApp,
+}: {
+  license: any;
+  onClose: () => void;
+  onChanged: () => Promise<void>;
+  onManageRecovery: (lic: any) => void;
+  onViewWhatsApp: (lic: any) => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [mutating, setMutating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<CloudServicesSummary>(
+    license.cloud_services ||
+      resolveCloudServicesState({
+        features: license.features,
+        whatsappAlerts: license.whatsapp_alerts,
+      })
+  );
+
+  const loadLiveState = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/licenses/${encodeURIComponent(license.id)}/cloud-services`);
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setError(json?.error || "Could not load Cloud Services status.");
+      } else {
+        setState({
+          overallStatus: json.overallStatus,
+          cloud: json.cloud,
+          backup: json.backup,
+          recovery: json.recovery,
+          recoveryUpdatedAt: json.recoveryUpdatedAt || null,
+          backupCount: json.backupCount,
+          whatsapp: json.whatsapp,
+          issues: json.issues || [],
+        });
+      }
+    } catch (e: any) {
+      setError(e?.message || "Network error");
+    } finally {
+      setLoading(false);
+    }
+  }, [license.id]);
+
+  useEffect(() => {
+    void loadLiveState();
+  }, [loadLiveState]);
+
+  async function applyToggle(nextEnabled: boolean) {
+    if (!nextEnabled) {
+      const ok = window.confirm(
+        `Disable Cloud Services for ${license.projects?.name || "this pharmacy"}?\n\n` +
+          "This disables Cloud Sync and Automatic Cloud Backup on POS.\n" +
+          "Existing cloud data, backups, recovery secret, and WhatsApp credentials are preserved safely for future re-enable."
+      );
+      if (!ok) return;
+    }
+
+    setMutating(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/licenses/${encodeURIComponent(license.id)}/cloud-services`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: nextEnabled }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || "Failed updating Cloud Services");
+      }
+
+      setState({
+        overallStatus: json.overallStatus,
+        cloud: json.cloud,
+        backup: json.backup,
+        recovery: json.recovery,
+        recoveryUpdatedAt: json.recoveryUpdatedAt || null,
+        backupCount: json.backupCount,
+        whatsapp: json.whatsapp,
+        issues: json.issues || [],
+      });
+      await onChanged();
+
+      if (nextEnabled) {
+        if (json.overallStatus === "needs_attention") {
+          toast.warning("Cloud Services enabled with attention item", {
+            description: json.issues?.[0] || "Check Recovery status.",
+          });
+        } else {
+          toast.success("Cloud Services enabled", {
+            description: "Cloud Sync, Automatic Backup, and WhatsApp availability active.",
+          });
+        }
+      } else {
+        toast.success("Cloud Services disabled", {
+          description: "Existing backups, recovery secret, and WhatsApp setup were preserved.",
+        });
+      }
+    } catch (e: any) {
+      setError(e?.message || "Update failed");
+      toast.error(e?.message || "Failed updating Cloud Services");
+    } finally {
+      setMutating(false);
+    }
+  }
+
+  const overallBadgeVariant =
+    state.overallStatus === "enabled"
+      ? "default"
+      : state.overallStatus === "needs_attention"
+      ? "secondary"
+      : "outline";
+
+  const overallLabel =
+    state.overallStatus === "enabled"
+      ? "Enabled"
+      : state.overallStatus === "needs_attention"
+      ? "Needs Attention"
+      : "Disabled";
+
+  const recoveryLabel =
+    state.recovery === "ready"
+      ? "Ready"
+      : state.recovery === "conflict"
+      ? "Needs Attention"
+      : "Setup Required";
+
+  const waLabel =
+    state.whatsapp.status === "connected"
+      ? "Connected"
+      : state.whatsapp.status === "disconnected"
+      ? "Disconnected"
+      : state.whatsapp.status === "error"
+      ? "Error"
+      : state.whatsapp.status === "configured"
+      ? state.whatsapp.rawStatus === "waiting_for_qr"
+        ? "Waiting for QR"
+        : "Configured"
+      : state.whatsapp.status === "available_not_configured"
+      ? "Setup Required"
+      : "Disabled";
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center justify-between gap-2 pr-6">
+            <span className="flex items-center gap-2">
+              <Cloud className="h-5 w-5 text-primary" />
+              Cloud Services
+            </span>
+            <Badge variant={overallBadgeVariant}>{overallLabel}</Badge>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 text-sm">
+          <div className="rounded-lg border bg-muted/30 px-3.5 py-2.5 text-xs">
+            <p className="font-semibold text-foreground">{license.projects?.name || "Pharmacy POS"}</p>
+            <p className="text-muted-foreground mt-0.5">
+              Client: {license.clients?.name ?? "—"} · <span className="font-mono">{license.license_key?.slice(0, 16)}…</span>
+            </p>
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-2.5 text-xs text-destructive">
+              {error}
+            </div>
+          )}
+
+          {state.issues.length > 0 && (
+            <div className="rounded-lg border border-amber-400/60 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200 space-y-1">
+              <p className="font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5" /> Attention Required
+              </p>
+              {state.issues.map((issue, idx) => (
+                <p key={idx}>• {issue}</p>
+              ))}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="py-6 text-center text-xs text-muted-foreground flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Checking Cloud Services status…
+            </div>
+          ) : (
+            <div className="divide-y rounded-lg border bg-card">
+              {/* 1. Cloud Sync */}
+              <div className="flex items-center justify-between px-3.5 py-2.5">
+                <div>
+                  <p className="font-medium text-xs">Cloud Sync</p>
+                  <p className="text-[11px] text-muted-foreground">Owner Portal &amp; cloud analytics</p>
+                </div>
+                <Badge variant={state.cloud === "enabled" ? "default" : "outline"} className="text-[11px]">
+                  {state.cloud === "enabled" ? "Enabled" : "Disabled"}
+                </Badge>
+              </div>
+
+              {/* 2. Automatic Backup */}
+              <div className="flex items-center justify-between px-3.5 py-2.5">
+                <div>
+                  <p className="font-medium text-xs">Automatic Backup</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Encrypted cloud backups{typeof state.backupCount === "number" ? ` · ${state.backupCount} / 2 stored` : ""}
+                  </p>
+                </div>
+                <Badge variant={state.backup === "enabled" ? "default" : "outline"} className="text-[11px]">
+                  {state.backup === "enabled" ? "Enabled" : "Disabled"}
+                </Badge>
+              </div>
+
+              {/* 3. Recovery */}
+              <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
+                <div>
+                  <p className="font-medium text-xs">Recovery</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {state.recovery === "ready"
+                      ? "Permanent recovery secret stored safely"
+                      : state.recovery === "conflict"
+                      ? "Existing secret needs admin inspection"
+                      : "Set automatically from Main POS"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Badge
+                    variant={
+                      state.recovery === "ready"
+                        ? "default"
+                        : state.recovery === "conflict"
+                        ? "destructive"
+                        : "secondary"
+                    }
+                    className="text-[11px]"
+                  >
+                    {recoveryLabel}
+                  </Badge>
+                  {(state.recovery === "ready" || state.recovery === "conflict" || (state.backupCount ?? 0) > 0) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() => onManageRecovery(license)}
+                    >
+                      Manage
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* 4. WhatsApp Owner Alerts */}
+              <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
+                <div className="min-w-0">
+                  <p className="font-medium text-xs">WhatsApp Owner Alerts</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {state.whatsapp.status === "connected" && state.whatsapp.maskedSender
+                      ? `Sender ${state.whatsapp.maskedSender} · ${state.whatsapp.recipientCount} recipient(s)`
+                      : state.whatsapp.status === "available_not_configured"
+                      ? "Available — configure from Main POS"
+                      : state.whatsapp.status === "disabled"
+                      ? "Enable Cloud Services to make available"
+                      : state.whatsapp.lastError || "Manage GREEN-API & QR from Main POS"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Badge
+                    variant={
+                      state.whatsapp.status === "connected"
+                        ? "default"
+                        : state.whatsapp.status === "error" || state.whatsapp.status === "disconnected"
+                        ? "destructive"
+                        : "secondary"
+                    }
+                    className="text-[11px]"
+                  >
+                    {waLabel}
+                  </Badge>
+                  {state.whatsapp.configured && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() => onViewWhatsApp(license)}
+                    >
+                      Details
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex flex-wrap items-center justify-between gap-2 sm:justify-between">
+          <div>
+            {state.overallStatus === "enabled" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                disabled={mutating || loading}
+                onClick={() => void applyToggle(false)}
+              >
+                {mutating && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                Disable Cloud Services
+              </Button>
+            ) : (
+              <Button
+                variant="default"
+                size="sm"
+                disabled={mutating || loading}
+                onClick={() => void applyToggle(true)}
+              >
+                {mutating && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                {state.overallStatus === "needs_attention" ? "Sync & Enable All" : "Enable Cloud Services"}
+              </Button>
+            )}
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={mutating}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

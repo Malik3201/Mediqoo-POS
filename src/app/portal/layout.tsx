@@ -170,6 +170,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   }, [pathname]);
 
   useEffect(() => {
+    setLogoError(false);
+  }, [me?.pharmacy_logo]);
+
+  useEffect(() => {
     if (isPublicPage || !me) return;
 
     let cancelled = false;

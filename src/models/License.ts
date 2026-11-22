@@ -62,6 +62,17 @@ export interface ILicense extends Document {
     updated_at: Date;
     updated_by?: string;
   };
+  /** License-scoped pharmacy branding (logo asset stored in R2; synced via lightweight branding_version). */
+  branding?: {
+    logo_url?: string | null;
+    logo_object_key?: string | null;
+    logo_thumb_url?: string | null;
+    logo_thumb_object_key?: string | null;
+    logo_removed?: boolean;
+    branding_version: number;
+    updated_at?: Date | null;
+    updated_by?: string | null;
+  };
   /**
    * Legacy Go-Live permission field (compatibility-only deserialization for historical docs).
    * Deprecated: does NOT drive Fresh Start authorization.
@@ -165,6 +176,19 @@ const LicenseSchema = new Schema<ILicense>(
         updated_by: { type: String },
       }, { _id: false }),
       default: null,
+    },
+    branding: {
+      type: new Schema({
+        logo_url: { type: String, default: null },
+        logo_object_key: { type: String, default: null },
+        logo_thumb_url: { type: String, default: null },
+        logo_thumb_object_key: { type: String, default: null },
+        logo_removed: { type: Boolean, default: false },
+        branding_version: { type: Number, default: 0 },
+        updated_at: { type: Date, default: null },
+        updated_by: { type: String, default: null },
+      }, { _id: false }),
+      default: () => ({ branding_version: 0, logo_removed: false }),
     },
     go_live: {
       type: new Schema({

@@ -26,6 +26,7 @@ import BillingUsage from "@/models/BillingUsage";
 import BillingAdjustment from "@/models/BillingAdjustment";
 import WhatsAppIntegration from "@/models/WhatsAppIntegration";
 import { maskPhoneNumber } from "@/lib/whatsapp/crypto";
+import { resolveCloudServicesState } from "@/lib/cloud-services";
 
 const modelsMap: Record<string, any> = {
   "audit_logs": AuditLog,
@@ -155,6 +156,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
         const configured = Boolean(w.api_url && w.instance_id && w.token_mask);
         waMap.set(w.license_id, {
           status: configured ? w.connection_status || "waiting_for_qr" : "not_configured",
+          configured,
           enabled: Boolean(w.enabled),
           masked_sender: w.sender_number ? maskPhoneNumber(w.sender_number) : null,
           recipient_count: Array.isArray(w.recipients) ? w.recipients.length : 0,
@@ -163,14 +165,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
         });
       }
       data.forEach((d: any) => {
+        const hasRecoverySecret = Boolean(d.backup_recovery_secret?.encrypted_value);
+        const recoveryUpdatedAt = d.backup_recovery_secret?.updated_at || null;
+        // Never expose encrypted recovery secret payload in licenses list API
+        delete d.backup_recovery_secret;
+
         d.whatsapp_alerts = waMap.get(d.id) || {
           status: "not_configured",
+          configured: false,
           enabled: false,
           masked_sender: null,
           recipient_count: 0,
           last_successful_message_at: null,
           last_error: null,
         };
+        d.cloud_services = resolveCloudServicesState({
+          features: d.features,
+          hasRecoverySecret,
+          recoveryUpdatedAt,
+          whatsappAlerts: d.whatsapp_alerts,
+        });
       });
     }
 

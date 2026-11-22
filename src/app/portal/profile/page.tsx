@@ -15,6 +15,7 @@ import {
   MapPin,
   Lock,
 } from "lucide-react";
+import { PortalPharmacyLogoCard } from "@/components/portal/pharmacy-logo-card";
 
 interface ProfileData {
   profile: {
@@ -564,6 +565,12 @@ export default function OwnerProfilePage() {
 
           {!isEditing ? (
             <div className="space-y-4">
+              <PortalPharmacyLogoCard
+                pharmacyName={data.pharmacy.name}
+                currentLogoUrl={data.pharmacy.logo}
+                canEdit={data.profile.role === "owner" || data.profile.role === "admin"}
+                onChanged={fetchProfile}
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
                   <p className="text-[11px] font-bold text-slate-500 uppercase">Pharmacy Legal Name</p>

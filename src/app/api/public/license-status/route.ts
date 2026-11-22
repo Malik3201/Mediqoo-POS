@@ -293,11 +293,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const { resolveEffectivePharmacyLogo } = await import("@/lib/branding/logo-service");
+    const resolvedBranding = resolveEffectivePharmacyLogo({ license });
+
     const payload = {
       cloud_dashboard_enabled: cloudDashEnabled,
       analytics_bootstrap_needed: analyticsBootstrapNeeded,
       cloud_backup_enabled: license.features?.cloud_backup === true,
       online_orders_enabled: onlineOrdersEnabled,
+      branding_version: resolvedBranding.brandingVersion,
+      branding_logo_url: resolvedBranding.logoUrl,
       effective_status,
       expires_at: license.expires_at ? license.expires_at.toISOString() : null,
       grace_until: license.grace_until ? license.grace_until.toISOString() : null,

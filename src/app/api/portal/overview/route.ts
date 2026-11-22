@@ -925,10 +925,13 @@ export async function GET(req: NextRequest) {
       session.client_name ||
       "AivraSol Pharmacy";
 
-    const resolvedPharmacyLogo =
-      primaryState?.pharmacy_logo ||
-      project?.branding?.logo_url ||
-      null;
+    const { resolveEffectivePharmacyLogo } = await import("@/lib/branding/logo-service");
+    const resolvedBranding = resolveEffectivePharmacyLogo({
+      license: primaryLicense,
+      project,
+      portalState: primaryState,
+    });
+    const resolvedPharmacyLogo = resolvedBranding.logoUrl;
 
     return NextResponse.json({
       period: selectedPeriod,

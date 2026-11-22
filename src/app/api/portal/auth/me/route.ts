@@ -7,6 +7,8 @@ import {
 import Client from "@/models/Client";
 import OwnerPortalState from "@/models/OwnerPortalState";
 import Project from "@/models/Project";
+import License from "@/models/License";
+import { resolveEffectivePharmacyLogo } from "@/lib/branding/logo-service";
 
 /**
  * GET /api/portal/auth/me
@@ -18,17 +20,27 @@ import Project from "@/models/Project";
 export async function GET(req: NextRequest) {
   try {
     const user = await requirePortalSession(req);
-    const [client, portalState, project] = await Promise.all([
+    const [client, portalState, project, clientLicenses] = await Promise.all([
       Client.findOne({ id: user.client_id }).lean<any>(),
       OwnerPortalState.findOne({ client_id: user.client_id })
         .sort({ captured_at: -1 })
-        .select("pharmacy_name pharmacy_logo")
+        .select("pharmacy_name pharmacy_logo license_id")
         .lean<any>(),
       Project.findOne({ client_id: user.client_id })
         .sort({ updatedAt: -1 })
         .select("name branding")
         .lean<any>(),
+      License.find({ client_id: user.client_id })
+        .sort({ created_at: -1 })
+        .select("id status features branding project_id")
+        .lean<any[]>(),
     ]);
+
+    const primaryLicense =
+      clientLicenses.find((l) => l.id === portalState?.license_id) ||
+      clientLicenses.find((l) => l.status === "active") ||
+      clientLicenses[0] ||
+      null;
 
     const resolvedPharmacyName =
       portalState?.pharmacy_name ||
@@ -38,22 +50,21 @@ export async function GET(req: NextRequest) {
       user.client_name ||
       "AivraSol Pharmacy";
 
-    const resolvedPharmacyLogo =
-      portalState?.pharmacy_logo ||
-      project?.branding?.logo_url ||
-      null;
+    const resolvedBranding = resolveEffectivePharmacyLogo({
+      license: primaryLicense,
+      project,
+      portalState,
+    });
+    const resolvedPharmacyLogo = resolvedBranding.logoUrl;
 
     // Check cloud backup feature entitlement for this client
-    const License = require("@/models/License").default;
-    const hasCloudBackup = await License.exists({ 
-      client_id: user.client_id, 
-      "features.cloud_backup": true 
-    });
+    const hasCloudBackup = clientLicenses.some((l) => l.features?.cloud_backup === true);
 
     return NextResponse.json({
       ok: true,
       pharmacy_name: resolvedPharmacyName,
       pharmacy_logo: resolvedPharmacyLogo,
+      branding_version: resolvedBranding.brandingVersion,
       user: {
         id: user.id,
         name: user.name,
