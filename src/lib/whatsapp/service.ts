@@ -1492,12 +1492,11 @@ export async function runScheduledWhatsAppSummaries(now: Date = new Date()): Pro
       }
     }
 
-    // 2. Weekly summary from canonical synced analytics (works even when POS is closed!)
+    // 2. Weekly summary from canonical synced analytics (once-daily cron; evaluated in pharmacy timezone)
     if (
       prefs.weeklySummary &&
       sched.lastWeeklySummaryKey !== local.isoWeekKey &&
-      local.dayOfWeek === (sched.weeklySummaryDay ?? 0) &&
-      local.hhmm >= (sched.weeklySummaryTime || "20:00")
+      local.dayOfWeek === (sched.weeklySummaryDay ?? 0)
     ) {
       const range = getClientDateRange(tz, "7d");
       const summary = await buildServerCanonicalPeriodSummary(integ.license_id, range.start, range.end);
@@ -1527,12 +1526,11 @@ export async function runScheduledWhatsAppSummaries(now: Date = new Date()): Pro
       }
     }
 
-    // 3. Monthly summary from canonical synced analytics
+    // 3. Monthly summary from canonical synced analytics (once-daily cron; evaluated in pharmacy timezone)
     if (
       prefs.monthlySummary &&
       sched.lastMonthlySummaryKey !== local.monthKey &&
-      local.dayOfMonth === (sched.monthlySummaryDay ?? 1) &&
-      local.hhmm >= (sched.weeklySummaryTime || "20:00")
+      local.dayOfMonth === (sched.monthlySummaryDay ?? 1)
     ) {
       const range = getClientDateRange(tz, "30d");
       const summary = await buildServerCanonicalPeriodSummary(integ.license_id, range.start, range.end);
