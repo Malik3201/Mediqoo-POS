@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback } from "react";
-import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldCheck, ShieldAlert, Eye, EyeOff, Cloud, Download, HardDrive, FileText, Loader2 } from "lucide-react";
+import { KeyRound, Plus, Copy, Ban, Trash2, RefreshCw, Monitor, CreditCard, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldCheck, ShieldAlert, Eye, EyeOff, Cloud, Download, HardDrive, FileText, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useDataQuery, useDataMutation } from "@/hooks/use-data";
 import { useQueryClient } from "@tanstack/react-query";
@@ -182,6 +182,7 @@ export default function LicensesPage() {
   const [revokeTarget, setRevokeTarget] = useState<License | null>(null);
   const [revokeReason, setRevokeReason] = useState("");
   const [terminalLicense, setTerminalLicense] = useState<License | null>(null);
+  const [whatsappTarget, setWhatsappTarget] = useState<License | null>(null);
   const [billingTarget, setBillingTarget] = useState<License | null>(null);
   const [billingForm, setBillingForm] = useState({
     enabled: false,
@@ -819,6 +820,7 @@ export default function LicensesPage() {
               <TableHead>Cloud</TableHead>
               <TableHead>Backup</TableHead>
               <TableHead>Online Orders</TableHead>
+              <TableHead>WhatsApp Alerts</TableHead>
               <TableHead>Fresh Start</TableHead>
               <TableHead className="w-[180px] text-right" />
             </TableRow>
@@ -826,13 +828,13 @@ export default function LicensesPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                   Loading…
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                   No licenses found. Issue one to get started.
                 </TableCell>
               </TableRow>
@@ -982,6 +984,51 @@ export default function LicensesPage() {
                           ? "Allowed"
                           : "Disabled"}
                       </Button>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const wa = r.whatsapp_alerts || { status: "not_configured", masked_sender: null };
+                        const st = wa.status || "not_configured";
+                        const label =
+                          st === "connected"
+                            ? "Connected"
+                            : st === "disconnected"
+                            ? "Disconnected"
+                            : st === "error"
+                            ? "Error"
+                            : st === "waiting_for_qr"
+                            ? "Waiting QR"
+                            : st === "connecting"
+                            ? "Connecting"
+                            : "Not Configured";
+                        const cls =
+                          st === "connected"
+                            ? "border-emerald-500 text-emerald-700 dark:text-emerald-400 font-semibold"
+                            : st === "disconnected" || st === "waiting_for_qr"
+                            ? "border-amber-400 text-amber-700 dark:text-amber-400 font-medium"
+                            : st === "error"
+                            ? "border-rose-400 text-rose-600 font-semibold"
+                            : "text-muted-foreground";
+                        return (
+                          <div className="flex flex-col items-start gap-0.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={`h-7 text-xs px-2 ${cls}`}
+                              onClick={() => setWhatsappTarget(r)}
+                              title="View license WhatsApp Owner Alerts status"
+                            >
+                              <MessageSquare className="h-3 w-3 mr-1" />
+                              {label}
+                            </Button>
+                            {wa.masked_sender && (
+                              <span className="text-[10px] font-mono text-muted-foreground pl-0.5">
+                                {wa.masked_sender}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       {(() => {
@@ -2100,7 +2147,142 @@ export default function LicensesPage() {
           })()}
         </DialogContent>
       </Dialog>
+
+      {whatsappTarget && (
+        <WhatsAppStatusDialog
+          license={whatsappTarget}
+          onClose={() => setWhatsappTarget(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function WhatsAppStatusDialog({ license, onClose }: { license: License; onClose: () => void }) {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    fetch(`/api/admin/licenses/${encodeURIComponent(license.id)}/whatsapp`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (!active) return;
+        if (!json?.ok) setError(json?.error || "Failed loading WhatsApp status");
+        else setData(json);
+      })
+      .catch((e) => active && setError(e?.message || "Network error"))
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [license.id]);
+
+  const statusLabel =
+    data?.status === "connected"
+      ? "Connected"
+      : data?.status === "disconnected"
+      ? "Disconnected"
+      : data?.status === "error"
+      ? "Error"
+      : data?.status === "waiting_for_qr"
+      ? "Waiting for QR"
+      : data?.status === "connecting"
+      ? "Connecting"
+      : "Not Configured";
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MessageSquare className="h-5 w-5 text-emerald-600" />
+            WhatsApp Alerts — {license.projects?.name ?? license.id}
+          </DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="py-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading status…
+          </div>
+        ) : error ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        ) : (
+          <div className="space-y-4 text-sm">
+            <div className="grid grid-cols-2 gap-3 rounded-lg border bg-muted/30 p-3.5">
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Status</p>
+                <p className="font-semibold mt-0.5">{statusLabel}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Alerts Active</p>
+                <p className="font-semibold mt-0.5">{data?.enabled ? "Enabled" : "Paused / Off"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Masked Sender</p>
+                <p className="font-mono text-xs mt-0.5">{data?.maskedSender || "—"}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Recipients</p>
+                <p className="font-medium mt-0.5">{data?.recipientCount ?? 0} configured ({data?.planTier || "developer"})</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Provider / Token</p>
+                <p className="font-mono text-xs mt-0.5">
+                  {data?.provider || "green-api"} {data?.tokenMask ? `· ${data.tokenMask}` : "· Not set"}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">Last Successful Alert</p>
+                <p className="text-xs mt-0.5">
+                  {data?.lastSuccessfulMessageAt
+                    ? format(new Date(data.lastSuccessfulMessageAt), "dd MMM yyyy, h:mm a")
+                    : "Never"}
+                </p>
+              </div>
+            </div>
+
+            {data?.lastError && (
+              <div className="rounded-lg border border-rose-300 bg-rose-50 dark:bg-rose-950/30 p-2.5 text-xs text-rose-700 dark:text-rose-300">
+                <strong>Last Error:</strong> {data.lastError}
+              </div>
+            )}
+
+            {Array.isArray(data?.recentDeliveries) && data.recentDeliveries.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Recent Deliveries
+                </p>
+                <div className="max-h-44 overflow-y-auto rounded-lg border divide-y text-xs">
+                  {data.recentDeliveries.map((d: any) => (
+                    <div key={d.id} className="px-3 py-2 flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{d.title}</p>
+                        <p className="text-[11px] text-muted-foreground font-mono truncate">
+                          {d.maskedRecipient} · {d.queuedAt ? format(new Date(d.queuedAt), "dd MMM, h:mm a") : ""}
+                        </p>
+                      </div>
+                      <Badge variant={d.status === "sent" ? "default" : d.status === "failed_permanent" ? "destructive" : "secondary"}>
+                        {d.status}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

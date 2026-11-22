@@ -24,6 +24,8 @@ import LicenseRenewalInvoice from "@/models/LicenseRenewalInvoice";
 import RenewalNotification from "@/models/RenewalNotification";
 import BillingUsage from "@/models/BillingUsage";
 import BillingAdjustment from "@/models/BillingAdjustment";
+import WhatsAppIntegration from "@/models/WhatsAppIntegration";
+import { maskPhoneNumber } from "@/lib/whatsapp/crypto";
 
 const modelsMap: Record<string, any> = {
   "audit_logs": AuditLog,
@@ -139,6 +141,36 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
           // Derive effective status from actual ledger — DO NOT trust stored status
           d.effective_status = deriveEffectiveStatus(usage.total_amount, totalPaid);
         }
+      });
+    }
+
+    if (model === "licenses" && data.length > 0) {
+      const licIds = data.map((d: any) => d.id).filter(Boolean);
+      const waDocs = await WhatsAppIntegration.find({ license_id: { $in: licIds } })
+        .select("license_id enabled connection_status sender_number recipients last_successful_message_at last_error provider plan_tier token_mask api_url instance_id")
+        .lean()
+        .catch(() => []);
+      const waMap = new Map<string, any>();
+      for (const w of waDocs as any[]) {
+        const configured = Boolean(w.api_url && w.instance_id && w.token_mask);
+        waMap.set(w.license_id, {
+          status: configured ? w.connection_status || "waiting_for_qr" : "not_configured",
+          enabled: Boolean(w.enabled),
+          masked_sender: w.sender_number ? maskPhoneNumber(w.sender_number) : null,
+          recipient_count: Array.isArray(w.recipients) ? w.recipients.length : 0,
+          last_successful_message_at: w.last_successful_message_at || null,
+          last_error: w.last_error || null,
+        });
+      }
+      data.forEach((d: any) => {
+        d.whatsapp_alerts = waMap.get(d.id) || {
+          status: "not_configured",
+          enabled: false,
+          masked_sender: null,
+          recipient_count: 0,
+          last_successful_message_at: null,
+          last_error: null,
+        };
       });
     }
 
