@@ -1,8 +1,17 @@
 import crypto from "crypto";
 import type { IWhatsAppEncryptedToken } from "@/models/WhatsAppIntegration";
 
+const WHATSAPP_MASTER_FALLBACK_DEV = "aivrasol-whatsapp-credential-master-fallback-dev-only";
+
+function deriveWhatsAppKey(masterSecret: string): Buffer {
+  return crypto
+    .createHmac("sha256", "aivrasol-whatsapp-credential-encryption-v1")
+    .update(masterSecret)
+    .digest();
+}
+
 /**
- * Derives a 32-byte AES-256-GCM key using domain-separated HMAC-SHA256
+ * Derives the active 32-byte AES-256-GCM key using domain-separated HMAC-SHA256
  * strictly from server environment secrets outside MongoDB.
  */
 function getWhatsAppMasterKey(): Buffer {
@@ -11,12 +20,42 @@ function getWhatsAppMasterKey(): Buffer {
     process.env.AI_CREDENTIAL_MASTER_KEY ||
     process.env.BACKUP_SECRET_MASTER_KEY ||
     process.env.NEXTAUTH_SECRET ||
-    "aivrasol-whatsapp-credential-master-fallback-dev-only";
+    WHATSAPP_MASTER_FALLBACK_DEV;
 
-  return crypto
-    .createHmac("sha256", "aivrasol-whatsapp-credential-encryption-v1")
-    .update(masterSecret)
-    .digest();
+  return deriveWhatsAppKey(masterSecret);
+}
+
+/**
+ * Ordered decryption key candidates: active primary key first, followed by legacy
+ * fallback env secrets so tokens encrypted before `WHATSAPP_CREDENTIAL_MASTER_KEY`
+ * was provisioned continue decrypting cleanly and can be seamlessly re-encrypted.
+ */
+function getWhatsAppDecryptionKeys(): Array<{ key: Buffer; isPrimary: boolean }> {
+  const rawCandidates = [
+    process.env.WHATSAPP_CREDENTIAL_MASTER_KEY,
+    process.env.AI_CREDENTIAL_MASTER_KEY,
+    process.env.BACKUP_SECRET_MASTER_KEY,
+    process.env.NEXTAUTH_SECRET,
+    WHATSAPP_MASTER_FALLBACK_DEV,
+  ];
+
+  const seen = new Set<string>();
+  const out: Array<{ key: Buffer; isPrimary: boolean }> = [];
+
+  for (const raw of rawCandidates) {
+    if (!raw) continue;
+    if (!seen.has(raw)) {
+      seen.add(raw);
+      out.push({ key: deriveWhatsAppKey(raw), isPrimary: out.length === 0 });
+    }
+    const trimmed = raw.trim();
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      out.push({ key: deriveWhatsAppKey(trimmed), isPrimary: false });
+    }
+  }
+
+  return out;
 }
 
 export function encryptWhatsAppToken(rawToken: string): IWhatsAppEncryptedToken {
@@ -38,20 +77,36 @@ export function encryptWhatsAppToken(rawToken: string): IWhatsAppEncryptedToken 
   };
 }
 
-export function decryptWhatsAppToken(payload: IWhatsAppEncryptedToken): string {
+export function decryptWhatsAppTokenWithMeta(
+  payload: IWhatsAppEncryptedToken
+): { token: string; usedLegacyKey: boolean } {
   if (!payload?.encrypted_value || !payload?.iv || !payload?.tag) {
     throw new Error("Invalid encrypted WhatsApp token payload.");
   }
-  const key = getWhatsAppMasterKey();
-  const decipher = crypto.createDecipheriv(
-    "aes-256-gcm",
-    key,
-    Buffer.from(payload.iv, "hex")
+  const ivBuf = Buffer.from(payload.iv, "hex");
+  const tagBuf = Buffer.from(payload.tag, "hex");
+  const candidates = getWhatsAppDecryptionKeys();
+
+  let lastError: unknown = null;
+  for (const candidate of candidates) {
+    try {
+      const decipher = crypto.createDecipheriv("aes-256-gcm", candidate.key, ivBuf);
+      decipher.setAuthTag(tagBuf);
+      let decrypted = decipher.update(payload.encrypted_value, "hex", "utf8");
+      decrypted += decipher.final("utf8");
+      return { token: decrypted, usedLegacyKey: !candidate.isPrimary };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw new Error(
+    `Unable to decrypt stored WhatsApp API token (${(lastError as Error)?.message || "key mismatch"}). Please re-enter the GREEN-API token in WhatsApp Settings and save.`
   );
-  decipher.setAuthTag(Buffer.from(payload.tag, "hex"));
-  let decrypted = decipher.update(payload.encrypted_value, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
+}
+
+export function decryptWhatsAppToken(payload: IWhatsAppEncryptedToken): string {
+  return decryptWhatsAppTokenWithMeta(payload).token;
 }
 
 /**

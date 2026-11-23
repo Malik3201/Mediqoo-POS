@@ -16,7 +16,7 @@ import WhatsAppAlertDelivery from "@/models/WhatsAppAlertDelivery";
 import WhatsAppAlertState from "@/models/WhatsAppAlertState";
 import { computeFinancialSummary, getClientDateRange } from "@/lib/analytics";
 import {
-  decryptWhatsAppToken,
+  decryptWhatsAppTokenWithMeta,
   encryptWhatsAppToken,
   formatPhoneForDisplay,
   maskPhoneNumber,
@@ -104,7 +104,21 @@ export function getProviderForIntegration(integration: IWhatsAppIntegration): Wh
   if (!integration.api_url || !integration.instance_id || !integration.encrypted_api_token) {
     return null;
   }
-  const token = decryptWhatsAppToken(integration.encrypted_api_token);
+  const { token, usedLegacyKey } = decryptWhatsAppTokenWithMeta(integration.encrypted_api_token);
+  if (usedLegacyKey && integration.license_id) {
+    try {
+      const reencrypted = encryptWhatsAppToken(token);
+      integration.encrypted_api_token = reencrypted;
+      void WhatsAppIntegration.updateOne(
+        { license_id: integration.license_id },
+        { $set: { encrypted_api_token: reencrypted } }
+      ).catch((err) => {
+        console.warn("[whatsapp] Auto key-rotation re-encryption skipped:", (err as Error)?.message);
+      });
+    } catch {
+      /* non-fatal: token already decrypted cleanly */
+    }
+  }
   return createWhatsAppProvider(integration.provider || "green-api", {
     apiUrl: integration.api_url,
     instanceId: integration.instance_id,
