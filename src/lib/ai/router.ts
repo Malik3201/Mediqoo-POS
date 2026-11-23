@@ -23,6 +23,7 @@ const HEALTH_HISTORY_LIMIT = 60;
 
 export interface ExecuteInput {
   model: string;
+  modelProvider?: "groq" | "custom";
   messages: any[];
   tools?: any[];
   maxTokens: number;
@@ -61,6 +62,10 @@ function toCredSnap(c: any): CredSnapshot {
   return {
     id: c.id,
     name: c.name,
+    provider: c.provider === "custom" ? "custom" : "groq",
+    base_url: c.base_url || null,
+    default_model: c.default_model || null,
+    provider_label: c.provider_label || null,
     organization_id: c.organization_id,
     enabled: c.enabled,
     weight: c.weight,
@@ -172,6 +177,7 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
       creds: creds.map(toCredSnap),
       pools: pools.map(toPoolSnap),
       model: input.model,
+      modelProvider: input.modelProvider,
       estTokens: input.estTokens,
       now,
       excludedCredIds: excludedCreds,
@@ -215,6 +221,9 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
       continue;
     }
 
+    const credProvider: "groq" | "custom" = doc.provider === "custom" ? "custom" : "groq";
+    const providerDisplay = credProvider === "custom" ? doc.provider_label || "Custom AI provider" : "Groq";
+
     await rolloverPoolWindows(orgId, now);
     await AiOrgPool.updateOne({ organization_id: orgId }, { $inc: { in_flight_requests: 1 }, $set: { last_request_at: now } });
 
@@ -226,6 +235,8 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
         messages: input.messages,
         tools: input.tools,
         maxTokens: input.maxTokens,
+        baseUrl: credProvider === "custom" ? doc.base_url || undefined : undefined,
+        provider: credProvider,
       });
     } finally {
       await AiOrgPool.updateOne(
@@ -311,8 +322,14 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
             type: "sustained_rate_limiting",
             severity: "warning",
             title: `${orgPool?.organization_name || orgId} is being rate limited repeatedly`,
-            reason: `${updated.consecutive_429s} consecutive provider 429 responses. All keys of this Groq organization share one quota.`,
-            recommendedAction: "Reduce demand, lower pharmacy limits, or upgrade the Groq plan for this organization. Adding more keys to the same organization does not add capacity.",
+            reason:
+              credProvider === "custom"
+                ? `${updated.consecutive_429s} consecutive provider 429 responses from ${providerDisplay}.`
+                : `${updated.consecutive_429s} consecutive provider 429 responses. All keys of this Groq organization share one quota.`,
+            recommendedAction:
+              credProvider === "custom"
+                ? "Reduce demand, lower pharmacy limits, check provider plan limits, or configure a fallback provider."
+                : "Reduce demand, lower pharmacy limits, or upgrade the Groq plan for this organization. Adding more keys to the same organization does not add capacity.",
             entityType: "org_pool",
             entityId: orgId,
             entityName: orgPool?.organization_name || orgId,
@@ -335,7 +352,7 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
           type: "api_key_invalid",
           severity: "critical",
           title: `${cred.name} requires attention`,
-          reason: "Groq rejected this API key (401). It may be revoked, expired or mistyped.",
+          reason: `${providerDisplay} rejected this API key (401). It may be revoked, expired or mistyped.`,
           recommendedAction: "Open AI Management → API Keys and rotate or replace this key.",
           entityType: "credential",
           entityId: cred.id,
@@ -358,20 +375,26 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
 
       case "access_denied": {
         excludedCreds.add(cred.id);
+        const isBilling = result.httpStatus === 402;
+        const deniedReason = isBilling ? "Insufficient credits / billing required (402)" : "Access denied by provider (403)";
         await AiCredential.updateOne(
           { id: cred.id },
           {
-            $set: { status: "Needs Attention", last_failure_at: new Date(), last_failure_reason: "Access denied by provider (403)", last_http_status: 403 },
+            $set: { status: "Needs Attention", last_failure_at: new Date(), last_failure_reason: deniedReason, last_http_status: result.httpStatus ?? 403 },
             $inc: { total_failures: 1, consecutive_failures: 1, total_requests: 1 },
           }
         );
-        await pushHealth(cred.id, "Needs Attention", 403, result.latencyMs, "Access denied");
+        await pushHealth(cred.id, "Needs Attention", result.httpStatus ?? 403, result.latencyMs, isBilling ? "Billing / credits required" : "Access denied");
         await raiseAlert({
           type: "api_key_invalid",
           severity: "warning",
-          title: `${cred.name} was denied access`,
-          reason: "Groq returned 403 for this key (project/organization permission or model access).",
-          recommendedAction: "Check the key's Groq project permissions and model access.",
+          title: isBilling ? `${cred.name} has insufficient provider balance` : `${cred.name} was denied access`,
+          reason: isBilling
+            ? `${providerDisplay} returned 402 (insufficient credits or billing required).`
+            : `${providerDisplay} returned 403 for this key (project/organization permission or model access).`,
+          recommendedAction: isBilling
+            ? `Top up credits or check billing on ${providerDisplay}, or switch to another key.`
+            : `Check the key's ${providerDisplay} permissions and model access.`,
           entityType: "credential",
           entityId: cred.id,
           entityName: cred.name,
@@ -419,7 +442,7 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
             severity: "warning",
             title: `${orgPool?.organization_name || orgId} circuit breaker opened`,
             reason: `${fails} consecutive provider failures (${result.outcome}). Requests are paused for ${CIRCUIT_OPEN_MS / 1000}s.`,
-            recommendedAction: "Check the Groq status page. The gateway will retry automatically.",
+            recommendedAction: `Check ${providerDisplay} status or API endpoint health. The gateway will retry automatically.`,
             entityType: "org_pool",
             entityId: orgId,
             entityName: orgPool?.organization_name || orgId,
@@ -437,7 +460,25 @@ export async function executeChat(input: ExecuteInput, deps: ExecuteDeps = {}): 
     }
   }
 
-  // Could not be served.
+  // Could not be served for this model.
+  // If no credential even matched this specific model (e.g., cross-provider fallback),
+  // check if other usable credentials exist before firing a global outage alert.
+  if (attempts === 0 && !sawRateLimit && !sawProviderFault) {
+    const usableOther = await AiCredential.countDocuments({
+      enabled: true,
+      admin_restriction: { $ne: "test_only" },
+      status: { $nin: ["Disabled", "Invalid Credentials", "Needs Attention"] },
+    });
+    if (usableOther > 0) {
+      return {
+        ok: false,
+        error: "provider_unavailable",
+        retryAfterSeconds: 15,
+        attempts: 0,
+      };
+    }
+  }
+
   const hadAnyCreds = (await AiCredential.countDocuments({ enabled: true })) > 0;
   if (!hadAnyCreds || sawRateLimit || !sawProviderFault) {
     await raiseAlert({

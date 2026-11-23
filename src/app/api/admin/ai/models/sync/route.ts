@@ -12,11 +12,20 @@ export const maxDuration = 30;
 /** Verifies the registry against the models actually visible to a healthy configured credential. */
 export const POST = adminHandler(async (_req, actor) => {
   await seedModelsIfEmpty();
-  const candidates: any[] = await AiCredential.find({ enabled: true, status: { $in: ["Healthy", "Rate Limited", "Temporarily Unavailable"] } })
+  const candidates: any[] = await AiCredential.find({
+    provider: { $ne: "custom" },
+    enabled: true,
+    status: { $in: ["Healthy", "Rate Limited", "Temporarily Unavailable"] },
+  })
     .select("+encrypted_key")
     .limit(3);
   if (candidates.length === 0) {
-    return NextResponse.json({ ok: false, available: [], verified: 0, message: "No healthy API key is available to verify models. Add or fix a key first." });
+    return NextResponse.json({
+      ok: false,
+      available: [],
+      verified: 0,
+      message: "No healthy Groq API key is available to verify Groq models. Custom / Universal API keys are tested directly in API Keys.",
+    });
   }
 
   let available: string[] | null = null;

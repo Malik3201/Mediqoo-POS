@@ -5,6 +5,7 @@ import Project from "@/models/Project";
 import Client from "@/models/Client";
 import AnalyticsEvent from "@/models/AnalyticsEvent";
 import CloudExpense from "@/models/CloudExpense";
+import InventorySnapshot from "@/models/InventorySnapshot";
 import OwnerPortalState from "@/models/OwnerPortalState";
 import WhatsAppIntegration, {
   type IWhatsAppIntegration,
@@ -792,7 +793,7 @@ export async function sendWhatsAppTestMessage(params: {
   }
 
   const pharmacyName = await resolvePharmacyNameForLicense(params.license);
-  const text = buildTestMessageText(pharmacyName);
+  const text = buildTestMessageText(pharmacyName, integration.timezone || "Asia/Karachi");
 
   const sendRes = await provider.sendMessage({
     recipientDigits: norm.digits,
@@ -1588,7 +1589,7 @@ export async function runScheduledWhatsAppSummaries(now: Date = new Date()): Pro
  * using the exact existing `computeFinancialSummary` function — never invents new math.
  */
 async function buildServerCanonicalPeriodSummary(licenseId: string, start: Date, end: Date) {
-  const [aggByType, expenseAgg, portalState] = await Promise.all([
+  const [aggByType, expenseAgg, portalState, invSnapshot] = await Promise.all([
     AnalyticsEvent.aggregate([
       { $match: { license_id: licenseId, occurred_at: { $gte: start, $lte: end } } },
       {
@@ -1624,7 +1625,11 @@ async function buildServerCanonicalPeriodSummary(licenseId: string, start: Date,
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]),
     OwnerPortalState.findOne({ license_id: licenseId })
-      .select("receivables_total payables_total")
+      .select("receivables_total payables_total inventory_alerts products_intelligence")
+      .lean()
+      .catch(() => null),
+    InventorySnapshot.findOne({ license_id: licenseId })
+      .select("low_stock_count out_of_stock_count expiring_soon_count")
       .lean()
       .catch(() => null),
   ]);
@@ -1634,6 +1639,58 @@ async function buildServerCanonicalPeriodSummary(licenseId: string, start: Date,
   const expenseTotal = Number(expenseAgg?.[0]?.total) || 0;
   const fin = computeFinancialSummary(aggByType, expenseTotal);
   const ps: any = portalState || {};
+  const snap: any = invSnapshot || {};
+  const saleGroup = aggByType.find((g: any) => g?._id === "sale");
+  const salesCount = Number(saleGroup?.count) || 0;
+
+  // Enrich summary with top urgent low/out-of-stock item names when synced snapshots exist (read-only)
+  const intelById = new Map<string, any>();
+  if (Array.isArray(ps.products_intelligence)) {
+    for (const item of ps.products_intelligence) {
+      if (item?.product_id) intelById.set(String(item.product_id), item);
+    }
+  }
+
+  const rawLowItems: any[] = Array.isArray(ps.inventory_alerts?.low_stock_items)
+    ? ps.inventory_alerts.low_stock_items
+    : [];
+
+  const topLowStockItems = rawLowItems
+    .filter((it) => it && typeof it.name === "string" && it.name.trim())
+    .map((it) => {
+      const intel = it.product_id ? intelById.get(String(it.product_id)) : null;
+      const stock = Number(it.current_stock) || 0;
+      const supplierName =
+        (typeof intel?.last_supplier_name === "string" && intel.last_supplier_name.trim()) ||
+        (typeof it.supplier_name === "string" && it.supplier_name.trim()) ||
+        undefined;
+      return {
+        name: String(it.name).trim(),
+        stock,
+        unit: typeof intel?.unit_type === "string" && intel.unit_type.trim() ? intel.unit_type.trim() : undefined,
+        reorderLevel: Number(it.reorder_level) || undefined,
+        status: (stock <= 0 ? "out" : "low") as "out" | "low",
+        ...(supplierName ? { supplierName } : {}),
+      };
+    })
+    .sort((a, b) => {
+      if (a.status !== b.status) return a.status === "out" ? -1 : 1;
+      return a.stock - b.stock;
+    })
+    .slice(0, 3);
+
+  const outFromAlerts = rawLowItems.filter((it) => (Number(it?.current_stock) || 0) <= 0).length;
+  const lowFromAlerts = Math.max(0, rawLowItems.length - outFromAlerts);
+  const outOfStockCount =
+    typeof snap.out_of_stock_count === "number" ? snap.out_of_stock_count : outFromAlerts;
+  const lowOnlyCount =
+    typeof snap.low_stock_count === "number" ? snap.low_stock_count : lowFromAlerts;
+  const nearExpiryCount =
+    typeof snap.expiring_soon_count === "number"
+      ? snap.expiring_soon_count
+      : Array.isArray(ps.inventory_alerts?.expiring_items)
+        ? ps.inventory_alerts.expiring_items.length
+        : 0;
 
   return {
     netSales: fin.net_sales,
@@ -1644,8 +1701,14 @@ async function buildServerCanonicalPeriodSummary(licenseId: string, start: Date,
     netProfit: fin.net_profit,
     cashSales: fin.cash_sales,
     creditSales: fin.credit_sales,
+    salesCount,
     receivables: Number(ps.receivables_total) || 0,
     payables: Number(ps.payables_total) || 0,
+    outOfStockCount,
+    lowOnlyCount,
+    lowStockCount: lowOnlyCount + outOfStockCount,
+    nearExpiryCount,
+    ...(topLowStockItems.length > 0 ? { topLowStockItems } : {}),
   };
 }
 

@@ -22,9 +22,15 @@ export type CredStatus =
   | "Disabled"
   | "Needs Attention";
 
+export type AiProvider = "groq" | "custom";
+
 export interface CredSnapshot {
   id: string;
   name: string;
+  provider?: AiProvider;
+  base_url?: string | null;
+  default_model?: string | null;
+  provider_label?: string | null;
   organization_id: string;
   enabled: boolean;
   weight: number;
@@ -73,13 +79,25 @@ export function credIsRoutable(
   c: CredSnapshot,
   model: string,
   now: Date,
-  opts: { allowFallbackOnly: boolean }
+  opts: { allowFallbackOnly: boolean; modelProvider?: AiProvider }
 ): boolean {
   if (!c.enabled) return false;
   if (c.status === "Disabled" || c.status === "Invalid Credentials" || c.status === "Needs Attention") return false;
   if (c.admin_restriction === "test_only") return false;
   if (c.admin_restriction === "fallback_only" && !opts.allowFallbackOnly) return false;
   if (c.cooldown_until && c.cooldown_until.getTime() > now.getTime()) return false;
+
+  const credProvider: AiProvider = c.provider === "custom" ? "custom" : "groq";
+  if (credProvider === "custom") {
+    if (!c.base_url || !c.base_url.trim()) return false;
+    const configured = new Set<string>([...(c.allowed_models || [])]);
+    if (c.default_model && c.default_model.trim()) configured.add(c.default_model.trim());
+    // A custom credential only serves models explicitly configured on it.
+    return configured.has(model);
+  }
+
+  // Groq credential: never route a custom-provider model to a Groq API key.
+  if (opts.modelProvider === "custom") return false;
   if (c.allowed_models.length > 0 && !c.allowed_models.includes(model)) return false;
   return true;
 }
@@ -114,6 +132,7 @@ export function buildEligibleGroups(args: {
   creds: CredSnapshot[];
   pools: PoolSnapshot[];
   model: string;
+  modelProvider?: AiProvider;
   estTokens: number;
   now: Date;
   excludedCredIds: Set<string>;
@@ -124,7 +143,14 @@ export function buildEligibleGroups(args: {
   const byOrg = new Map<string, CredSnapshot[]>();
   for (const c of args.creds) {
     if (args.excludedCredIds.has(c.id)) continue;
-    if (!credIsRoutable(c, args.model, args.now, { allowFallbackOnly: args.allowFallbackOnly })) continue;
+    if (
+      !credIsRoutable(c, args.model, args.now, {
+        allowFallbackOnly: args.allowFallbackOnly,
+        modelProvider: args.modelProvider,
+      })
+    ) {
+      continue;
+    }
     const arr = byOrg.get(c.organization_id) || [];
     arr.push(c);
     byOrg.set(c.organization_id, arr);

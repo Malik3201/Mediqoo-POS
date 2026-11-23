@@ -11,7 +11,7 @@ export interface IAiModelRegistry extends Document {
   id: string;
   model_name: string;
   provider_model_id: string;
-  provider: "groq";
+  provider: "groq" | "custom";
   enabled: boolean;
   is_default: boolean;
   is_complex_default: boolean;
@@ -39,7 +39,7 @@ const AiModelRegistrySchema = new Schema<IAiModelRegistry>(
     id: { type: String, default: () => crypto.randomUUID(), unique: true, index: true },
     model_name: { type: String, required: true, trim: true },
     provider_model_id: { type: String, required: true, unique: true, trim: true, index: true },
-    provider: { type: String, default: "groq", enum: ["groq"] },
+    provider: { type: String, default: "groq", enum: ["groq", "custom"] },
     enabled: { type: Boolean, default: true },
     is_default: { type: Boolean, default: false },
     is_complex_default: { type: Boolean, default: false },

@@ -69,15 +69,21 @@ export function decryptApiKey(payload: EncryptedCredentialPayload): string {
 }
 
 /**
- * Produces a safe masked display identifier for an API key (e.g. "gsk_••••••••9x2a").
+ * Produces a safe masked display identifier for an API key (e.g. "gsk_••••••••9x2a" or "sk-••••••••9x2a").
  * Never reveals the middle or full key.
  */
 export function maskApiKey(rawKey: string): string {
   const clean = (rawKey || "").trim();
   if (clean.length <= 8) {
-    return "gsk_••••••••";
+    return clean.startsWith("gsk_") ? "gsk_••••••••" : "••••••••";
   }
-  const prefix = clean.startsWith("gsk_") ? "gsk_" : clean.slice(0, 4);
+  const prefix = clean.startsWith("gsk_")
+    ? "gsk_"
+    : clean.startsWith("sk-or-")
+      ? "sk-or-"
+      : clean.startsWith("sk-")
+        ? "sk-"
+        : clean.slice(0, 4);
   const suffix = clean.slice(-4);
   return `${prefix}••••••••${suffix}`;
 }
@@ -118,10 +124,38 @@ export function validateGroqKeyFormat(rawKey: string): { valid: boolean; reason?
 }
 
 /**
- * Scrubs any accidental gsk_ token or secret field from strings/metadata before logging.
+ * Validates an API key for a Universal / Custom OpenAI-compatible provider.
+ * Supports OpenRouter, DeepSeek, OpenAI, Together, Mistral, Fireworks, xAI, Ollama, LiteLLM, etc.
  */
-export function scrubSecretsFromText(input: string): string {
+export function validateCustomApiKeyFormat(rawKey: string): { valid: boolean; reason?: string } {
+  if (!rawKey || typeof rawKey !== "string") {
+    return { valid: false, reason: "API key is required." };
+  }
+  const clean = rawKey.trim();
+  if (clean.length < 4) {
+    return { valid: false, reason: "API key is too short (minimum 4 characters)." };
+  }
+  if (clean.length > 512) {
+    return { valid: false, reason: "API key exceeds maximum allowed length (512 characters)." };
+  }
+  if (/\s/.test(clean)) {
+    return { valid: false, reason: "API key must not contain spaces or line breaks." };
+  }
+  return { valid: true };
+}
+
+/**
+ * Scrubs any accidental API key, Bearer token, or specific secret from strings/metadata before logging.
+ */
+export function scrubSecretsFromText(input: string, extraSecret?: string): string {
   if (!input) return input;
-  return input.replace(/gsk_[A-Za-z0-9_-]{8,}/g, "gsk_[REDACTED]");
+  let out = input
+    .replace(/gsk_[A-Za-z0-9_-]{8,}/g, "gsk_[REDACTED]")
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, "sk-[REDACTED]")
+    .replace(/Bearer\s+[A-Za-z0-9._\-+/=]{8,}/gi, "Bearer [REDACTED]");
+  if (extraSecret && extraSecret.length >= 4) {
+    out = out.split(extraSecret).join("[REDACTED]");
+  }
+  return out;
 }
 

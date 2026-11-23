@@ -57,7 +57,7 @@ export const GET = adminHandler(async () => {
     reason = "AI is switched off globally in AI Settings.";
   } else if (enabled.length === 0) {
     status = "Unavailable";
-    reason = "No API key is configured yet. Add a Groq key in API Keys.";
+    reason = "No API key is configured yet. Add a Groq or Universal / Custom API key in API Keys.";
   } else if (routable.length === 0) {
     status = "Unavailable";
     reason = poolBlocked.size ? "Every provider pool is rate limited or paused right now." : "No healthy API key is available.";

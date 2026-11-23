@@ -6,6 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 /* Types (mirror AI_CONTRACT.md section A)                             */
 /* ------------------------------------------------------------------ */
 
+export type AiProvider = "groq" | "custom";
+
 export type KeyStatus =
   | "Healthy"
   | "Rate Limited"
@@ -17,6 +19,11 @@ export type KeyStatus =
 export type AiKey = {
   id: string;
   name: string;
+  provider: AiProvider;
+  base_url: string | null;
+  default_model: string | null;
+  provider_label: string | null;
+  allowed_models: string[];
   organization_id: string;
   organization_name: string;
   masked_key: string;
@@ -40,6 +47,8 @@ export type AiKey = {
 export type AiPool = {
   organization_id: string;
   organization_name: string;
+  provider?: AiProvider;
+  provider_label?: string | null;
   status: string;
   rate_limited_until: string | null;
   circuit_open_until: string | null;
@@ -96,6 +105,7 @@ export type AiModel = {
   id: string;
   model_name: string;
   provider_model_id: string;
+  provider?: AiProvider;
   enabled: boolean;
   is_default: boolean;
   is_complex_default: boolean;
@@ -367,12 +377,18 @@ export function useAiMutation<TVars, TRes>(fn: (vars: TVars) => Promise<TRes>) {
 
 export const aiApi = {
   createKey: (body: {
-    name: string;
-    organization_id: string;
-    organization_name: string;
+    name?: string;
+    provider?: AiProvider;
+    base_url?: string;
+    default_model?: string;
+    provider_label?: string;
+    allowed_models?: string[];
+    set_as_primary?: boolean;
+    organization_id?: string;
+    organization_name?: string;
     api_key: string;
     weight?: number;
-  }) => aiFetch<{ key: AiKey }>("/keys", { method: "POST", json: body }),
+  }) => aiFetch<{ key: AiKey; model?: AiModel }>("/keys", { method: "POST", json: body }),
   patchKey: (id: string, body: Record<string, unknown>) =>
     aiFetch<{ key: AiKey }>(`/keys/${id}`, { method: "PATCH", json: body }),
   deleteKey: (id: string) => aiFetch<{ ok: true }>(`/keys/${id}`, { method: "DELETE" }),
@@ -381,8 +397,14 @@ export const aiApi = {
       `/keys/${id}/test`,
       { method: "POST" },
     ),
-  createModel: (body: Partial<AiModel> & { model_name: string; provider_model_id: string }) =>
-    aiFetch<{ model: AiModel }>("/models", { method: "POST", json: body }),
+  createModel: (
+    body: Partial<AiModel> & {
+      model_name: string;
+      provider_model_id: string;
+      provider?: AiProvider;
+      credential_id?: string;
+    },
+  ) => aiFetch<{ model: AiModel }>("/models", { method: "POST", json: body }),
   patchModel: (id: string, body: Partial<AiModel>) =>
     aiFetch<{ model: AiModel }>(`/models/${id}`, { method: "PATCH", json: body }),
   deleteModel: (id: string) => aiFetch<{ ok: true }>(`/models/${id}`, { method: "DELETE" }),

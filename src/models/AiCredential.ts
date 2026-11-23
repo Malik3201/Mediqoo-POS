@@ -17,10 +17,15 @@ export interface IAiCredentialHealthEvent {
   reason?: string | null;
 }
 
+export type AiProvider = "groq" | "custom";
+
 export interface IAiCredential extends Document {
   id: string;
   name: string;
-  provider: "groq";
+  provider: AiProvider;
+  base_url?: string | null;
+  default_model?: string | null;
+  provider_label?: string | null;
   organization_id: string;
   organization_name: string;
   masked_key: string;
@@ -68,7 +73,10 @@ const AiCredentialSchema = new Schema<IAiCredential>(
   {
     id: { type: String, default: () => crypto.randomUUID(), unique: true, index: true },
     name: { type: String, required: true, trim: true },
-    provider: { type: String, default: "groq", enum: ["groq"] },
+    provider: { type: String, default: "groq", enum: ["groq", "custom"] },
+    base_url: { type: String, default: null, trim: true },
+    default_model: { type: String, default: null, trim: true },
+    provider_label: { type: String, default: null, trim: true },
     organization_id: { type: String, required: true, trim: true, index: true },
     organization_name: { type: String, required: true, trim: true },
     masked_key: { type: String, required: true },

@@ -36,10 +36,41 @@ export type WhatsAppAlertEventType =
   | "summary.daily"
   | "summary.weekly"
   | "summary.monthly"
+  | "daily_closing.not_closed"
   // System Test
   | "system.test";
 
 export type WhatsAppAlertSeverity = "critical" | "warning" | "info";
+
+export interface WhatsAppLowStockAlertItem {
+  name: string;
+  stock: number;
+  /** Legacy alias supported for backward compatibility */
+  qty?: number;
+  unit?: string;
+  reorderLevel?: number;
+  status: "out" | "low";
+  supplierName?: string;
+}
+
+export interface WhatsAppNearExpiryAlertItem {
+  name: string;
+  batchNo?: string;
+  qty: number;
+  unit?: string;
+  daysLeft: number;
+  expiryDate?: string;
+  /** Legacy alias supported for backward compatibility */
+  expiry?: string;
+  supplierName?: string;
+}
+
+export interface WhatsAppSaleItemBrief {
+  name: string;
+  qty?: number;
+  unit?: string;
+  loss?: number;
+}
 
 export interface IncomingWhatsAppAlertEvent {
   id: string;
@@ -174,5 +205,6 @@ export const ALL_VALID_ALERT_EVENT_TYPES = new Set<string>([
   "summary.daily",
   "summary.weekly",
   "summary.monthly",
+  "daily_closing.not_closed",
   "system.test",
 ]);

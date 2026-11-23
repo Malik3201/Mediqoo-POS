@@ -3,6 +3,7 @@ import AiModelRegistry from "@/models/AiModelRegistry";
 export interface ModelSnap {
   id: string;
   provider_model_id: string;
+  provider: "groq" | "custom";
   enabled: boolean;
   availability: "unknown" | "available" | "unavailable";
   is_default: boolean;
@@ -127,7 +128,8 @@ export async function syncModelsWithProviderList(availableIds: string[]): Promis
     );
   }
 
-  const models: any[] = await AiModelRegistry.find({});
+  // Only reconcile Groq models against Groq's /models list — never delete or disable custom-provider models.
+  const models: any[] = await AiModelRegistry.find({ provider: { $ne: "custom" } });
   let verified = 0;
   const missing: string[] = [];
   const now = new Date();
@@ -154,25 +156,31 @@ export async function syncModelsWithProviderList(availableIds: string[]): Promis
   }
 
   // Ensure an available, enabled model is selected as default & complex default
-  const activeAvailable = models.filter((m) => m.enabled && m.availability === "available" && m.supports_tools);
-  if (activeAvailable.length > 0) {
-    const hasDefault = activeAvailable.some((m) => m.is_default);
+  // Respect any active enabled custom model that is already configured as default!
+  const allActiveAvailable: any[] = await AiModelRegistry.find({
+    enabled: true,
+    availability: { $ne: "unavailable" },
+    supports_tools: true,
+  }).lean();
+  const activeAvailableGroq = models.filter((m) => m.enabled && m.availability === "available" && m.supports_tools);
+  if (activeAvailableGroq.length > 0) {
+    const hasDefault = allActiveAvailable.some((m) => m.is_default);
     if (!hasDefault) {
       const preferredFast =
-        activeAvailable.find((m) => m.provider_model_id === "openai/gpt-oss-20b") ||
-        activeAvailable.find((m) => m.provider_model_id === "llama-3.1-8b-instant") ||
-        activeAvailable.find((m) => m.provider_model_id === "qwen/qwen3.8-27b") ||
-        activeAvailable[0];
+        activeAvailableGroq.find((m) => m.provider_model_id === "openai/gpt-oss-20b") ||
+        activeAvailableGroq.find((m) => m.provider_model_id === "llama-3.1-8b-instant") ||
+        activeAvailableGroq.find((m) => m.provider_model_id === "qwen/qwen3.8-27b") ||
+        activeAvailableGroq[0];
       await AiModelRegistry.updateMany({}, { $set: { is_default: false } });
       await AiModelRegistry.updateOne({ provider_model_id: preferredFast.provider_model_id }, { $set: { is_default: true } });
     }
-    const hasComplex = activeAvailable.some((m) => m.is_complex_default);
+    const hasComplex = allActiveAvailable.some((m) => m.is_complex_default);
     if (!hasComplex) {
       const preferredComplex =
-        activeAvailable.find((m) => m.provider_model_id === "openai/gpt-oss-120b") ||
-        activeAvailable.find((m) => m.provider_model_id === "llama-3.3-70b-versatile") ||
-        activeAvailable.find((m) => m.provider_model_id === "qwen/qwen3.8-27b") ||
-        activeAvailable[0];
+        activeAvailableGroq.find((m) => m.provider_model_id === "openai/gpt-oss-120b") ||
+        activeAvailableGroq.find((m) => m.provider_model_id === "llama-3.3-70b-versatile") ||
+        activeAvailableGroq.find((m) => m.provider_model_id === "qwen/qwen3.8-27b") ||
+        activeAvailableGroq[0];
       await AiModelRegistry.updateMany({}, { $set: { is_complex_default: false } });
       await AiModelRegistry.updateOne({ provider_model_id: preferredComplex.provider_model_id }, { $set: { is_complex_default: true } });
     }
@@ -231,14 +239,30 @@ export function selectModelChain(models: ModelSnap[], input: ModelSelectionInput
   if (!primary) primary = sortedCandidates.find((m) => m.usage_policy !== "fallback_only") || sortedCandidates[0];
 
   const chain: ModelSnap[] = [primary];
-  for (const m of sortedCandidates.filter((c) => c.is_fallback)) {
+  const hasMultipleProviders = new Set(sortedCandidates.map((m) => m.provider)).size > 1;
+  const maxChain = hasMultipleProviders ? 4 : 3;
+
+  // Include fallback models, making sure cross-provider fallback models are also represented.
+  const fallbacks = sortedCandidates.filter((c) => c.is_fallback && c !== primary);
+  for (const m of fallbacks) {
+    if (chain.length >= maxChain) break;
     if (!chain.includes(m)) chain.push(m);
   }
   for (const m of sortedCandidates) {
-    if (chain.length >= 3) break;
+    if (chain.length >= maxChain) break;
     if (!chain.includes(m)) chain.push(m);
   }
-  return chain.slice(0, 3);
+  // If multiple providers exist and the chain only has primary's provider, swap in a cross-provider fallback if available.
+  if (hasMultipleProviders && !chain.some((m) => m.provider !== primary.provider)) {
+    const cross =
+      fallbacks.find((m) => m.provider !== primary.provider) ||
+      sortedCandidates.find((m) => m.provider !== primary.provider);
+    if (cross) {
+      if (chain.length < maxChain) chain.push(cross);
+      else chain[chain.length - 1] = cross;
+    }
+  }
+  return chain.slice(0, maxChain);
 }
 
 export async function loadModelSnaps(): Promise<ModelSnap[]> {
@@ -247,6 +271,7 @@ export async function loadModelSnaps(): Promise<ModelSnap[]> {
   return docs.map((d) => ({
     id: d.id,
     provider_model_id: d.provider_model_id,
+    provider: d.provider === "custom" ? "custom" : "groq",
     enabled: d.enabled,
     availability: d.availability || "unknown",
     is_default: d.is_default,

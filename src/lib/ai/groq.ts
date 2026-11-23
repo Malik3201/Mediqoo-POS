@@ -1,6 +1,12 @@
 import { scrubSecretsFromText } from "./crypto";
+import {
+  GROQ_DEFAULT_BASE_URL,
+  buildOpenAiHeaders,
+  resolveChatCompletionsUrl,
+  validateAndNormalizeBaseUrl,
+} from "./universal-client";
 
-const GROQ_BASE = "https://api.groq.com/openai/v1";
+const GROQ_BASE = GROQ_DEFAULT_BASE_URL;
 
 export type ProviderOutcome =
   | "ok"
@@ -81,12 +87,12 @@ export function readRateHeaders(h: Headers): ProviderRateHeaders {
 export function classifyStatus(status: number, bodyText: string): ProviderOutcome {
   if (status >= 200 && status < 300) return "ok";
   if (status === 401) return "invalid_credentials";
-  if (status === 403) return "access_denied";
+  if (status === 402 || status === 403) return "access_denied";
   if (status === 429) return "rate_limited";
   if (
     status === 404 ||
     (status === 400 &&
-      /model_not_found|model_decommissioned|does not exist|model.*not.*exist|model.*not.*supported|decommissioned/i.test(bodyText))
+      /model_not_found|model_decommissioned|does not exist|model.*not.*exist|model.*not.*supported|decommissioned|not a valid model|unknown model|invalid model|no endpoints found/i.test(bodyText))
   ) {
     return "model_unsupported";
   }
@@ -131,14 +137,49 @@ export interface ChatCompletionInput {
   maxTokens: number;
   temperature?: number;
   timeoutMs?: number;
+  baseUrl?: string | null;
+  provider?: "groq" | "custom";
+}
+
+function normalizeMessageContent(rawContent: unknown): string | null {
+  if (typeof rawContent === "string") return rawContent;
+  if (Array.isArray(rawContent)) {
+    const joined = rawContent
+      .map((part: any) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part.text === "string") return part.text;
+        return "";
+      })
+      .join("");
+    return joined || null;
+  }
+  return null;
 }
 
 /**
- * Single provider call (no retries here — retry policy lives in the router so the
- * shared organization quota can be accounted for correctly).
+ * Single OpenAI-compatible provider call supporting both Groq and Universal / Custom API endpoints
+ * (no retries here beyond single-turn tool/parameter compatibility fallback — retry policy lives
+ * in the router so shared organization quotas are accounted for correctly).
  */
 export async function groqChat(input: ChatCompletionInput): Promise<ProviderResult> {
   const started = Date.now();
+  const isCustom = input.provider === "custom" || Boolean(input.baseUrl && input.baseUrl.trim());
+  let endpointUrl = resolveChatCompletionsUrl(null);
+  if (isCustom) {
+    const check = validateAndNormalizeBaseUrl(input.baseUrl || "");
+    if (!check.valid || !check.normalized) {
+      return {
+        outcome: "network_error",
+        httpStatus: null,
+        latencyMs: Date.now() - started,
+        headers: {},
+        errorText: check.reason || "Invalid custom API base URL.",
+      };
+    }
+    endpointUrl = resolveChatCompletionsUrl(check.normalized);
+  }
+
+  const reqHeaders = buildOpenAiHeaders(input.apiKey, endpointUrl);
   const hasTools = Boolean(input.tools && input.tools.length > 0);
   const body: any = {
     model: input.model,
@@ -150,17 +191,16 @@ export async function groqChat(input: ChatCompletionInput): Promise<ProviderResu
   if (hasTools) {
     body.tools = input.tools;
     body.tool_choice = "auto";
-    body.parallel_tool_calls = false;
+    if (!isCustom) {
+      body.parallel_tool_calls = false;
+    }
   }
 
   let res: Response;
   try {
-    res = await fetch(`${GROQ_BASE}/chat/completions`, {
+    res = await fetch(endpointUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${input.apiKey}`,
-      },
+      headers: reqHeaders,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(input.timeoutMs ?? 25_000),
       cache: "no-store",
@@ -172,17 +212,22 @@ export async function groqChat(input: ChatCompletionInput): Promise<ProviderResu
       httpStatus: null,
       latencyMs: Date.now() - started,
       headers: {},
-      errorText: scrubSecretsFromText(String(e?.message || e)).slice(0, 200),
+      errorText: scrubSecretsFromText(String(e?.message || e), input.apiKey).slice(0, 200),
     };
   }
 
   let headers = readRateHeaders(res.headers);
   let text = await res.text().catch(() => "");
 
-  // If Groq's Harmony parser rejected a malformed tool call or a tool call when tools were disabled
-  // ("Tool choice is none, but model called a tool" / "tool_use_failed"), automatically recover
-  // by requesting a plain-text response with flattened tool history.
-  if (res.status === 400 && /tool_use_failed|Tool choice is none|Failed to call a function/i.test(text)) {
+  // If a provider rejects tool definitions/tool_choice (or Groq Harmony rejects a tool call),
+  // retry once cleanly as plain-text completion with flattened history.
+  const toolRejected =
+    (res.status === 400 || res.status === 422) &&
+    /tool_use_failed|Tool choice is none|Failed to call a function|does not support tools|tools.*not.*support|function calling.*not.*support|tool_choice.*not.*support|unrecognized.*tools|unknown.*field.*tools|invalid.*tool_choice/i.test(
+      text
+    );
+
+  if (toolRejected) {
     try {
       const fallbackMessages = [
         ...flattenMessagesForPlainText(input.messages),
@@ -191,12 +236,9 @@ export async function groqChat(input: ChatCompletionInput): Promise<ProviderResu
           content: "Do NOT call any tools or functions now. Respond directly to the user in plain text using the information already gathered.",
         },
       ];
-      const retryRes = await fetch(`${GROQ_BASE}/chat/completions`, {
+      const retryRes = await fetch(endpointUrl, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${input.apiKey}`,
-        },
+        headers: reqHeaders,
         body: JSON.stringify({
           model: input.model,
           messages: fallbackMessages,
@@ -213,6 +255,26 @@ export async function groqChat(input: ChatCompletionInput): Promise<ProviderResu
     } catch {
       // Keep original response if fallback network call fails
     }
+  } else if (isCustom && res.status === 400 && /max_completion_tokens/i.test(text)) {
+    // OpenAI newer reasoning/GPT-5 models require `max_completion_tokens` instead of `max_tokens`.
+    try {
+      const retryBody: any = { ...body };
+      delete retryBody.max_tokens;
+      retryBody.max_completion_tokens = input.maxTokens;
+      if (/temperature/i.test(text)) delete retryBody.temperature;
+      const retryRes = await fetch(endpointUrl, {
+        method: "POST",
+        headers: reqHeaders,
+        body: JSON.stringify(retryBody),
+        signal: AbortSignal.timeout(input.timeoutMs ?? 20_000),
+        cache: "no-store",
+      });
+      headers = readRateHeaders(retryRes.headers);
+      text = await retryRes.text().catch(() => "");
+      res = retryRes;
+    } catch {
+      // Keep original response
+    }
   }
 
   const outcome = classifyStatus(res.status, text);
@@ -222,21 +284,28 @@ export async function groqChat(input: ChatCompletionInput): Promise<ProviderResu
       httpStatus: res.status,
       latencyMs: Date.now() - started,
       headers,
-      errorText: scrubSecretsFromText(text).slice(0, 300),
+      errorText: scrubSecretsFromText(text, input.apiKey).slice(0, 300),
     };
   }
 
   try {
     const json = JSON.parse(text);
-    const msg = json?.choices?.[0]?.message;
-    if (!msg || typeof msg !== "object") throw new Error("no message");
-    const u = json.usage || {};
-    const cached = u?.prompt_tokens_details?.cached_tokens ?? 0;
+    const rawMsg = json?.choices?.[0]?.message;
+    if (!rawMsg || typeof rawMsg !== "object") throw new Error("no message");
+    const msg = {
+      ...rawMsg,
+      content: normalizeMessageContent(rawMsg.content),
+    };
+    const u = json.usage && typeof json.usage === "object" ? json.usage : {};
+    const cached = Math.max(0, Math.round(Number(u?.prompt_tokens_details?.cached_tokens) || 0));
+    const inputTok = Math.max(0, Math.round(Number(u.prompt_tokens) || 0));
+    const outputTok = Math.max(0, Math.round(Number(u.completion_tokens) || 0));
+    const totalTok = Math.max(0, Math.round(Number(u.total_tokens) || inputTok + outputTok));
     const usage: ProviderUsage = {
-      input: Number(u.prompt_tokens) || 0,
-      output: Number(u.completion_tokens) || 0,
-      cached: Number(cached) || 0,
-      total: Number(u.total_tokens) || (Number(u.prompt_tokens) || 0) + (Number(u.completion_tokens) || 0),
+      input: inputTok,
+      output: outputTok,
+      cached,
+      total: totalTok,
     };
     return {
       outcome: "ok",
@@ -257,7 +326,9 @@ export async function groqChat(input: ChatCompletionInput): Promise<ProviderResu
   }
 }
 
-/** Lists model IDs available to this credential (used to verify the registry). */
+export const universalChat = groqChat;
+
+/** Lists model IDs available to this credential (used to verify the Groq registry). */
 export async function groqListModels(
   apiKey: string
 ): Promise<{ outcome: ProviderOutcome; httpStatus: number | null; latencyMs: number; models: string[]; errorText?: string }> {
@@ -276,7 +347,7 @@ export async function groqListModels(
         httpStatus: res.status,
         latencyMs: Date.now() - started,
         models: [],
-        errorText: scrubSecretsFromText(text).slice(0, 200),
+        errorText: scrubSecretsFromText(text, apiKey).slice(0, 200),
       };
     }
     const json = JSON.parse(text);
@@ -289,7 +360,7 @@ export async function groqListModels(
       httpStatus: null,
       latencyMs: Date.now() - started,
       models: [],
-      errorText: scrubSecretsFromText(String(e?.message || e)).slice(0, 200),
+      errorText: scrubSecretsFromText(String(e?.message || e), apiKey).slice(0, 200),
     };
   }
 }

@@ -23,7 +23,8 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { aiApi, errMsg, useAiMutation, useAiModels, type AiModel, type UsagePolicy } from "./api";
+import { Globe } from "lucide-react";
+import { aiApi, errMsg, useAiKeys, useAiMutation, useAiModels, type AiModel, type AiProvider, type UsagePolicy } from "./api";
 import { EmptyState, ErrorState, Field, TableSkeletonRows } from "./shared";
 import { fmtAgo, fmtNum } from "./status-badge";
 
@@ -111,11 +112,16 @@ function TokensInput({ model, onSave }: { model: AiModel; onSave: (n: number) =>
 }
 
 function AddModelDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const { data: keysData } = useAiKeys();
+  const customKeys = (keysData?.keys ?? []).filter((k) => k.provider === "custom");
+
   const [form, setForm] = useState({
+    provider: "groq" as AiProvider,
+    credential_id: "",
     model_name: "",
     provider_model_id: "",
     context_window: "131072",
-    max_output_tokens: "1024",
+    max_output_tokens: "2048",
     supports_tools: true,
     supports_structured_json: false,
     usage_policy: "all_queries" as UsagePolicy,
@@ -125,13 +131,17 @@ function AddModelDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
   const m = useAiMutation((b: Parameters<typeof aiApi.createModel>[0]) => aiApi.createModel(b));
   const set = (p: Partial<typeof form>) => setForm((f) => ({ ...f, ...p }));
 
+  const isCustom = form.provider === "custom";
+
   const save = async () => {
     if (!form.model_name.trim() || !form.provider_model_id.trim()) {
-      toast.error("Display name and Groq model ID are required.");
+      toast.error("Display name and model ID are required.");
       return;
     }
     try {
       await m.mutateAsync({
+        provider: form.provider,
+        credential_id: isCustom && form.credential_id && form.credential_id !== "__none__" ? form.credential_id : undefined,
         model_name: form.model_name.trim(),
         provider_model_id: form.provider_model_id.trim(),
         context_window: Number(form.context_window) || 0,
@@ -141,9 +151,13 @@ function AddModelDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
         usage_policy: form.usage_policy,
         cost_per_million_input_usd: Number(form.cost_in) || 0,
         cost_per_million_output_usd: Number(form.cost_out) || 0,
-        enabled: false,
+        enabled: isCustom,
       });
-      toast.success("Model added (disabled). Verify it, then enable it.");
+      toast.success(
+        isCustom
+          ? "Custom API model added and enabled."
+          : "Model added (disabled). Verify with Groq, then enable it.",
+      );
       onOpenChange(false);
     } catch (e) {
       toast.error(errMsg(e));
@@ -155,14 +169,65 @@ function AddModelDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Add model</DialogTitle>
-          <DialogDescription>New models start disabled. Use “Verify with Groq” to confirm it exists before enabling.</DialogDescription>
+          <DialogDescription>
+            {isCustom
+              ? "Register an additional model for a configured Universal / Custom OpenAI-compatible API key."
+              : "New Groq models start disabled. Use “Verify with Groq” to confirm it exists before enabling."}
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Display name" htmlFor="am-name">
-            <Input id="am-name" value={form.model_name} onChange={(e) => set({ model_name: e.target.value })} placeholder="Llama 3.3 70B" />
+          <Field label="Provider" className="sm:col-span-2">
+            <Select value={form.provider} onValueChange={(v) => set({ provider: v as AiProvider })}>
+              <SelectTrigger aria-label="Model provider">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="groq">Groq</SelectItem>
+                <SelectItem value="custom">Universal / Custom API (OpenAI-Compatible)</SelectItem>
+              </SelectContent>
+            </Select>
           </Field>
-          <Field label="Groq model ID" htmlFor="am-id">
-            <Input id="am-id" value={form.provider_model_id} onChange={(e) => set({ provider_model_id: e.target.value })} placeholder="llama-3.3-70b-versatile" autoComplete="off" />
+          {isCustom && (
+            <Field
+              label="Link to Universal API key"
+              className="sm:col-span-2"
+              help={
+                customKeys.length === 0
+                  ? "Add a Universal / Custom API key in the API Keys tab first so requests can route to this model."
+                  : "Automatically adds this model to the selected key's allowed models."
+              }
+            >
+              <Select value={form.credential_id || "__none__"} onValueChange={(v) => set({ credential_id: v })}>
+                <SelectTrigger aria-label="Universal API key">
+                  <SelectValue placeholder="Select Universal API key" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None (link later via Edit Key)</SelectItem>
+                  {customKeys.map((k) => (
+                    <SelectItem key={k.id} value={k.id}>
+                      {k.name} ({k.provider_label || "Custom API"})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+          <Field label="Display name" htmlFor="am-name">
+            <Input
+              id="am-name"
+              value={form.model_name}
+              onChange={(e) => set({ model_name: e.target.value })}
+              placeholder={isCustom ? "DeepSeek Chat" : "Llama 3.3 70B"}
+            />
+          </Field>
+          <Field label={isCustom ? "Model ID" : "Groq model ID"} htmlFor="am-id">
+            <Input
+              id="am-id"
+              value={form.provider_model_id}
+              onChange={(e) => set({ provider_model_id: e.target.value })}
+              placeholder={isCustom ? "deepseek-chat or openai/gpt-4o-mini" : "llama-3.3-70b-versatile"}
+              autoComplete="off"
+            />
           </Field>
           <Field label="Context window (tokens)" htmlFor="am-ctx">
             <Input id="am-ctx" type="number" min={0} value={form.context_window} onChange={(e) => set({ context_window: e.target.value })} />
@@ -243,7 +308,7 @@ export function ModelsTab() {
   };
 
   const unavailable = syncResult?.ok
-    ? models.filter((m) => m.enabled && !syncResult.available.includes(m.provider_model_id))
+    ? models.filter((m) => m.enabled && m.provider !== "custom" && !syncResult.available.includes(m.provider_model_id))
     : models.filter((m) => m.enabled && m.last_error);
 
   const formatModelError = (err: string | null | undefined) => {
@@ -350,7 +415,18 @@ export function ModelsTab() {
                       return (
                         <TableRow key={m.id}>
                           <TableCell>
-                            <div className="font-medium">{m.model_name}</div>
+                            <div className="flex flex-wrap items-center gap-1.5 font-medium">
+                              <span>{m.model_name}</span>
+                              {m.provider === "custom" ? (
+                                <Badge variant="outline" className="gap-1 border-indigo-200 bg-indigo-50 px-1.5 py-0 text-[10px] font-medium text-indigo-700">
+                                  <Globe className="h-2.5 w-2.5" aria-hidden /> Universal API
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="border-slate-200 bg-slate-50 px-1.5 py-0 text-[10px] font-medium text-slate-600">
+                                  Groq
+                                </Badge>
+                              )}
+                            </div>
                             <div className="font-mono text-[11px] text-muted-foreground">{m.provider_model_id}</div>
                             {m.last_error && (
                               <div className="mt-0.5 max-w-[260px] truncate text-[11px] text-red-700" title={formatModelError(m.last_error) ?? ""}>

@@ -207,9 +207,33 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
   );
   const toolSpecs = providerToolSpecs(toolNames);
 
-  // 6. Model chain (capability-aware; never a model without tools for tool workflows)
+  // 6. Model chain (capability-aware & credential-aware; never a model without tools for tool workflows)
   let models = await loadModelSnaps();
-  let chain = selectModelChain(models, {
+  const activeCreds: any[] = await AiCredential.find({
+    enabled: true,
+    admin_restriction: { $ne: "test_only" },
+    status: { $nin: ["Disabled", "Invalid Credentials", "Needs Attention"] },
+  }).lean();
+
+  const filterServable = (snaps: typeof models) => {
+    if (activeCreds.length === 0) return snaps;
+    const servable = snaps.filter((m) =>
+      activeCreds.some((c) => {
+        const credProvider = c.provider === "custom" ? "custom" : "groq";
+        if (credProvider === "custom") {
+          if (!c.base_url) return false;
+          const allowed = new Set<string>([...(c.allowed_models || [])]);
+          if (c.default_model) allowed.add(c.default_model);
+          return allowed.has(m.provider_model_id);
+        }
+        if (m.provider === "custom") return false;
+        return !c.allowed_models?.length || c.allowed_models.includes(m.provider_model_id);
+      })
+    );
+    return servable.length > 0 ? servable : snaps;
+  };
+
+  let chain = selectModelChain(filterServable(models), {
     complexity,
     needsTools: true,
     allowedModels: ent.allowed_models || [],
@@ -217,15 +241,19 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
     advancedCopilot: !!ent.advanced_copilot_enabled,
   });
   if (chain.length === 0) {
-    // Auto-recover if all seeded models were marked unavailable before syncing with the active Groq account
+    // Auto-recover if all seeded Groq models were marked unavailable before syncing with the active Groq account
     try {
-      const cred: any = await AiCredential.findOne({ enabled: true, status: { $in: ["Healthy", "Rate Limited", "Temporarily Unavailable"] } }).select("+encrypted_key");
+      const cred: any = await AiCredential.findOne({
+        provider: { $ne: "custom" },
+        enabled: true,
+        status: { $in: ["Healthy", "Rate Limited", "Temporarily Unavailable"] },
+      }).select("+encrypted_key");
       if (cred?.encrypted_key) {
         const listed = await groqListModels(decryptApiKey(cred.encrypted_key));
         if (listed.outcome === "ok" && listed.models.length > 0) {
           await syncModelsWithProviderList(listed.models);
           models = await loadModelSnaps();
-          chain = selectModelChain(models, {
+          chain = selectModelChain(filterServable(models), {
             complexity,
             needsTools: true,
             allowedModels: ent.allowed_models || [],
@@ -287,6 +315,7 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
       exec = await executeChat(
         {
           model: m.provider_model_id,
+          modelProvider: m.provider,
           messages: providerMessages,
           tools: toolSpecs.length ? toolSpecs : undefined,
           maxTokens: Math.min(m.max_output_tokens, maxOut),
@@ -338,7 +367,13 @@ export async function handleChat(body: any, deps: ExecuteDeps = {}): Promise<Gat
       const name = String(tc?.function?.name || "");
       let args: any = {};
       try {
-        args = tc?.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+        if (typeof tc?.function?.arguments === "string") {
+          args = tc.function.arguments.trim() ? JSON.parse(tc.function.arguments) : {};
+        } else if (tc?.function?.arguments && typeof tc.function.arguments === "object") {
+          args = tc.function.arguments;
+        } else {
+          args = {};
+        }
       } catch {
         args = null;
       }

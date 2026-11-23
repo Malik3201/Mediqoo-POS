@@ -65,17 +65,17 @@ export const KEY_STATUS_INFO: Record<KeyStatus, { tone: string; icon: typeof Che
   "Rate Limited": {
     tone: "bg-amber-50 text-amber-700 border-amber-200",
     icon: Hourglass,
-    help: "Groq asked us to slow down. The key is paused for a short cooldown and returns automatically.",
+    help: "The AI provider asked us to slow down. The key is paused for a short cooldown and returns automatically.",
   },
   "Temporarily Unavailable": {
     tone: "bg-orange-50 text-orange-700 border-orange-200",
     icon: AlertTriangle,
-    help: "Groq had a temporary problem or timeout with this key. It is paused briefly and will be retried automatically.",
+    help: "The AI provider had a temporary problem or timeout with this key. It is paused briefly and will be retried automatically.",
   },
   "Invalid Credentials": {
     tone: "bg-red-50 text-red-700 border-red-200",
     icon: XCircle,
-    help: "Groq rejected this key (revoked, wrong or expired). Replace it with a new key.",
+    help: "The AI provider rejected this key (revoked, wrong or expired). Replace it with a new key.",
   },
   Disabled: {
     tone: "bg-slate-100 text-slate-600 border-slate-200",

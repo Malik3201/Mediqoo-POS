@@ -10,6 +10,13 @@ export const PATCH = adminHandler<{ id: string }>(async (req, actor, { id }) => 
   const body = await req.json().catch(() => ({}));
   const fields = pickModelFields(body);
   if (Object.keys(fields).length === 0) return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
+  if (fields.enabled === true || fields.is_default === true || fields.is_complex_default === true) {
+    const existing: any = await AiModelRegistry.findOne({ id }).lean();
+    if (existing?.provider === "custom") {
+      fields.availability = "available";
+      fields.last_error = null;
+    }
+  }
   const doc: any = await AiModelRegistry.findOneAndUpdate({ id }, { $set: fields }, { new: true });
   if (!doc) return NextResponse.json({ error: "Model not found." }, { status: 404 });
   await enforceSingleDefaults(id, fields);
