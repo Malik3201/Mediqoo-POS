@@ -16,6 +16,7 @@ import {
   type StorefrontManagementActor,
 } from "@/lib/storefront/client";
 import { syncPosProjectLogoToStorefront } from "@/lib/storefront/pos-logo-sync";
+import { fetchCloudflareD1DailyUsage } from "@/lib/infrastructure/cloud-monitor";
 
 const FALLBACK_PHARMACIES = [
   {
@@ -275,14 +276,58 @@ export async function GET(req: NextRequest) {
   const statusFilter = url.searchParams.get("status") || "all";
   const searchQuery = url.searchParams.get("q") || "";
 
-  const [overviewRes, listRes, pharmacies] = await Promise.all([
+  const [overviewRes, listRes, pharmacies, liveCfD1] = await Promise.all([
     callStorefrontManageApi("/api/v1/manage/overview", { method: "GET", actor }),
     callStorefrontManageApi(
       `/api/v1/manage/storefronts?status=${encodeURIComponent(statusFilter)}&q=${encodeURIComponent(searchQuery)}`,
       { method: "GET", actor }
     ),
     loadExistingPharmacies(),
+    fetchCloudflareD1DailyUsage().catch(() => null),
   ]);
+
+  const rawOverview = overviewRes.data?.overview || null;
+  let enrichedOverview = rawOverview;
+  if (rawOverview && rawOverview.cloud_usage_summary) {
+    const cus = rawOverview.cloud_usage_summary;
+    const workerReads = Number(cus.today_d1_rows_read || 0);
+    const workerWrites = Number(cus.today_d1_rows_written || 0);
+    const readLimit = Number(cus.free_tier_limits?.d1_rows_read_daily || 5_000_000);
+    const writeLimit = Number(cus.free_tier_limits?.d1_rows_written_daily || 100_000);
+
+    if (liveCfD1?.available) {
+      enrichedOverview = {
+        ...rawOverview,
+        cloud_usage_summary: {
+          ...cus,
+          today_d1_rows_read: liveCfD1.rows_read,
+          today_d1_rows_written: liveCfD1.rows_written,
+          worker_tracked_d1_rows_read: workerReads,
+          worker_tracked_d1_rows_written: workerWrites,
+          d1_telemetry_source: "cloudflare_graphql_live",
+          d1_telemetry_note: `Authoritative Cloudflare account D1 total (${liveCfD1.read_queries.toLocaleString()} read queries today UTC).`,
+          headroom_pct: {
+            ...cus.headroom_pct,
+            d1_reads_daily_pct: Number(((liveCfD1.rows_read / readLimit) * 100).toFixed(2)),
+            d1_writes_daily_pct: Number(((liveCfD1.rows_written / writeLimit) * 100).toFixed(2)),
+          },
+        },
+      };
+    } else {
+      enrichedOverview = {
+        ...rawOverview,
+        cloud_usage_summary: {
+          ...cus,
+          worker_tracked_d1_rows_read: workerReads,
+          worker_tracked_d1_rows_written: workerWrites,
+          d1_telemetry_source: "worker_tracked_meta",
+          d1_telemetry_note:
+            liveCfD1?.error ||
+            "Worker-tracked route reads only. Configure CLOUDFLARE_API_TOKEN in Vercel to show live account-wide Cloudflare D1 billing totals.",
+        },
+      };
+    }
+  }
 
   const storefronts = (listRes.data?.storefronts || []).map((sf: any) => {
     const urls = getStorefrontPublicPreviewUrl(sf.slug, sf.primary_domain);
@@ -297,7 +342,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    overview: overviewRes.data?.overview || null,
+    overview: enrichedOverview,
     storefronts,
     pharmacies: pharmacies.map((p) => ({
       ...p,

@@ -327,6 +327,136 @@ async function fetchCloudflareR2GraphqlAnalytics(accountId: string, apiToken: st
   };
 }
 
+export interface CloudflareD1LiveUsageResult {
+  available: boolean;
+  usage_date_utc: string;
+  account_id: string | null;
+  database_id: string | null;
+  rows_read: number;
+  rows_written: number;
+  read_queries: number;
+  write_queries: number;
+  missing_env?: string[];
+  error?: string;
+}
+
+/**
+ * Fetches authoritative daily UTC D1 rows_read & rows_written directly from Cloudflare's
+ * GraphQL Analytics API (`d1AnalyticsAdaptiveGroups`), matching Cloudflare's billing cap emails.
+ */
+export async function fetchCloudflareD1DailyUsage(): Promise<CloudflareD1LiveUsageResult> {
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  const accountId = extractCloudflareAccountId();
+  const apiToken = (process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || "").trim();
+  const databaseId = (process.env.CLOUDFLARE_D1_DATABASE_ID || "").trim() || null;
+
+  if (!apiToken || !accountId) {
+    return {
+      available: false,
+      usage_date_utc: todayUtc,
+      account_id: accountId,
+      database_id: databaseId,
+      rows_read: 0,
+      rows_written: 0,
+      read_queries: 0,
+      write_queries: 0,
+      missing_env: [
+        ...(!apiToken ? ["CLOUDFLARE_API_TOKEN"] : []),
+        ...(!accountId ? ["CLOUDFLARE_ACCOUNT_ID"] : []),
+      ],
+      error: !apiToken
+        ? "Add CLOUDFLARE_API_TOKEN (Account Analytics: Read + D1: Read) to show live Cloudflare D1 billing totals."
+        : "CLOUDFLARE_ACCOUNT_ID is not configured.",
+    };
+  }
+
+  const query = `
+    query D1DailyUsage($accountTag: string!, $date: Date!) {
+      viewer {
+        accounts(filter: { accountTag: $accountTag }) {
+          d1AnalyticsAdaptiveGroups(
+            limit: 100
+            filter: { date: $date }
+          ) {
+            sum {
+              rowsRead
+              rowsWritten
+              readQueries
+              writeQueries
+            }
+            dimensions {
+              databaseId
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  try {
+    const res = await fetch("https://api.cloudflare.com/client/v4/graphql", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        variables: {
+          accountTag: accountId,
+          date: todayUtc,
+        },
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Cloudflare GraphQL API returned HTTP ${res.status}`);
+    }
+    const json: any = await res.json();
+    if (json.errors?.length) {
+      throw new Error(json.errors[0]?.message || "Cloudflare D1 GraphQL query error");
+    }
+
+    const groups: any[] = json?.data?.viewer?.accounts?.[0]?.d1AnalyticsAdaptiveGroups || [];
+    let rowsRead = 0;
+    let rowsWritten = 0;
+    let readQueries = 0;
+    let writeQueries = 0;
+
+    for (const g of groups) {
+      // If CLOUDFLARE_D1_DATABASE_ID is set, aggregate account-wide OR matching DB (free tier cap is account-wide!)
+      rowsRead += Number(g?.sum?.rowsRead || 0);
+      rowsWritten += Number(g?.sum?.rowsWritten || 0);
+      readQueries += Number(g?.sum?.readQueries || 0);
+      writeQueries += Number(g?.sum?.writeQueries || 0);
+    }
+
+    return {
+      available: true,
+      usage_date_utc: todayUtc,
+      account_id: accountId,
+      database_id: databaseId,
+      rows_read: rowsRead,
+      rows_written: rowsWritten,
+      read_queries: readQueries,
+      write_queries: writeQueries,
+    };
+  } catch (err: any) {
+    return {
+      available: false,
+      usage_date_utc: todayUtc,
+      account_id: accountId,
+      database_id: databaseId,
+      rows_read: 0,
+      rows_written: 0,
+      read_queries: 0,
+      write_queries: 0,
+      error: String(err?.message || "Failed to query Cloudflare D1 Analytics API"),
+    };
+  }
+}
+
 export async function collectCloudflareR2Metrics(config: CloudMonitorConfig) {
   const period = getCurrentUtcBillingPeriod();
   const hasS3Creds = Boolean(

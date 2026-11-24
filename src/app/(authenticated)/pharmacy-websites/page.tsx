@@ -1012,7 +1012,18 @@ export default function PharmacyWebsitesAdminPage() {
                   </div>
 
                   <div className="rounded-lg border p-3.5 bg-muted/20">
-                    <div className="text-xs text-muted-foreground">D1 Rows Read (Today UTC)</div>
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-xs text-muted-foreground">D1 Rows Read (Today UTC)</span>
+                      {overview?.cloud_usage_summary?.d1_telemetry_source === "cloudflare_graphql_live" ? (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-emerald-500/40 text-emerald-600">
+                          Live CF Billing
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/40 text-amber-600">
+                          Worker Est.
+                        </Badge>
+                      )}
+                    </div>
                     <div className="mt-1 text-xl font-bold">
                       {(overview?.cloud_usage_summary?.today_d1_rows_read ?? 0).toLocaleString()}{" "}
                       <span className="text-xs font-normal text-muted-foreground">
@@ -1021,7 +1032,13 @@ export default function PharmacyWebsitesAdminPage() {
                     </div>
                     <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
                       <div
-                        className="h-full bg-sky-500"
+                        className={`h-full ${
+                          (overview?.cloud_usage_summary?.headroom_pct?.d1_reads_daily_pct || 0) >= 85
+                            ? "bg-red-500"
+                            : (overview?.cloud_usage_summary?.headroom_pct?.d1_reads_daily_pct || 0) >= 65
+                              ? "bg-amber-500"
+                              : "bg-sky-500"
+                        }`}
                         style={{
                           width: `${Math.max(
                             2,
@@ -1033,8 +1050,9 @@ export default function PharmacyWebsitesAdminPage() {
                         }}
                       />
                     </div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      Composite `(storefront_id, publish_status)` indexes prevent table scans
+                    <div className="mt-1 text-[11px] text-muted-foreground leading-snug">
+                      {overview?.cloud_usage_summary?.d1_telemetry_note ||
+                        "Indexed storefront + order queries active. Add CLOUDFLARE_API_TOKEN for account-wide Cloudflare billing totals."}
                     </div>
                   </div>
 
