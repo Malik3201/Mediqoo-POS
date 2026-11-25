@@ -82,40 +82,51 @@ function formatDateTime(iso?: string | null): string {
 }
 
 function getStatusBadge(status: string) {
-  switch (status) {
-    case "Healthy":
+  const norm = String(status || "").toLowerCase();
+  switch (norm) {
+    case "healthy":
       return (
         <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30">
           <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
           Healthy
         </Badge>
       );
-    case "Approaching Allowance":
+    case "approaching_limit":
+    case "approaching allowance":
       return (
         <Badge className="bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30">
           <Info className="w-3.5 h-3.5 mr-1" />
           Approaching Allowance
         </Badge>
       );
-    case "Warning":
+    case "warning":
       return (
         <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30">
           <AlertTriangle className="w-3.5 h-3.5 mr-1" />
           Warning
         </Badge>
       );
-    case "Critical":
+    case "critical":
       return (
         <Badge variant="destructive">
           <AlertTriangle className="w-3.5 h-3.5 mr-1" />
           Critical
         </Badge>
       );
-    case "Configuration Required":
+    case "configuration_required":
+    case "configuration required":
       return (
         <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-400">
           <KeyRound className="w-3.5 h-3.5 mr-1" />
           Configuration Required
+        </Badge>
+      );
+    case "provider_unavailable":
+    case "provider unavailable":
+      return (
+        <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="w-3.5 h-3.5 mr-1" />
+          Provider Unavailable
         </Badge>
       );
     default:
@@ -225,12 +236,12 @@ export default function CloudResourceMonitorPage() {
           info_threshold_pct: data.config.info_threshold_pct ?? 70,
           warning_threshold_pct: data.config.warning_threshold_pct ?? 85,
           critical_threshold_pct: data.config.critical_threshold_pct ?? 95,
-          r2_plan_tier: data.config.r2_plan_tier || "Standard Free Tier (10 GB-Month + Paid Overage)",
+          r2_plan_tier: data.config.r2_plan_tier || (data.config.r2_plan_type === "paid_payg" ? "Paid Pay-As-You-Go" : "Standard Free Tier (10 GB-Month + Paid Overage)"),
           r2_free_storage_gb: Number(
             ((data.config.r2_free_storage_bytes || 10 * 1024 * 1024 * 1024) / (1024 * 1024 * 1024)).toFixed(2)
           ),
-          r2_class_a_allowance: data.config.r2_class_a_allowance ?? 1_000_000,
-          r2_class_b_allowance: data.config.r2_class_b_allowance ?? 10_000_000,
+          r2_class_a_allowance: data.config.r2_free_class_a_ops_monthly ?? data.config.r2_class_a_allowance ?? 1_000_000,
+          r2_class_b_allowance: data.config.r2_free_class_b_ops_monthly ?? data.config.r2_class_b_allowance ?? 10_000_000,
           mongodb_cluster_tier: data.config.mongodb_cluster_tier || "M0 Free Tier",
           mongodb_storage_limit_mb: Number(
             ((data.config.mongodb_storage_limit_bytes || 512 * 1024 * 1024) / (1024 * 1024)).toFixed(0)
@@ -630,13 +641,37 @@ export default function CloudResourceMonitorPage() {
                   {vercel.projects?.length || 0} Vercel project(s) discovered
                 </div>
               </div>
+            ) : vercel?.configured && vercel?.status !== "provider_unavailable" ? (
+              <div className="p-2.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-xs space-y-1">
+                <div className="font-semibold text-emerald-800 dark:text-emerald-300 flex items-center justify-between">
+                  <span>Vercel API Connected ({vercel.projects?.length || 0} project{(vercel.projects?.length || 0) === 1 ? "" : "s"})</span>
+                  {vercel.projects?.[0]?.latest_deployment_state && (
+                    <Badge variant="outline" className="text-[10px] font-mono border-emerald-500/40 text-emerald-700 dark:text-emerald-300">
+                      {vercel.projects[0].name}: {vercel.projects[0].latest_deployment_state}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  {vercel.billing_charges?.note ||
+                    "Connected on Hobby (Free Tier). FOCUS /v1/billing/charges applies to Pro & Enterprise plans."}
+                </p>
+              </div>
+            ) : vercel?.configured && vercel?.status === "provider_unavailable" ? (
+              <div className="p-2.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-xs space-y-1">
+                <div className="font-semibold text-amber-800 dark:text-amber-300">
+                  Vercel API Connection Issue
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  {vercel.error || "Could not authenticate with Vercel API."}
+                </p>
+              </div>
             ) : (
               <div className="p-2.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-xs space-y-1">
                 <div className="font-semibold text-amber-800 dark:text-amber-300">
                   Direct Billing API Token Not Configured
                 </div>
                 <p className="text-muted-foreground leading-relaxed">
-                  Add <code className="font-mono bg-background px-1 rounded">VERCEL_API_TOKEN</code> to display live FOCUS v1.3 function invocations, fluid compute GB-hours, and bandwidth usage.
+                  Add <code className="font-mono bg-background px-1 rounded">VERCEL_API_TOKEN</code> to display live Vercel projects, deployments, and FOCUS v1.3 billing usage.
                 </p>
               </div>
             )}
@@ -1324,24 +1359,73 @@ export default function CloudResourceMonitorPage() {
                       </Button>
                     </div>
                   </div>
+                ) : vercel?.status === "provider_unavailable" ? (
+                  <div className="p-4 rounded-lg border border-amber-500/40 bg-amber-500/10 space-y-2 text-sm">
+                    <div className="font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Vercel API Connection Issue
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {vercel?.error || "Verify VERCEL_API_TOKEN and VERCEL_TEAM_ID permissions."}
+                    </p>
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-3 text-sm">
                       <div className="p-3 rounded-lg border bg-muted/20">
-                        <div className="text-xs text-muted-foreground">Account / Team</div>
+                        <div className="text-xs text-muted-foreground">Account / Scope</div>
                         <div className="font-bold mt-0.5">{vercel.account_name || "Configured"}</div>
                         <div className="text-xs text-muted-foreground">Plan: {vercel.plan_tier}</div>
                       </div>
                       <div className="p-3 rounded-lg border bg-muted/20">
                         <div className="text-xs text-muted-foreground">Current Period Billed</div>
                         <div className="font-bold mt-0.5">
-                          ${Number(vercel.billing_charges?.total_billed_cost_usd || 0).toFixed(2)} USD
+                          {vercel.billing_charges?.available
+                            ? `$${Number(vercel.billing_charges?.total_billed_cost_usd || 0).toFixed(2)} USD`
+                            : "$0.00 (Free Tier)"}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Effective: ${Number(vercel.billing_charges?.total_effective_cost_usd || 0).toFixed(2)} USD
+                          {vercel.billing_charges?.available
+                            ? `Effective: $${Number(vercel.billing_charges?.total_effective_cost_usd || 0).toFixed(2)} USD`
+                            : `${vercel.projects?.length || 0} project(s) · ${vercel.deployments?.length || 0} recent deploys`}
                         </div>
                       </div>
                     </div>
+
+                    {!vercel.billing_charges?.available && vercel.billing_charges?.note && (
+                      <div className="p-3 rounded-md bg-muted/40 border text-xs text-muted-foreground leading-relaxed">
+                        {vercel.billing_charges.note}
+                      </div>
+                    )}
+
+                    {vercel.projects?.length > 0 && (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Project</TableHead>
+                            <TableHead>Framework</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="text-right">Updated</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {vercel.projects.map((p: any) => (
+                            <TableRow key={p.id}>
+                              <TableCell className="font-mono font-medium text-xs">{p.name}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">{p.framework}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="text-[10px] font-mono">
+                                  {p.latest_deployment_state}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-right text-xs text-muted-foreground">
+                                {formatDateTime(p.updated_at)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
 
                     {vercel.billing_charges?.by_service?.length > 0 && (
                       <Table>
@@ -1437,21 +1521,21 @@ export default function CloudResourceMonitorPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(report?.trends?.points || []).map((pt: any) => (
-                    <TableRow key={pt.date}>
-                      <TableCell className="font-mono text-xs font-medium">{pt.date}</TableCell>
+                  {(Array.isArray(report?.trends) ? report.trends : report?.trends?.points || []).map((pt: any, idx: number) => (
+                    <TableRow key={pt.timestamp || pt.date || idx}>
+                      <TableCell className="font-mono text-xs font-medium">{pt.date || formatDateTime(pt.timestamp)}</TableCell>
                       <TableCell className="text-right font-mono text-xs">{formatNumber(pt.r2_objects)}</TableCell>
                       <TableCell className="text-right font-mono text-xs font-semibold">
-                        {formatBytes(pt.r2_total_bytes)}
+                        {formatBytes(pt.r2_total_bytes ?? pt.r2_bytes)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">
-                        {formatBytes(pt.mongodb_logical_bytes)}
+                        {formatBytes(pt.mongodb_logical_bytes ?? pt.mongodb_logical_index_bytes)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs">
                         {formatBytes(pt.mongodb_index_bytes)}
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs font-semibold">
-                        {formatBytes(pt.mongodb_logical_bytes + pt.mongodb_index_bytes)}
+                        {formatBytes((pt.mongodb_logical_bytes ?? pt.mongodb_logical_index_bytes ?? 0) + (pt.mongodb_index_bytes ?? 0))}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1531,9 +1615,13 @@ export default function CloudResourceMonitorPage() {
                     <TableCell className="font-medium">Vercel REST & Billing API</TableCell>
                     <TableCell className="font-mono text-xs">VERCEL_API_TOKEN, VERCEL_TEAM_ID</TableCell>
                     <TableCell>
-                      {vercel?.configured ? (
+                      {vercel?.configured && vercel?.status !== "provider_unavailable" ? (
                         <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
                           Active
+                        </Badge>
+                      ) : vercel?.configured ? (
+                        <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
+                          Auth Issue
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-amber-700 dark:text-amber-400">

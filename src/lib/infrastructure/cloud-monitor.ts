@@ -74,10 +74,18 @@ let cachedReport: {
 } | null = null;
 
 export function sanitizeCloudMonitorConfig(
-  raw: Partial<CloudMonitorConfig> = {}
+  raw: Partial<CloudMonitorConfig> & Record<string, any> = {}
 ): CloudMonitorConfig {
-  const merged = { ...DEFAULT_CLOUD_MONITOR_CONFIG, ...raw };
-  const tier = merged.mongodb_cluster_tier || "M0_FREE";
+  const merged: any = { ...DEFAULT_CLOUD_MONITOR_CONFIG, ...raw };
+  const rawTier = String(merged.mongodb_cluster_tier || "M0_FREE");
+  const tier: CloudMonitorConfig["mongodb_cluster_tier"] =
+    rawTier === "M2_SHARED" ||
+    rawTier === "M5_SHARED" ||
+    rawTier === "M10_DEDICATED" ||
+    rawTier === "CUSTOM_PAID" ||
+    rawTier === "M0_FREE"
+      ? rawTier
+      : "M0_FREE";
   let defaultMongoLimit: number | null = M0_512MB_BYTES;
   if (tier === "M2_SHARED") defaultMongoLimit = 2 * 1024 * 1024 * 1024;
   else if (tier === "M5_SHARED") defaultMongoLimit = 5 * 1024 * 1024 * 1024;
@@ -85,6 +93,11 @@ export function sanitizeCloudMonitorConfig(
   else if (tier === "CUSTOM_PAID" && raw.mongodb_storage_limit_bytes === null) {
     defaultMongoLimit = null;
   }
+
+  const classAInput =
+    raw.r2_free_class_a_ops_monthly ?? raw.r2_class_a_allowance ?? merged.r2_free_class_a_ops_monthly;
+  const classBInput =
+    raw.r2_free_class_b_ops_monthly ?? raw.r2_class_b_allowance ?? merged.r2_free_class_b_ops_monthly;
 
   return {
     info_threshold_pct: Math.min(90, Math.max(10, Number(merged.info_threshold_pct) || 70)),
@@ -97,11 +110,11 @@ export function sanitizeCloudMonitorConfig(
     ),
     r2_free_class_a_ops_monthly: Math.max(
       1000,
-      Number(merged.r2_free_class_a_ops_monthly) || 1_000_000
+      Number(classAInput) || 1_000_000
     ),
     r2_free_class_b_ops_monthly: Math.max(
       1000,
-      Number(merged.r2_free_class_b_ops_monthly) || 10_000_000
+      Number(classBInput) || 10_000_000
     ),
     mongodb_cluster_tier: tier,
     mongodb_storage_limit_bytes:
@@ -654,9 +667,19 @@ export async function collectCloudflareR2Metrics(config: CloudMonitorConfig) {
     >();
 
     let tenantOwnedBytes = 0;
+    let tenantOwnedObjects = 0;
     let sharedGlobalBytes = 0;
+    let sharedGlobalObjects = 0;
+    const categoryLatestMod: Record<string, string> = {};
 
     for (const item of primaryInventory.objects) {
+      if (
+        item.last_modified &&
+        (!categoryLatestMod[item.category] || item.last_modified > categoryLatestMod[item.category])
+      ) {
+        categoryLatestMod[item.category] = item.last_modified;
+      }
+
       const isTenantCategory =
         item.category === "pharmacy_cloud_backups" ||
         item.category === "migration_source_uploads" ||
@@ -664,6 +687,7 @@ export async function collectCloudflareR2Metrics(config: CloudMonitorConfig) {
 
       if (isTenantCategory && (item.owner?.license_key || item.owner?.pharmacy_name || item.owner?.client_id)) {
         tenantOwnedBytes += item.size_bytes;
+        tenantOwnedObjects += 1;
         const tenantKey =
           item.owner.license_id ||
           item.owner.license_key ||
@@ -707,16 +731,24 @@ export async function collectCloudflareR2Metrics(config: CloudMonitorConfig) {
         pharmacyMap.set(tenantKey, existing);
       } else {
         sharedGlobalBytes += item.size_bytes;
+        sharedGlobalObjects += 1;
       }
     }
 
-    // Add non-primary bucket bytes to shared/other infrastructure
+    // Add non-primary bucket bytes/objects to shared/other infrastructure
     const otherBucketsBytes = Math.max(0, accountTotalBytes - primaryInventory.overview.total_bytes);
+    const otherBucketsObjects = Math.max(0, accountTotalObjects - primaryInventory.overview.total_objects);
     sharedGlobalBytes += otherBucketsBytes;
+    sharedGlobalObjects += otherBucketsObjects;
 
-    const tenantBreakdown = Array.from(pharmacyMap.values()).sort(
-      (a, b) => b.total_bytes - a.total_bytes
-    );
+    const tenantBreakdown = Array.from(pharmacyMap.values())
+      .sort((a, b) => b.total_bytes - a.total_bytes)
+      .map((t) => ({
+        ...t,
+        backup_count: t.backup_objects,
+        migration_count: t.migration_objects,
+        latest_backup_at: t.latest_activity_at,
+      }));
 
     // 4. Quota & Headroom Math (Standard storage vs 10 GB-month free tier)
     const freeAllowanceBytes = config.r2_free_storage_bytes;
@@ -729,16 +761,85 @@ export async function collectCloudflareR2Metrics(config: CloudMonitorConfig) {
 
     const status = evaluateStatusFromPct(usagePct, config);
 
+    const billingNote =
+      "Cloudflare R2 bills storage in GB-month (average daily peak bytes over the UTC billing month). Current stored bytes represent a live S3 snapshot; remaining headroom against the 10 GB-month Standard free allowance is an approximate capacity indicator assuming steady storage.";
+
+    const classAUsagePct = graphqlData.available
+      ? Number(((graphqlData.class_a_ops / config.r2_free_class_a_ops_monthly) * 100).toFixed(2))
+      : null;
+    const classBUsagePct = graphqlData.available
+      ? Number(((graphqlData.class_b_ops / config.r2_free_class_b_ops_monthly) * 100).toFixed(2))
+      : null;
+    const opsUnavailableReason = graphqlData.available
+      ? undefined
+      : (graphqlData as any).error ||
+        (graphqlData as any).reason ||
+        "Requires CLOUDFLARE_API_TOKEN with Account Analytics Read permission. S3 API keys do not expose operation counters.";
+
+    const uiBuckets = bucketsSummary.map((b) => ({
+      ...b,
+      bucket_name: b.name,
+      total_bytes: b.storage_bytes,
+      class_a_ops_month: b.class_a_ops,
+      class_b_ops_month: b.class_b_ops,
+    }));
+
+    const uiCategories = Object.values(primaryInventory.categories)
+      .sort((a, b) => b.bytes - a.bytes)
+      .map((c) => ({
+        ...c,
+        category: c.id,
+        object_count: c.count,
+        total_bytes: c.bytes,
+        share_pct:
+          accountTotalBytes > 0 ? Number(((c.bytes / accountTotalBytes) * 100).toFixed(1)) : 0,
+        latest_modified: categoryLatestMod[c.id] || null,
+      }));
+
+    const r2PlanLabel =
+      config.r2_plan_type === "paid_payg"
+        ? "Paid Pay-As-You-Go"
+        : "Standard Free Tier (10 GB-Month)";
+
     return {
       provider: "cloudflare_r2" as const,
       status,
       configured: true,
       account_id: accountId,
       plan_type: config.r2_plan_type,
+      plan_tier: r2PlanLabel,
+      metric_origin: "provider_api" as MetricOrigin,
       captured_at: new Date().toISOString(),
       billing_period: period,
       missing_env: [] as string[],
       optional_missing_env: cfApiToken ? ([] as string[]) : ["CLOUDFLARE_API_TOKEN"],
+      storage: {
+        total_bytes: accountTotalBytes,
+        standard_bytes: accountStandardBytes,
+        infrequent_access_bytes: accountIaBytes,
+        free_allowance_bytes: freeAllowanceBytes,
+        remaining_free_bytes: remainingHeadroomBytes,
+        usage_pct: usagePct,
+        total_objects: accountTotalObjects,
+        billing_note: billingNote,
+      },
+      operations: {
+        available: graphqlData.available,
+        class_a_used: graphqlData.available ? graphqlData.class_a_ops : null,
+        class_a_allowance: config.r2_free_class_a_ops_monthly,
+        class_a_usage_pct: classAUsagePct,
+        class_b_used: graphqlData.available ? graphqlData.class_b_ops : null,
+        class_b_allowance: config.r2_free_class_b_ops_monthly,
+        class_b_usage_pct: classBUsagePct,
+        reason: opsUnavailableReason,
+      },
+      tenant_attribution: {
+        tenant_owned_bytes: tenantOwnedBytes,
+        tenant_owned_objects: tenantOwnedObjects,
+        shared_global_bytes: sharedGlobalBytes,
+        shared_global_objects: sharedGlobalObjects,
+        tenants: tenantBreakdown,
+      },
       metrics: {
         current_snapshot_bytes: accountTotalBytes,
         standard_storage_bytes: accountStandardBytes,
@@ -760,16 +861,11 @@ export async function collectCloudflareR2Metrics(config: CloudMonitorConfig) {
             graphqlData.available
               ? Math.max(0, config.r2_free_class_a_ops_monthly - graphqlData.class_a_ops)
               : null,
-          usage_pct:
-            graphqlData.available
-              ? Number(
-                  ((graphqlData.class_a_ops / config.r2_free_class_a_ops_monthly) * 100).toFixed(2)
-                )
-              : null,
+          usage_pct: classAUsagePct,
           origin: (graphqlData.available ? "provider_api" : "unavailable") as MetricOrigin,
           note: graphqlData.available
             ? "Retrieved from Cloudflare GraphQL r2OperationsAdaptiveGroups for current UTC month."
-            : "Requires CLOUDFLARE_API_TOKEN with Account Analytics Read permission. S3 API keys do not expose operation counters.",
+            : opsUnavailableReason!,
         },
         class_b_ops: {
           used: graphqlData.available ? graphqlData.class_b_ops : null,
@@ -778,22 +874,16 @@ export async function collectCloudflareR2Metrics(config: CloudMonitorConfig) {
             graphqlData.available
               ? Math.max(0, config.r2_free_class_b_ops_monthly - graphqlData.class_b_ops)
               : null,
-          usage_pct:
-            graphqlData.available
-              ? Number(
-                  ((graphqlData.class_b_ops / config.r2_free_class_b_ops_monthly) * 100).toFixed(2)
-                )
-              : null,
+          usage_pct: classBUsagePct,
           origin: (graphqlData.available ? "provider_api" : "unavailable") as MetricOrigin,
           note: graphqlData.available
             ? "Retrieved from Cloudflare GraphQL r2OperationsAdaptiveGroups for current UTC month."
-            : "Requires CLOUDFLARE_API_TOKEN with Account Analytics Read permission.",
+            : opsUnavailableReason!,
         },
-        billing_note:
-          "Cloudflare R2 bills storage in GB-month (average daily peak bytes over the UTC billing month). Current stored bytes represent a live S3 snapshot; remaining headroom against the 10 GB-month Standard free allowance is an approximate capacity indicator assuming steady storage.",
+        billing_note: billingNote,
       },
-      buckets: bucketsSummary,
-      categories: Object.values(primaryInventory.categories).sort((a, b) => b.bytes - a.bytes),
+      buckets: uiBuckets,
+      categories: uiCategories,
       tenants: tenantBreakdown,
     };
   } catch (err: any) {
@@ -1187,10 +1277,61 @@ export async function collectMongoDbAtlasMetrics(config: CloudMonitorConfig) {
 
     const status = evaluateStatusFromPct(usagePct, config);
 
+    const mongoQuotaNote =
+      "MongoDB dbStats reports uncompressed logical dataSize, WiredTiger compressed storageSize, and indexSize separately. Both Logical + Index footprint and Allocated Disk + Index footprint are shown against the configured tier ceiling.";
+
+    const mongoTierLabelMap: Record<string, string> = {
+      M0_FREE: "M0 Free Tier (512 MB)",
+      M2_SHARED: "M2 Shared (2 GB)",
+      M5_SHARED: "M5 Shared (5 GB)",
+      M10_DEDICATED: "M10 Dedicated (10 GB)",
+      CUSTOM_PAID: "Custom Atlas Cluster",
+    };
+    const mongoPlanTier = mongoTierLabelMap[config.mongodb_cluster_tier] || config.mongodb_cluster_tier;
+
+    const clusterTopology = {
+      database_name: db.databaseName,
+      replica_set: helloInfo?.setName || "atlas-cluster",
+      primary_host: helloInfo?.primary || mongoose.connection.host || "connected",
+      node_count: Array.isArray(helloInfo?.hosts) ? helloInfo.hosts.length : 1,
+      cloud_provider: helloInfo?.tags?.provider || "AWS",
+      region: helloInfo?.tags?.region || "AP_SOUTH_1",
+      workload_type: helloInfo?.tags?.workloadType || "OPERATIONAL",
+      tier_label: config.mongodb_cluster_tier,
+      tier_source: (hasAtlasAdminCreds ? "provider_api" : "configured_quota") as MetricOrigin,
+    };
+
+    const uiFeatureGroups = featureGroups.map((g) => ({
+      ...g,
+      feature_group: g.group,
+      combined_logical_plus_index_bytes: g.combined_bytes,
+      share_pct:
+        logicalPlusIndexBytes > 0
+          ? Number(((g.combined_bytes / logicalPlusIndexBytes) * 100).toFixed(1))
+          : 0,
+    }));
+
+    const uiCollections = collections.map((c) => ({
+      ...c,
+      is_tenant_scoped: c.tenant_scoped,
+      logical_data_size_bytes: c.logical_data_bytes,
+      allocated_storage_size_bytes: c.allocated_storage_bytes,
+      total_index_size_bytes: c.total_index_bytes,
+      combined_logical_plus_index_bytes: c.combined_logical_index_bytes,
+      index_count: c.indexes_count,
+      indexes: Object.entries(c.index_sizes || {}).map(([name, size_bytes]) => ({
+        name,
+        size_bytes: Number(size_bytes || 0),
+      })),
+    }));
+
     return {
       provider: "mongodb_atlas" as const,
       status,
       configured: true,
+      plan_tier: mongoPlanTier,
+      metric_origin: "database_stats" as MetricOrigin,
+      quota_source: mongoQuotaNote,
       captured_at: new Date().toISOString(),
       missing_env: [] as string[],
       optional_missing_env: hasAtlasAdminCreds
@@ -1200,16 +1341,19 @@ export async function collectMongoDbAtlasMetrics(config: CloudMonitorConfig) {
             "MONGODB_ATLAS_PRIVATE_KEY",
             "MONGODB_ATLAS_GROUP_ID",
           ],
-      cluster: {
-        database_name: db.databaseName,
-        replica_set: helloInfo?.setName || "atlas-cluster",
-        primary_host: helloInfo?.primary || mongoose.connection.host || "connected",
-        node_count: Array.isArray(helloInfo?.hosts) ? helloInfo.hosts.length : 1,
-        cloud_provider: helloInfo?.tags?.provider || "AWS",
-        region: helloInfo?.tags?.region || "AP_SOUTH_1",
-        workload_type: helloInfo?.tags?.workloadType || "OPERATIONAL",
-        tier_label: config.mongodb_cluster_tier,
-        tier_source: (hasAtlasAdminCreds ? "provider_api" : "configured_quota") as MetricOrigin,
+      cluster: clusterTopology,
+      topology: clusterTopology,
+      storage: {
+        logical_data_size_bytes: logicalDataBytes,
+        allocated_storage_size_bytes: allocatedStorageBytes,
+        index_size_bytes: totalIndexBytes,
+        logical_plus_index_bytes: logicalPlusIndexBytes,
+        allocated_plus_index_bytes: allocatedPlusIndexBytes,
+        storage_limit_bytes: limitBytes,
+        remaining_bytes: remainingBytes,
+        usage_pct: usagePct,
+        collections_count: collections.length,
+        total_documents: Number(dbStats?.objects || 0),
       },
       metrics: {
         logical_data_bytes: logicalDataBytes,
@@ -1224,12 +1368,11 @@ export async function collectMongoDbAtlasMetrics(config: CloudMonitorConfig) {
         databases_count: databasesList.length,
         collections_count: collections.length,
         total_documents: Number(dbStats?.objects || 0),
-        quota_note:
-          "MongoDB dbStats reports uncompressed logical dataSize, WiredTiger compressed storageSize, and indexSize separately. Both Logical + Index footprint and Allocated Disk + Index footprint are shown against the configured tier ceiling.",
+        quota_note: mongoQuotaNote,
       },
       databases: databasesList,
-      feature_groups: featureGroups,
-      collections,
+      feature_groups: uiFeatureGroups,
+      collections: uiCollections,
     };
   } catch (err: any) {
     return {
@@ -1251,19 +1394,32 @@ export async function collectMongoDbAtlasMetrics(config: CloudMonitorConfig) {
 async function collectInternalAppTrafficSummary() {
   const period = getCurrentUtcBillingPeriod();
   const startDate = new Date(period.start_iso);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   try {
-    const [aiRequestsMonth, analyticsEventsMonth, billingUsageMonth] = await Promise.all([
+    const [
+      aiRequestsMonth,
+      aiRequests30d,
+      analyticsEventsMonth,
+      analyticsEvents30d,
+      billingUsageMonth,
+    ] = await Promise.all([
       AiUsageLog.countDocuments({ created_at: { $gte: startDate } }).catch(() => 0),
+      AiUsageLog.countDocuments({ created_at: { $gte: thirtyDaysAgo } }).catch(() => 0),
       AnalyticsEvent.countDocuments({ created_at: { $gte: startDate } }).catch(() => 0),
+      AnalyticsEvent.countDocuments({ created_at: { $gte: thirtyDaysAgo } }).catch(() => 0),
       BillingUsage.countDocuments({ created_at: { $gte: startDate } }).catch(() => 0),
     ]);
     return {
       period_label: period.label,
       ai_gateway_requests_month: aiRequestsMonth,
+      ai_gateway_requests_30d: aiRequests30d,
       pos_analytics_sync_events_month: analyticsEventsMonth,
+      analytics_events_month: analyticsEventsMonth,
+      analytics_events_30d: analyticsEvents30d,
       billing_metering_events_month: billingUsageMonth,
+      metered_api_requests_month: billingUsageMonth,
       origin: "internal_telemetry" as MetricOrigin,
-      note: "Application-level API activity recorded in MongoDB during the current UTC month. Shown as internal operational context; does not replace Vercel edge/function billing counters.",
+      note: "Application-level API activity recorded in MongoDB during the current UTC month and rolling 30-day window. Shown as internal operational context alongside Vercel API telemetry.",
     };
   } catch {
     return null;
@@ -1277,10 +1433,15 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
   const internalTraffic = await collectInternalAppTrafficSummary();
 
   if (!token) {
+    const setupText =
+      "Add VERCEL_API_TOKEN (and optional VERCEL_TEAM_ID) to server environment variables to enable live Vercel project inventory, deployments, and FOCUS /v1/billing/charges streaming.";
     return {
       provider: "vercel" as const,
       status: "configuration_required" as ProviderStatusState,
       configured: false,
+      account_name: null,
+      plan_tier: "Configuration Required",
+      metric_origin: "internal_telemetry" as MetricOrigin,
       captured_at: new Date().toISOString(),
       billing_period: period,
       missing_env: ["VERCEL_API_TOKEN"],
@@ -1292,9 +1453,10 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
         vercel_url: process.env.VERCEL_URL || "mediqoo.vercel.app",
       },
       internal_app_telemetry: internalTraffic,
+      internal_app_traffic: internalTraffic,
       dashboard_url: "https://vercel.com/dashboard/usage",
-      setup_note:
-        "Add VERCEL_API_TOKEN (and optional VERCEL_TEAM_ID) to server environment variables to enable live Vercel project inventory and /v1/billing/charges FOCUS cost & usage streaming.",
+      setup_note: setupText,
+      setup_instructions: setupText,
     };
   }
 
@@ -1305,7 +1467,7 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
     };
     const teamQuery = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
 
-    const [accountRes, projectsRes, chargesRes] = await Promise.all([
+    const [accountRes, projectsRes, deploymentsRes, chargesRes] = await Promise.all([
       fetch(
         teamId
           ? `https://api.vercel.com/v2/teams/${encodeURIComponent(teamId)}`
@@ -1317,6 +1479,10 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
         signal: AbortSignal.timeout(8000),
       }).catch(() => null),
       fetch(
+        `https://api.vercel.com/v6/deployments${teamQuery ? `${teamQuery}&limit=10` : "?limit=10"}`,
+        { headers, signal: AbortSignal.timeout(8000) }
+      ).catch(() => null),
+      fetch(
         `https://api.vercel.com/v1/billing/charges?from=${encodeURIComponent(
           period.start_iso
         )}&to=${encodeURIComponent(new Date().toISOString())}${
@@ -1326,30 +1492,39 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
       ).catch(() => null),
     ]);
 
-    if (accountRes && (accountRes.status === 401 || accountRes.status === 403)) {
+    const anyReadSucceeded = Boolean(
+      (accountRes && accountRes.ok) ||
+        (projectsRes && projectsRes.ok) ||
+        (deploymentsRes && deploymentsRes.ok)
+    );
+
+    // Note: Scoped project tokens (vcp_...) may return 403 on /v2/teams/{id} while succeeding on /v9/projects & /v6/deployments.
+    // Only treat auth as failed when NONE of the Vercel endpoints succeeded.
+    if (!anyReadSucceeded) {
+      const errStatus =
+        projectsRes?.status || deploymentsRes?.status || accountRes?.status || "network";
       return {
         provider: "vercel" as const,
         status: "provider_unavailable" as ProviderStatusState,
         configured: true,
+        account_name: null,
+        plan_tier: "Auth Error",
+        metric_origin: "internal_telemetry" as MetricOrigin,
         captured_at: new Date().toISOString(),
         billing_period: period,
         missing_env: [],
         optional_missing_env: teamId ? [] : ["VERCEL_TEAM_ID"],
         internal_app_telemetry: internalTraffic,
+        internal_app_traffic: internalTraffic,
         dashboard_url: "https://vercel.com/dashboard/usage",
-        error: `Vercel API authentication failed (HTTP ${accountRes.status}). Verify VERCEL_API_TOKEN and VERCEL_TEAM_ID permissions.`,
+        error: `Vercel API authentication failed (HTTP ${errStatus}). Verify VERCEL_API_TOKEN and VERCEL_TEAM_ID permissions.`,
       };
     }
 
     const accountJson: any = accountRes && accountRes.ok ? await accountRes.json().catch(() => null) : null;
     const projectsJson: any = projectsRes && projectsRes.ok ? await projectsRes.json().catch(() => null) : null;
-
-    const accountName =
-      accountJson?.name || accountJson?.user?.name || accountJson?.user?.username || "Vercel Account";
-    const plan =
-      accountJson?.billing?.plan ||
-      accountJson?.user?.billing?.plan ||
-      "hobby";
+    const deploymentsJson: any =
+      deploymentsRes && deploymentsRes.ok ? await deploymentsRes.json().catch(() => null) : null;
 
     const rawProjects: any[] = projectsJson?.projects || [];
     const projects = rawProjects.map((p: any) => {
@@ -1363,6 +1538,20 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
         latest_deployment_url: latestDep?.url || undefined,
       };
     });
+
+    const rawDeployments: any[] = deploymentsJson?.deployments || [];
+    const deployments = rawDeployments.slice(0, 8).map((d: any) => ({
+      uid: String(d.uid || d.id || ""),
+      name: String(d.name || "mediqoo"),
+      state: String(d.readyState || d.state || "READY"),
+      target: String(d.target || "preview"),
+      url: d.url ? String(d.url) : undefined,
+      created_at: d.createdAt
+        ? new Date(d.createdAt).toISOString()
+        : d.created
+          ? new Date(d.created).toISOString()
+          : undefined,
+    }));
 
     // Parse FOCUS v1.3 JSONL stream from /v1/billing/charges if supported for this plan/token
     let chargesAvailable = false;
@@ -1442,13 +1631,42 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
         }
       }
     } else if (chargesRes) {
-      chargesNote = `Vercel /v1/billing/charges returned HTTP ${chargesRes.status} (Note: FOCUS billing charges API requires Pro/Enterprise billing permission or may not return charge rows on Hobby accounts).`;
+      chargesNote =
+        chargesRes.status === 404
+          ? "Vercel API connected on Hobby (Free Tier). FOCUS /v1/billing/charges cost streaming is only emitted for Vercel Pro & Enterprise plans."
+          : `Vercel /v1/billing/charges returned HTTP ${chargesRes.status} (FOCUS billing charges API requires Pro/Enterprise billing permission).`;
     }
+
+    const rawPlan = String(
+      accountJson?.billing?.plan || accountJson?.user?.billing?.plan || "hobby"
+    ).toLowerCase();
+    const planLabel =
+      rawPlan === "pro"
+        ? "Pro Plan"
+        : rawPlan === "enterprise"
+          ? "Enterprise Plan"
+          : "Hobby (Free Tier)";
+    const accountName =
+      accountJson?.name ||
+      accountJson?.slug ||
+      accountJson?.user?.name ||
+      accountJson?.user?.username ||
+      (projects[0]?.name ? `${projects[0].name} (Scoped API Token)` : "Vercel Workspace");
+
+    const servicesList = Array.from(byService.values()).sort(
+      (a, b) => b.effective_cost_usd - a.effective_cost_usd || b.consumed_quantity - a.consumed_quantity
+    );
+    const chargesSummaryNote =
+      chargesNote ||
+      "Retrieved from official Vercel /v1/billing/charges FOCUS endpoint for current billing period.";
 
     return {
       provider: "vercel" as const,
       status: "healthy" as ProviderStatusState,
       configured: true,
+      account_name: accountName,
+      plan_tier: planLabel,
+      metric_origin: "provider_api" as MetricOrigin,
       captured_at: new Date().toISOString(),
       billing_period: period,
       missing_env: [] as string[],
@@ -1456,7 +1674,7 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
       account: {
         name: accountName,
         team_id: teamId || null,
-        plan,
+        plan: rawPlan,
       },
       runtime_context: {
         is_running_on_vercel: Boolean(process.env.VERCEL),
@@ -1464,22 +1682,30 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
         vercel_region: process.env.VERCEL_REGION || null,
         vercel_url: process.env.VERCEL_URL || "mediqoo.vercel.app",
       },
+      billing_charges: {
+        available: chargesAvailable,
+        total_billed_cost_usd: Number(totalBilledCostUsd.toFixed(4)),
+        total_effective_cost_usd: Number(totalEffectiveCostUsd.toFixed(4)),
+        by_service: servicesList.map((s) => ({
+          ...s,
+          unit: s.consumed_unit,
+        })),
+        note: chargesSummaryNote,
+      },
       charges_summary: {
         available: chargesAvailable,
         total_billed_cost_usd: Number(totalBilledCostUsd.toFixed(4)),
         total_effective_cost_usd: Number(totalEffectiveCostUsd.toFixed(4)),
-        services: Array.from(byService.values()).sort(
-          (a, b) => b.effective_cost_usd - a.effective_cost_usd || b.consumed_quantity - a.consumed_quantity
-        ),
+        services: servicesList,
         project_usage: Array.from(byProject.values()).sort(
           (a, b) => b.effective_cost_usd - a.effective_cost_usd
         ),
-        note:
-          chargesNote ||
-          "Retrieved from official Vercel /v1/billing/charges FOCUS endpoint for current billing period.",
+        note: chargesSummaryNote,
       },
       projects,
+      deployments,
       internal_app_telemetry: internalTraffic,
+      internal_app_traffic: internalTraffic,
       dashboard_url: "https://vercel.com/dashboard/usage",
     };
   } catch (err: any) {
@@ -1487,11 +1713,15 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
       provider: "vercel" as const,
       status: "provider_unavailable" as ProviderStatusState,
       configured: true,
+      account_name: null,
+      plan_tier: "Provider Unavailable",
+      metric_origin: "internal_telemetry" as MetricOrigin,
       captured_at: new Date().toISOString(),
       billing_period: period,
       missing_env: [] as string[],
       optional_missing_env: [],
       internal_app_telemetry: internalTraffic,
+      internal_app_traffic: internalTraffic,
       dashboard_url: "https://vercel.com/dashboard/usage",
       error: String(err?.message || "Failed to query Vercel API"),
     };
@@ -1504,8 +1734,12 @@ export async function collectVercelMetrics(config: CloudMonitorConfig) {
 
 export interface CloudTrendPoint {
   timestamp: string;
+  date?: string;
   r2_bytes: number;
+  r2_total_bytes?: number;
   r2_objects: number;
+  mongodb_logical_bytes?: number;
+  mongodb_index_bytes?: number;
   mongodb_logical_index_bytes?: number;
   mongodb_allocated_index_bytes?: number;
   mongodb_documents?: number;
@@ -1529,6 +1763,8 @@ async function getAndRecordTrendHistory(
     const nowIso = new Date().toISOString();
     const r2Bytes = r2Data?.metrics?.current_snapshot_bytes ?? 0;
     const r2Objs = r2Data?.metrics?.total_object_count ?? 0;
+    const mongoLogicalData = mongoData?.metrics?.logical_data_bytes ?? 0;
+    const mongoIndexSize = mongoData?.metrics?.index_size_bytes ?? 0;
     const mongoLogical = mongoData?.metrics?.logical_plus_index_bytes;
     const mongoAllocated = mongoData?.metrics?.allocated_plus_index_bytes;
     const mongoDocs = mongoData?.metrics?.total_documents;
@@ -1545,6 +1781,8 @@ async function getAndRecordTrendHistory(
         timestamp: nowIso,
         r2_bytes: r2Bytes,
         r2_objects: r2Objs,
+        mongodb_logical_bytes: mongoLogicalData,
+        mongodb_index_bytes: mongoIndexSize,
         mongodb_logical_index_bytes: mongoLogical,
         mongodb_allocated_index_bytes: mongoAllocated,
         mongodb_documents: mongoDocs,
@@ -1561,14 +1799,26 @@ async function getAndRecordTrendHistory(
     const combined: CloudTrendPoint[] = [];
     for (const s of r2Snapshots as any[]) {
       if (!s.scanned_at) continue;
+      const ts = new Date(s.scanned_at).toISOString();
+      const bytes = Number(s.total_bytes || 0);
       combined.push({
-        timestamp: new Date(s.scanned_at).toISOString(),
-        r2_bytes: Number(s.total_bytes || 0),
+        timestamp: ts,
+        date: ts.slice(0, 16).replace("T", " "),
+        r2_bytes: bytes,
+        r2_total_bytes: bytes,
         r2_objects: Number(s.total_objects || 0),
+        mongodb_logical_bytes: 0,
+        mongodb_index_bytes: 0,
       });
     }
     for (const p of storedPoints) {
-      combined.push(p);
+      combined.push({
+        ...p,
+        date: p.timestamp.slice(0, 16).replace("T", " "),
+        r2_total_bytes: p.r2_bytes,
+        mongodb_logical_bytes: p.mongodb_logical_bytes ?? p.mongodb_logical_index_bytes ?? 0,
+        mongodb_index_bytes: p.mongodb_index_bytes ?? 0,
+      });
     }
     combined.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
     return combined.slice(-45);
@@ -1717,7 +1967,10 @@ function buildAlerts(
 
 export interface CloudResourceMonitorReport {
   captured_at: string;
+  generated_at: string;
   from_cache: boolean;
+  cached: boolean;
+  refresh_cooldown_remaining_sec: number;
   cache_ttl_seconds: number;
   next_manual_refresh_allowed_at: string;
   config: CloudMonitorConfig;
@@ -1744,6 +1997,8 @@ export async function getCloudResourceMonitorReport(options?: {
       return {
         ...cachedReport.data,
         from_cache: true,
+        cached: true,
+        refresh_cooldown_remaining_sec: 0,
       };
     }
 
@@ -1752,6 +2007,11 @@ export async function getCloudResourceMonitorReport(options?: {
       return {
         ...cachedReport.data,
         from_cache: true,
+        cached: true,
+        refresh_cooldown_remaining_sec: Math.max(
+          1,
+          Math.ceil((MANUAL_REFRESH_COOLDOWN_MS - sinceLastForcedMs) / 1000)
+        ),
       };
     }
   }
@@ -1767,9 +2027,13 @@ export async function getCloudResourceMonitorReport(options?: {
   const trends = await getAndRecordTrendHistory(r2, mongo);
   const alerts = buildAlerts(config, r2, mongo, vercel);
 
+  const capturedIso = new Date(now).toISOString();
   const report: CloudResourceMonitorReport = {
-    captured_at: new Date(now).toISOString(),
+    captured_at: capturedIso,
+    generated_at: capturedIso,
     from_cache: false,
+    cached: false,
+    refresh_cooldown_remaining_sec: 0,
     cache_ttl_seconds: Math.floor(CACHE_TTL_MS / 1000),
     next_manual_refresh_allowed_at: new Date(now + MANUAL_REFRESH_COOLDOWN_MS).toISOString(),
     config,
