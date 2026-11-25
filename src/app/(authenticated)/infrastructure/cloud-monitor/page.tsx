@@ -452,9 +452,9 @@ export default function CloudResourceMonitorPage() {
                 <div className="space-y-0.5 flex-1">
                   <div className="font-semibold flex items-center gap-2">
                     <span>{alert.provider}: {alert.title}</span>
-                    {alert.usage_pct !== null && (
+                    {typeof (alert.metric_pct ?? alert.usage_pct) === "number" && (
                       <Badge variant="outline" className="text-[10px] font-mono">
-                        {alert.usage_pct}%
+                        {Number(alert.metric_pct ?? alert.usage_pct).toFixed(1)}%
                       </Badge>
                     )}
                   </div>
@@ -1302,7 +1302,7 @@ export default function CloudResourceMonitorPage() {
                       Configuration Required: VERCEL_API_TOKEN
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      {vercel?.setup_instructions}
+                      {vercel?.setup_note || vercel?.setup_instructions}
                     </p>
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                       <Badge variant="outline" className="font-mono text-xs">
