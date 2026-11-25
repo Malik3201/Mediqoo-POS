@@ -204,3 +204,73 @@ export async function optimizeImageForStorefront(
   };
 }
 
+/**
+ * Bulk-ZIP Medicine Packshot Optimizer (500x500 clean square WebP targeting <= 35 KB for R2 Free Tier).
+ * Preserves aspect ratio inside a crisp white square canvas so packaging text is never cropped.
+ */
+export async function optimizeBlobForBulkCentralLibrary(
+  inputBlob: Blob,
+  options?: { size?: number; targetMaxBytes?: number }
+): Promise<OptimizedImageResult> {
+  const size = options?.size ?? 500;
+  const targetMaxBytes = options?.targetMaxBytes ?? 35 * 1024;
+  const objectUrl = URL.createObjectURL(inputBlob);
+
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("Could not decode image inside ZIP."));
+      el.src = objectUrl;
+    });
+
+    const srcW = Math.max(1, img.naturalWidth || img.width);
+    const srcH = Math.max(1, img.naturalHeight || img.height);
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D unavailable.");
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, size, size);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    const padding = Math.round(size * 0.04);
+    const maxDraw = size - padding * 2;
+    const scale = Math.min(maxDraw / srcW, maxDraw / srcH, 1.5);
+    const drawW = Math.max(1, Math.round(srcW * scale));
+    const drawH = Math.max(1, Math.round(srcH * scale));
+    const offsetX = Math.round((size - drawW) / 2);
+    const offsetY = Math.round((size - drawH) / 2);
+    ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+
+    let quality = 0.82;
+    let outBlob = await canvasToBlob(canvas, quality);
+    while (outBlob.size > targetMaxBytes && quality > 0.62) {
+      quality = Math.round((quality - 0.06) * 100) / 100;
+      outBlob = await canvasToBlob(canvas, quality);
+    }
+
+    const arrayBuffer = await outBlob.arrayBuffer();
+    const sha256Hex = await computeSha256Hex(arrayBuffer);
+    const { base64Data, dataUrl } = await blobToBase64(outBlob);
+
+    return {
+      base64Data,
+      previewDataUrl: dataUrl,
+      mimeType: "image/webp",
+      byteSize: outBlob.size,
+      width: size,
+      height: size,
+      sha256Hex,
+      originalBytes: inputBlob.size,
+      compressionRatio:
+        inputBlob.size > 0 ? Math.round((1 - outBlob.size / inputBlob.size) * 100) : 0,
+    };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+

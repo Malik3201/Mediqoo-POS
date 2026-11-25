@@ -58,10 +58,10 @@ export function loadMasterCatalogItems(): MasterCatalogItem[] {
         const genericName = t[3] >= 0 ? d.genericName[t[3]] : undefined;
         const strength = t[4] >= 0 ? d.strength[t[4]] : undefined;
         const rawForm = t[5] >= 0 ? d.dosageForm[t[5]] : "Tablet";
-        const manufacturer = t[8] >= 0 && d.manufacturer ? d.manufacturer[t[8]] : undefined;
+        const manufacturer = t[7] >= 0 && d.manufacturer ? d.manufacturer[t[7]] : undefined;
         const packUnits = typeof t[11] === "number" && t[11] > 0 ? t[11] : 1;
         const baseUnit = t[10] >= 0 && d.baseUnit ? d.baseUnit[t[10]] : "Tablet";
-        const barcode = typeof t[27] === "string" ? t[27] : undefined;
+        const barcode = t[26] && t[26] !== 0 ? String(t[26]) : undefined;
 
         items.push({
           master_catalog_id: id,
@@ -120,5 +120,102 @@ export function searchMasterCatalog(query: string, limit = 20): MasterCatalogIte
   }
 
   return results;
+}
+
+function normalizeLookupName(raw: string): string {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/\.[a-z0-9]{2,5}$/i, "")
+    .replace(/[_\-]+/g, " ")
+    .replace(/[^a-z0-9./%+\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+let catalogIndexCache: {
+  byId: Map<string, MasterCatalogItem>;
+  byNormName: Map<string, MasterCatalogItem>;
+} | null = null;
+
+function getCatalogIndex() {
+  if (catalogIndexCache) return catalogIndexCache;
+  const items = loadMasterCatalogItems();
+  const byId = new Map<string, MasterCatalogItem>();
+  const byNormName = new Map<string, MasterCatalogItem>();
+  for (const it of items) {
+    if (it.master_catalog_id) {
+      byId.set(it.master_catalog_id.toUpperCase(), it);
+    }
+    const n1 = normalizeLookupName(it.master_catalog_name);
+    if (n1 && !byNormName.has(n1)) byNormName.set(n1, it);
+    if (it.brand_name) {
+      const n2 = normalizeLookupName(it.brand_name);
+      if (n2 && !byNormName.has(n2)) byNormName.set(n2, it);
+    }
+  }
+  catalogIndexCache = { byId, byNormName };
+  return catalogIndexCache;
+}
+
+export interface BulkFilenameResolveInput {
+  filename: string;
+  manifest_master_id?: string | null;
+  manifest_name?: string | null;
+}
+
+export interface BulkFilenameResolveResult {
+  filename: string;
+  matched: boolean;
+  match_via: "manifest_id" | "filename_id" | "exact_name" | "manifest_name" | "none";
+  item: MasterCatalogItem | null;
+}
+
+export function resolveMasterCatalogBulkFilenames(
+  entries: BulkFilenameResolveInput[]
+): BulkFilenameResolveResult[] {
+  const { byId, byNormName } = getCatalogIndex();
+
+  return entries.map((entry) => {
+    const rawFile = String(entry.filename || "").trim();
+    const baseName = rawFile.split(/[\\/]/).pop() || rawFile;
+    const stem = baseName.replace(/\.[^.]+$/, "");
+
+    // 1. Explicit manifest master_catalog_id
+    if (entry.manifest_master_id?.trim()) {
+      const hit = byId.get(entry.manifest_master_id.trim().toUpperCase());
+      if (hit) {
+        return { filename: rawFile, matched: true, match_via: "manifest_id", item: hit };
+      }
+    }
+
+    // 2. Leading ABZ-ITEM-12345 (or pk-...) prefix before "__" or entire stem
+    const idPrefixMatch = stem.match(/^((?:ABZ-ITEM|PK|MED)-[A-Z0-9-]+)(?:__|$)/i);
+    if (idPrefixMatch) {
+      const hit = byId.get(idPrefixMatch[1].toUpperCase());
+      if (hit) {
+        return { filename: rawFile, matched: true, match_via: "filename_id", item: hit };
+      }
+    }
+
+    // 3. After "__" portion or whole filename matched against normalized master_catalog_name
+    const namePart = stem.includes("__") ? stem.split("__").slice(1).join(" ") : stem;
+    const normFile = normalizeLookupName(namePart);
+    if (normFile) {
+      const hit = byNormName.get(normFile);
+      if (hit) {
+        return { filename: rawFile, matched: true, match_via: "exact_name", item: hit };
+      }
+    }
+
+    // 4. Fallback to manifest exact_name
+    if (entry.manifest_name?.trim()) {
+      const hit = byNormName.get(normalizeLookupName(entry.manifest_name));
+      if (hit) {
+        return { filename: rawFile, matched: true, match_via: "manifest_name", item: hit };
+      }
+    }
+
+    return { filename: rawFile, matched: false, match_via: "none", item: null };
+  });
 }
 

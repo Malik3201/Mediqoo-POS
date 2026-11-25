@@ -35,6 +35,7 @@ import {
   optimizeImageForStorefront,
   OptimizedImageResult,
 } from "@/lib/storefront/image-optimizer";
+import { BulkZipImageImporter } from "@/components/storefront/BulkZipImageImporter";
 
 interface CentralOverview {
   total_canonical_medicines: number;
@@ -157,7 +158,7 @@ interface MasterCatalogSearchResult {
 }
 
 export default function CentralMedicineImagesPage() {
-  const [activeTab, setActiveTab] = useState<"library" | "submissions" | "discovery" | "batch">("library");
+  const [activeTab, setActiveTab] = useState<"library" | "bulk_zip" | "submissions" | "discovery" | "batch">("library");
   const [overview, setOverview] = useState<CentralOverview | null>(null);
   const [medicines, setMedicines] = useState<CanonicalMedicine[]>([]);
   const [submissions, setSubmissions] = useState<ImageSubmission[]>([]);
@@ -974,6 +975,22 @@ export default function CentralMedicineImagesPage() {
 
         <button
           type="button"
+          onClick={() => setActiveTab("bulk_zip")}
+          className={`pb-3 px-3 text-xs font-bold border-b-2 transition inline-flex items-center gap-1.5 whitespace-nowrap ${
+            activeTab === "bulk_zip"
+              ? "border-emerald-600 text-emerald-700 dark:text-emerald-400"
+              : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+          }`}
+        >
+          <Upload className="h-4 w-4 text-emerald-600" />
+          Bulk ZIP Importer
+          <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-bold">
+            Fast
+          </span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => setActiveTab("discovery")}
           className={`pb-3 px-3 text-xs font-bold border-b-2 transition inline-flex items-center gap-1.5 whitespace-nowrap ${
             activeTab === "discovery"
@@ -1021,6 +1038,17 @@ export default function CentralMedicineImagesPage() {
           Batch Catalog Matcher
         </button>
       </div>
+
+      {/* TAB 1B: BULK ZIP AUTO-VERIFIED IMPORTER */}
+      {activeTab === "bulk_zip" && (
+        <BulkZipImageImporter
+          onNotify={notify}
+          onImportComplete={() => {
+            void loadOverview();
+            void loadMedicines();
+          }}
+        />
+      )}
 
       {/* TAB 1: CENTRAL MEDICINE LIBRARY */}
       {activeTab === "library" && (

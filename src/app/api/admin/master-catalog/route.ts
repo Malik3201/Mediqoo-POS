@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/ai/admin-auth";
-import { searchMasterCatalog, loadMasterCatalogItems } from "@/lib/master-catalog";
+import {
+  searchMasterCatalog,
+  loadMasterCatalogItems,
+  resolveMasterCatalogBulkFilenames,
+} from "@/lib/master-catalog";
 import { callStorefrontManageApi, type StorefrontManagementActor } from "@/lib/storefront/client";
 
 export async function GET(req: NextRequest) {
@@ -26,6 +30,19 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const action = body.action || "import_batch";
+
+  if (action === "resolve_bulk") {
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+    const resolved = resolveMasterCatalogBulkFilenames(entries.slice(0, 5000));
+    const matchedCount = resolved.filter((r) => r.matched).length;
+    return NextResponse.json({
+      ok: true,
+      total: resolved.length,
+      matched: matchedCount,
+      unmatched: resolved.length - matchedCount,
+      results: resolved,
+    });
+  }
 
   if (action === "import_batch") {
     const offset = Math.max(0, Number(body.offset || 0));

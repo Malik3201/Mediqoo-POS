@@ -142,6 +142,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(res.data, { status: res.status });
   }
 
+  if (action === "bulk_upload_verified") {
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (items.length === 0) {
+      return NextResponse.json({ ok: false, error: "empty_batch" }, { status: 400 });
+    }
+    const res = await callStorefrontManageApi("/api/v1/manage/central-library/bulk-upload", {
+      method: "POST",
+      actor,
+      body: { items },
+    });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
   if (action === "approve_submission") {
     const subId = body.submission_id;
     if (!subId) {
