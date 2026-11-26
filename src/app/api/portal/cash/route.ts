@@ -199,6 +199,29 @@ export async function GET(_req: NextRequest) {
       ...s,
       owner_review: cashReviewsMap.get(s.id) || null,
     }));
+    const shiftSessions: any[] = (portalState?.shift_sessions || [])
+      .map((s: any) => ({
+        ...s,
+        owner_review: cashReviewsMap.get(s.session_id || s.id) || null,
+      }))
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime()
+      );
+    const todayLocalStr = formatLocalDate(new Date(), timezone);
+    const nonEmptyShifts = shiftSessions.filter((s: any) => !s.is_empty);
+    const todayShifts = nonEmptyShifts.filter((s: any) => s.business_date === todayLocalStr);
+    const shiftsSummary = {
+      total_shifts: nonEmptyShifts.length,
+      today_shifts: todayShifts.length,
+      open_shifts: shiftSessions.filter((s: any) => s.status === "active").length,
+      variance_alerts_count: nonEmptyShifts.filter(
+        (s: any) => s.cash_variance !== null && s.cash_variance !== undefined && Math.abs(Number(s.cash_variance)) >= 1
+      ).length,
+      today_net_sales: Math.round(
+        todayShifts.reduce((acc: number, s: any) => acc + (Number(s.net_sales) || 0), 0) * 100
+      ) / 100,
+    };
     const formalDailyClosings: any[] = portalState?.daily_closings || [];
 
     // Also build daily cash breakdown for the last 14 active business days so owners can inspect
@@ -341,6 +364,8 @@ export async function GET(_req: NextRequest) {
         credit_sales: Math.round(todayCreditSales * 100) / 100,
       },
       drawer_sessions: drawerSessions,
+      shift_sessions: shiftSessions,
+      shifts_summary: shiftsSummary,
       daily_closings: dailyClosings,
       recent_expenses: recentExpenses,
     });

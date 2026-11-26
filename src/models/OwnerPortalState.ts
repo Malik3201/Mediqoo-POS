@@ -160,6 +160,61 @@ export interface IPortalDailyClosingSnapshot {
   variance?: number;
 }
 
+export interface IPortalShiftSessionSnapshot {
+  id: string;
+  session_id: string;
+  business_date: string;
+  shift_number: number;
+  operator_id: string;
+  operator_name: string;
+  operator_code?: string;
+  operator_role: string;
+  terminal_number?: number;
+  status: "active" | "closed";
+  started_at: string;
+  ended_at?: string | null;
+  duration_minutes: number;
+  opening_cash: number;
+  opening_note?: string;
+  invoice_count: number;
+  gross_sales: number;
+  discount_total: number;
+  net_sales: number;
+  cash_sales: number;
+  card_sales: number;
+  wallet_sales: number;
+  credit_sales: number;
+  return_count: number;
+  return_total: number;
+  cash_refunds: number;
+  purchase_count: number;
+  total_purchase_value: number;
+  purchase_return_total: number;
+  khata_collection_count: number;
+  khata_collection_total: number;
+  khata_cash_collected: number;
+  supplier_payment_count: number;
+  supplier_payment_total: number;
+  supplier_cash_paid: number;
+  expense_count: number;
+  total_expenses: number;
+  cash_expenses: number;
+  other_income_total: number;
+  total_cash_in: number;
+  total_cash_out: number;
+  expected_cash: number;
+  counted_cash?: number | null;
+  cash_variance?: number | null;
+  variance_status?: "balanced" | "short" | "over" | null;
+  cash_handover_to_safe?: number | null;
+  closing_float_carried?: number | null;
+  close_reason?: string | null;
+  closed_by_name?: string | null;
+  closed_by_role?: string | null;
+  closing_note?: string | null;
+  is_empty?: boolean;
+}
+
 export interface IPortalInventoryAlertsSnapshot {
   expiring_items: Array<{
     product_id: string;
@@ -306,6 +361,7 @@ export interface IOwnerPortalState extends Document {
   current_drawer?: IPortalCurrentDrawerSnapshot;
   drawer_sessions: IPortalDrawerSessionSnapshot[];
   daily_closings: IPortalDailyClosingSnapshot[];
+  shift_sessions?: IPortalShiftSessionSnapshot[];
   inventory_alerts?: IPortalInventoryAlertsSnapshot;
   products_intelligence?: IPortalProductIntelligenceItem[];
   supplier_price_changes?: IPortalSupplierPriceChange[];
@@ -343,6 +399,7 @@ const OwnerPortalStateSchema = new Schema<IOwnerPortalState>(
     current_drawer: { type: Schema.Types.Mixed },
     drawer_sessions: { type: [Schema.Types.Mixed] as any, default: [] },
     daily_closings: { type: [Schema.Types.Mixed] as any, default: [] },
+    shift_sessions: { type: [Schema.Types.Mixed] as any, default: [] },
     inventory_alerts: { type: Schema.Types.Mixed },
     products_intelligence: { type: [Schema.Types.Mixed] as any, default: [] },
     supplier_price_changes: { type: [Schema.Types.Mixed] as any, default: [] },

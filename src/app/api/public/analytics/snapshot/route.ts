@@ -170,6 +170,7 @@ export async function POST(req: NextRequest) {
               current_drawer: null,
               drawer_sessions: [],
               daily_closings: [],
+              shift_sessions: [],
               inventory_alerts: {
                 expiring_items: [],
                 low_stock_items: [],
@@ -272,7 +273,9 @@ export async function POST(req: NextRequest) {
           (Array.isArray(statePayload.products_intelligence) &&
             statePayload.products_intelligence.length > 0) ||
           (Array.isArray(statePayload.recent_purchases) &&
-            statePayload.recent_purchases.length > 0));
+            statePayload.recent_purchases.length > 0) ||
+          (Array.isArray(statePayload.shift_sessions) &&
+            statePayload.shift_sessions.length > 0));
 
       const existingHasData =
         Number(existingInv?.stock_value ?? 0) > 0 ||
@@ -355,6 +358,7 @@ export async function POST(req: NextRequest) {
       }
       if (Array.isArray(statePayload.drawer_sessions)) updateSet.drawer_sessions = statePayload.drawer_sessions.slice(0, 40);
       if (Array.isArray(statePayload.daily_closings)) updateSet.daily_closings = statePayload.daily_closings.slice(0, 40);
+      if (Array.isArray(statePayload.shift_sessions)) updateSet.shift_sessions = statePayload.shift_sessions.slice(0, 60);
       if (statePayload.inventory_alerts && typeof statePayload.inventory_alerts === "object") {
         updateSet.inventory_alerts = {
           expiring_items: Array.isArray(statePayload.inventory_alerts.expiring_items)
