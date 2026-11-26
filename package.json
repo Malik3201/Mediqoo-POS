@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@andresaya/edge-tts": "^1.9.1",
     "@aws-sdk/client-s3": "^3.1106.0",
     "@aws-sdk/s3-request-presigner": "^3.1106.0",
     "@hookform/resolvers": "^5.7.1",
