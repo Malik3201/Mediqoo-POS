@@ -25,6 +25,7 @@ import {
   Cloud,
   Globe,
   Images,
+  Zap,
 } from "lucide-react";
 
 import {
@@ -48,6 +49,7 @@ const primary = [
   { title: "Clients", url: "/clients", icon: Building2 },
   { title: "Projects", url: "/projects", icon: FolderKanban },
   { title: "Licenses", url: "/licenses", icon: KeyRound },
+  { title: "Quick 3-Day Trial", url: "/quick-trial", icon: Zap },
   { title: "Data Migration", url: "/migration", icon: Database },
   { title: "Billing & Renewals", url: "/billing", icon: CreditCard },
   { title: "Packages", url: "/packages", icon: Package },

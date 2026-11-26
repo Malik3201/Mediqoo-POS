@@ -1,6 +1,6 @@
 "use client";
 
-import { useDataQuery } from "@/hooks/use-data";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -11,26 +11,40 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { RefreshCw, UserCheck } from "lucide-react";
 
 export default function AuditPage() {
-  const { data: rawRows = [], isLoading: loadingRows } = useDataQuery("audit_logs", { limit: "100" });
-  const { data: users = [], isLoading: loadingUsers } = useDataQuery("profiles");
-  
-  const loading = loadingRows || loadingUsers;
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const rows = useMemo(() => {
-    return rawRows.map((r: any) => ({
-      ...r,
-      actorEmail: users.find((u: any) => u.id === r.actor_id)?.email ?? "—",
-    })).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [rawRows, users]);
+  const loadLogs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/activity?limit=150", { cache: "no-store" });
+      const data = await res.json();
+      if (data.ok) setRows(data.logs || []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLogs();
+  }, [loadLogs]);
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Audit Logs</h1>
-        <p className="text-sm text-muted-foreground">Last 100 administrator events.</p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Audit Logs</h1>
+          <p className="text-sm text-muted-foreground">
+            Last 150 administrator events with acting admin name &amp; role attribution.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => void loadLogs()} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+        </Button>
       </div>
       <Card>
         <CardHeader>
@@ -41,35 +55,48 @@ export default function AuditPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>When</TableHead>
-                <TableHead>Action</TableHead>
                 <TableHead>Actor</TableHead>
+                <TableHead>Action</TableHead>
+                <TableHead>Summary</TableHead>
                 <TableHead>Entity</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-8">
+                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">
                     Loading…
                   </TableCell>
                 </TableRow>
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-8">
+                  <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">
                     No events yet.
                   </TableCell>
                 </TableRow>
               ) : (
                 rows.map((row: any) => (
                   <TableRow key={row.id}>
-                    <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                       {new Date(row.created_at).toLocaleString()}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary">{row.action}</Badge>
+                      <div className="flex items-center gap-1.5 text-sm font-medium">
+                        <UserCheck className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <span>{row.actor_name || row.actor_email || "System"}</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {row.actor_role || "Admin"}
+                        {row.actor_email ? ` · ${row.actor_email}` : ""}
+                      </div>
                     </TableCell>
-                    <TableCell className="text-sm">{row.actorEmail}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell>
+                      <Badge variant="secondary" className="font-mono text-[11px]">
+                        {row.action}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm">{row.summary || "—"}</TableCell>
+                    <TableCell className="text-xs font-mono text-muted-foreground">
                       {row.entity_type ? `${row.entity_type}:${row.entity_id ?? ""}` : "—"}
                     </TableCell>
                   </TableRow>

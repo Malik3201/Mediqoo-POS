@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Images,
   Search,
@@ -160,13 +160,29 @@ interface MasterCatalogSearchResult {
 export default function CentralMedicineImagesPage() {
   const [activeTab, setActiveTab] = useState<"library" | "bulk_zip" | "submissions" | "discovery" | "batch">("library");
   const [overview, setOverview] = useState<CentralOverview | null>(null);
-  const [medicines, setMedicines] = useState<CanonicalMedicine[]>([]);
+  const [libraryIndex, setLibraryIndex] = useState<CanonicalMedicine[]>([]);
+  const [libraryIndexMeta, setLibraryIndexMeta] = useState<{
+    version: number;
+    updatedAt: string | null;
+    totalVerified: number;
+    cached: boolean;
+  } | null>(null);
+  const [missingMedicines, setMissingMedicines] = useState<CanonicalMedicine[]>([]);
+  const [missingPagination, setMissingPagination] = useState<{
+    page: number;
+    totalCount: number;
+    totalPages: number;
+  }>({ page: 1, totalCount: 0, totalPages: 1 });
   const [submissions, setSubmissions] = useState<ImageSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [dosageFilter, setDosageFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [hasImageFilter, setHasImageFilter] = useState("all");
+  const [hasImageFilter, setHasImageFilter] = useState<"with" | "without">("with");
+  const [librarySort, setLibrarySort] = useState<"az" | "za" | "master_id">("az");
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [libraryPageSize, setLibraryPageSize] = useState(36);
+  const [previewMed, setPreviewMed] = useState<CanonicalMedicine | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   // Discovery Tab State
@@ -244,7 +260,29 @@ export default function CentralMedicineImagesPage() {
     }
   }
 
-  async function loadMedicines() {
+  async function loadLibraryIndex(force = false) {
+    setLoading(true);
+    try {
+      const qs = force ? "&force=1" : "";
+      const res = await fetch(`/api/admin/central-images?view=library_index${qs}`);
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.medicines)) {
+        setLibraryIndex(data.medicines);
+        setLibraryIndexMeta({
+          version: Number(data.version || 1),
+          updatedAt: data.updated_at || null,
+          totalVerified: Number(data.total_verified ?? data.medicines.length),
+          cached: Boolean(data.cached),
+        });
+      }
+    } catch {
+      notify("Failed to load central verified image library");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadMissingMedicines(page = 1) {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -252,17 +290,34 @@ export default function CentralMedicineImagesPage() {
         q: searchQuery,
         dosage_form: dosageFilter,
         status: statusFilter,
-        has_image: hasImageFilter === "with" ? "1" : hasImageFilter === "without" ? "0" : "",
+        has_image: "0",
+        page: String(page),
+        limit: String(libraryPageSize),
       });
       const res = await fetch(`/api/admin/central-images?${params.toString()}`);
       const data = await res.json();
-      if (data.ok && data.medicines) {
-        setMedicines(data.medicines);
+      if (data.ok && Array.isArray(data.medicines)) {
+        setMissingMedicines(data.medicines);
+        if (data.pagination) {
+          setMissingPagination({
+            page: data.pagination.page || page,
+            totalCount: data.pagination.totalCount || data.medicines.length,
+            totalPages: Math.max(1, data.pagination.totalPages || 1),
+          });
+        }
       }
     } catch {
-      notify("Failed to load canonical medicines");
+      notify("Failed to load missing medicines");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMedicines(forceIndex = false) {
+    if (hasImageFilter === "without") {
+      await loadMissingMedicines(libraryPage);
+    } else {
+      await loadLibraryIndex(forceIndex);
     }
   }
 
@@ -319,7 +374,7 @@ export default function CentralMedicineImagesPage() {
 
   useEffect(() => {
     void loadOverview();
-    void loadMedicines();
+    void loadLibraryIndex(false);
     void loadSubmissions();
     void loadDiscoveryOverview();
   }, []);
@@ -331,12 +386,89 @@ export default function CentralMedicineImagesPage() {
     }
   }, [activeTab, discoveryPage, discoveryStatusFilter]);
 
+  // Reset to page 1 on search/filter change; ZERO network calls when browsing R2 Verified Index!
   useEffect(() => {
-    const timer = setTimeout(() => {
-      void loadMedicines();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, dosageFilter, statusFilter, hasImageFilter]);
+    setLibraryPage(1);
+    if (hasImageFilter === "without") {
+      const timer = setTimeout(() => {
+        void loadMissingMedicines(1);
+      }, 320);
+      return () => clearTimeout(timer);
+    }
+  }, [searchQuery, dosageFilter, statusFilter, hasImageFilter, libraryPageSize]);
+
+  // Instant 0ms client-side filter & sort across the entire R2-cached Central Verified Image Index
+  const filteredVerifiedLibrary = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+    const formFilter = dosageFilter !== "all" ? dosageFilter.toLowerCase() : null;
+
+    const matched = libraryIndex.filter((med) => {
+      if (formFilter && (med.dosage_form || "").toLowerCase() !== formFilter) {
+        return false;
+      }
+      if (tokens.length === 0) return true;
+      const haystack = [
+        med.canonical_name,
+        med.brand_name,
+        med.generic_name,
+        med.strength,
+        med.dosage_form,
+        med.manufacturer,
+        med.barcode,
+        med.master_catalog_id,
+        med.aliases_json,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return tokens.every((t) => haystack.includes(t));
+    });
+
+    const sorted = [...matched];
+    if (librarySort === "za") {
+      sorted.sort((a, b) => b.canonical_name.localeCompare(a.canonical_name));
+    } else if (librarySort === "master_id") {
+      sorted.sort((a, b) => (a.master_catalog_id || "zzz").localeCompare(b.master_catalog_id || "zzz"));
+    } else {
+      sorted.sort((a, b) => a.canonical_name.localeCompare(b.canonical_name));
+    }
+    return sorted;
+  }, [libraryIndex, searchQuery, dosageFilter, librarySort]);
+
+  const totalLibraryItems =
+    hasImageFilter === "without" ? missingPagination.totalCount : filteredVerifiedLibrary.length;
+  const totalLibraryPages =
+    hasImageFilter === "without"
+      ? missingPagination.totalPages
+      : Math.max(1, Math.ceil(filteredVerifiedLibrary.length / libraryPageSize));
+  const safeLibraryPage = Math.min(libraryPage, totalLibraryPages);
+  const medicines = useMemo(() => {
+    if (hasImageFilter === "without") return missingMedicines;
+    const start = (safeLibraryPage - 1) * libraryPageSize;
+    return filteredVerifiedLibrary.slice(start, start + libraryPageSize);
+  }, [hasImageFilter, missingMedicines, filteredVerifiedLibrary, safeLibraryPage, libraryPageSize]);
+
+  // Distinct dosage forms discovered in the library index for accurate filter options
+  const availableDosageForms = useMemo(() => {
+    const base = new Set<string>([
+      "Tablet",
+      "Capsule",
+      "Syrup",
+      "Suspension",
+      "Injection",
+      "Drops",
+      "Sachet",
+      "Cream",
+      "Ointment",
+      "Gel",
+      "Inhaler",
+    ]);
+    for (const m of libraryIndex) {
+      if (m.dosage_form && m.dosage_form.trim()) base.add(m.dosage_form.trim());
+    }
+    return Array.from(base).sort();
+  }, [libraryIndex]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -970,7 +1102,7 @@ export default function CentralMedicineImagesPage() {
           }`}
         >
           <Images className="h-4 w-4" />
-          Central Medicine Library ({medicines.length})
+          Central Medicine Library ({libraryIndexMeta?.totalVerified ?? libraryIndex.length})
         </button>
 
         <button
@@ -1053,17 +1185,48 @@ export default function CentralMedicineImagesPage() {
       {/* TAB 1: CENTRAL MEDICINE LIBRARY */}
       {activeTab === "library" && (
         <div className="space-y-4">
+          {/* Zero-D1-Scan R2 Index Banner */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-200/80 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/25 px-4 py-2.5 text-xs">
+            <div className="flex flex-wrap items-center gap-2 text-emerald-900 dark:text-emerald-200">
+              <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span className="font-bold">Zero-D1-Scan R2 Index Active</span>
+              <span className="text-emerald-700/80 dark:text-emerald-300/80">
+                • All <strong>{(libraryIndexMeta?.totalVerified ?? libraryIndex.length).toLocaleString()}</strong> verified images loaded once from R2 &amp; searched locally at 0ms (0 D1 reads, Edge-cached thumbnails).
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadLibraryIndex(true)}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-slate-900 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 transition disabled:opacity-50"
+              title="Sync latest index from R2 / D1"
+            >
+              <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+              Sync Index
+            </button>
+          </div>
+
           {/* Filters Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
             <div className="relative flex-1 min-w-[240px]">
               <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="Search by trade name, generic composition, barcode, brand..."
+                placeholder="Instant search all library images (name, salt, strength, brand, barcode, ID)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full pl-9 pr-8 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-700"
+                  title="Clear search"
+                >
+                  <XCircle className="h-4 w-4" />
+                </button>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1073,27 +1236,92 @@ export default function CentralMedicineImagesPage() {
                 className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-700 dark:text-slate-300"
               >
                 <option value="all">All Dosage Forms</option>
-                <option value="Tablet">Tablets</option>
-                <option value="Capsule">Capsules</option>
-                <option value="Syrup">Syrups &amp; Liquids</option>
-                <option value="Suspension">Suspensions</option>
-                <option value="Injection">Injections</option>
-                <option value="Drops">Eye/Ear Drops</option>
-                <option value="Sachet">Sachets</option>
-                <option value="Topical">Creams/Ointments</option>
+                {availableDosageForms.map((df) => (
+                  <option key={df} value={df}>
+                    {df}
+                  </option>
+                ))}
               </select>
 
               <select
                 value={hasImageFilter}
-                onChange={(e) => setHasImageFilter(e.target.value)}
+                onChange={(e) => setHasImageFilter(e.target.value as "with" | "without")}
                 className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-700 dark:text-slate-300"
               >
-                <option value="all">All Medicines</option>
-                <option value="with">With Verified Image</option>
-                <option value="without">Missing Image</option>
+                <option value="with">All Verified Images (R2 Fast)</option>
+                <option value="without">Missing Image Only</option>
+              </select>
+
+              {hasImageFilter === "with" && (
+                <select
+                  value={librarySort}
+                  onChange={(e) => setLibrarySort(e.target.value as "az" | "za" | "master_id")}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-700 dark:text-slate-300"
+                >
+                  <option value="az">Sort: A → Z</option>
+                  <option value="za">Sort: Z → A</option>
+                  <option value="master_id">Sort: Master ID</option>
+                </select>
+              )}
+
+              <select
+                value={libraryPageSize}
+                onChange={(e) => setLibraryPageSize(Number(e.target.value))}
+                className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-700 dark:text-slate-300"
+              >
+                <option value={24}>24 / page</option>
+                <option value={36}>36 / page</option>
+                <option value={60}>60 / page</option>
               </select>
             </div>
           </div>
+
+          {/* Match Count + Top Pagination Bar */}
+          {!loading && totalLibraryItems > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-500">
+              <span>
+                Showing{" "}
+                <strong className="text-slate-900 dark:text-white font-mono">
+                  {((safeLibraryPage - 1) * libraryPageSize + 1).toLocaleString()}–
+                  {Math.min(safeLibraryPage * libraryPageSize, totalLibraryItems).toLocaleString()}
+                </strong>{" "}
+                of{" "}
+                <strong className="text-slate-900 dark:text-white font-mono">
+                  {totalLibraryItems.toLocaleString()}
+                </strong>{" "}
+                {searchQuery.trim() ? `matching "${searchQuery.trim()}"` : "library items"}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={safeLibraryPage <= 1}
+                  onClick={() => {
+                    const next = Math.max(1, safeLibraryPage - 1);
+                    setLibraryPage(next);
+                    if (hasImageFilter === "without") void loadMissingMedicines(next);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" /> Prev
+                </button>
+                <span className="px-2 font-mono font-bold text-slate-700 dark:text-slate-200">
+                  Page {safeLibraryPage} / {totalLibraryPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={safeLibraryPage >= totalLibraryPages}
+                  onClick={() => {
+                    const next = Math.min(totalLibraryPages, safeLibraryPage + 1);
+                    setLibraryPage(next);
+                    if (hasImageFilter === "without") void loadMissingMedicines(next);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Next <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Medicines Grid */}
           {loading ? (
@@ -1119,14 +1347,20 @@ export default function CentralMedicineImagesPage() {
                   >
                     <div>
                       {/* Image Thumbnail Frame */}
-                      <div className="relative aspect-[4/3] rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-center justify-center overflow-hidden mb-3">
+                      <div
+                        onClick={() => hasImage && setPreviewMed(med)}
+                        className={`relative aspect-[4/3] rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-800 flex items-center justify-center overflow-hidden mb-3 ${
+                          hasImage ? "cursor-zoom-in group" : ""
+                        }`}
+                      >
                         {hasImage ? (
                           <img
                             src={med.preferred_image_url!}
                             alt={med.canonical_name}
                             crossOrigin="anonymous"
                             referrerPolicy="no-referrer"
-                            className="max-h-full max-w-full object-contain p-2"
+                            decoding="async"
+                            className="max-h-full max-w-full object-contain p-2 transition-transform group-hover:scale-105"
                             loading="lazy"
                             onError={(e) => {
                               const target = e.currentTarget;
@@ -1243,6 +1477,152 @@ export default function CentralMedicineImagesPage() {
               })}
             </div>
           )}
+
+          {/* Bottom Pagination Bar */}
+          {!loading && totalLibraryPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200 dark:border-slate-800 text-xs">
+              <span className="text-slate-500">
+                Page <strong className="text-slate-900 dark:text-white">{safeLibraryPage}</strong> of{" "}
+                <strong className="text-slate-900 dark:text-white">{totalLibraryPages}</strong> (
+                {totalLibraryItems.toLocaleString()} items)
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={safeLibraryPage <= 1}
+                  onClick={() => {
+                    setLibraryPage(1);
+                    if (hasImageFilter === "without") void loadMissingMedicines(1);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold hover:bg-slate-50 disabled:opacity-40"
+                >
+                  First
+                </button>
+                <button
+                  type="button"
+                  disabled={safeLibraryPage <= 1}
+                  onClick={() => {
+                    const next = Math.max(1, safeLibraryPage - 1);
+                    setLibraryPage(next);
+                    if (hasImageFilter === "without") void loadMissingMedicines(next);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold hover:bg-slate-50 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" /> Prev
+                </button>
+                <button
+                  type="button"
+                  disabled={safeLibraryPage >= totalLibraryPages}
+                  onClick={() => {
+                    const next = Math.min(totalLibraryPages, safeLibraryPage + 1);
+                    setLibraryPage(next);
+                    if (hasImageFilter === "without") void loadMissingMedicines(next);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Next <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  disabled={safeLibraryPage >= totalLibraryPages}
+                  onClick={() => {
+                    setLibraryPage(totalLibraryPages);
+                    if (hasImageFilter === "without") void loadMissingMedicines(totalLibraryPages);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 font-semibold hover:bg-slate-50 disabled:opacity-40"
+                >
+                  Last
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Image Lightbox Preview Modal */}
+      {previewMed && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setPreviewMed(null)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-xl w-full overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800">
+              <div className="min-w-0">
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white truncate">
+                  {previewMed.canonical_name}
+                </h3>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {[previewMed.generic_name, previewMed.strength, previewMed.dosage_form, previewMed.master_catalog_id]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewMed(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+              >
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="bg-slate-50 dark:bg-slate-950 p-6 flex items-center justify-center min-h-[300px] max-h-[60vh]">
+              {previewMed.preferred_image_url && (
+                <img
+                  src={previewMed.preferred_image_url}
+                  alt={previewMed.canonical_name}
+                  className="max-h-[52vh] max-w-full object-contain rounded-xl"
+                />
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-2 px-5 py-3.5 border-t border-slate-100 dark:border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  if (previewMed.preferred_image_url) {
+                    navigator.clipboard?.writeText(previewMed.preferred_image_url).catch(() => {});
+                    notify("Image URL copied!");
+                  }
+                }}
+                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                Copy Image URL
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = previewMed;
+                  setPreviewMed(null);
+                  setSelectedMed(target);
+                  setModalForm({
+                    master_catalog_id: target.master_catalog_id || "",
+                    master_catalog_name: target.master_catalog_name || target.canonical_name,
+                    canonical_name: target.canonical_name,
+                    brand_name: target.brand_name || "",
+                    generic_name: target.generic_name || "",
+                    strength: target.strength || "",
+                    dosage_form: target.dosage_form || "Tablet",
+                    manufacturer: target.manufacturer || "",
+                    pack_size: String(target.pack_size || "100"),
+                    pack_unit: target.pack_unit || "Tablet",
+                    barcode: target.barcode || "",
+                    aliases: target.aliases_json ? (() => { try { return JSON.parse(target.aliases_json!).join(", "); } catch { return ""; } })() : "",
+                  });
+                  setUploadOptimized(null);
+                  setShowAddModal(true);
+                }}
+                className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              >
+                Replace / Edit Photo
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

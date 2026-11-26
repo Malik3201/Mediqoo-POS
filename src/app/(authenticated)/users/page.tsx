@@ -1,6 +1,5 @@
-import { ComingSoon } from '@/components/coming-soon';
+import { RolesAndTeamManager } from "@/components/admin/RolesAndTeamManager";
 
-export default function Page() {
-  return <ComingSoon title="Users" milestone="M2" description="Invite administrators and manage account access." />;
+export default function UsersPage() {
+  return <RolesAndTeamManager defaultTab="admins" />;
 }
-

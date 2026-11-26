@@ -8,6 +8,18 @@ import {
 
 export const maxDuration = 60;
 
+// Lightweight in-memory cache for the R2-backed Central Verified Images Index
+// Eliminates redundant Worker/R2/D1 traffic while browsing & searching thousands of images.
+const LIBRARY_INDEX_CACHE_TTL_MS = 90_000;
+let libraryIndexCache: {
+  expiresAt: number;
+  payload: Record<string, unknown>;
+} | null = null;
+
+function invalidateLibraryIndexCache() {
+  libraryIndexCache = null;
+}
+
 function qualifyMediaUrl(url: string | null | undefined, workerBase: string): string | null {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -36,6 +48,42 @@ export async function GET(req: NextRequest) {
     const res = await callStorefrontManageApi("/api/v1/manage/central-library/overview", {
       actor,
     });
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (view === "library_index") {
+    const force = url.searchParams.get("force") === "1";
+    if (!force && libraryIndexCache && libraryIndexCache.expiresAt > Date.now()) {
+      return NextResponse.json(
+        { ...libraryIndexCache.payload, cached: true },
+        { status: 200 }
+      );
+    }
+    const qs = force ? "?force=1" : "";
+    const res = await callStorefrontManageApi(`/api/v1/manage/central-library/index${qs}`, {
+      actor,
+    });
+    const workerBase = getStorefrontWorkerBaseUrl();
+    if (res.ok && res.data && typeof res.data === "object" && Array.isArray((res.data as any).entries)) {
+      const medicines = (res.data as any).entries.map((m: any) => ({
+        ...m,
+        verification_status: "verified",
+        preferred_image_url: qualifyMediaUrl(m.preferred_image_url, workerBase),
+      }));
+      const payload = {
+        ok: true,
+        source: (res.data as any).source || "r2_index",
+        version: (res.data as any).version || 1,
+        updated_at: (res.data as any).updated_at || new Date().toISOString(),
+        total_verified: medicines.length,
+        medicines,
+      };
+      libraryIndexCache = {
+        expiresAt: Date.now() + LIBRARY_INDEX_CACHE_TTL_MS,
+        payload,
+      };
+      return NextResponse.json({ ...payload, cached: false }, { status: 200 });
+    }
     return NextResponse.json(res.data, { status: res.status });
   }
 
@@ -122,6 +170,7 @@ export async function POST(req: NextRequest) {
       actor,
       body: body.medicine || body,
     });
+    invalidateLibraryIndexCache();
     return NextResponse.json(res.data, { status: res.status });
   }
 
@@ -131,6 +180,7 @@ export async function POST(req: NextRequest) {
       actor,
       body: body.payload || body,
     });
+    invalidateLibraryIndexCache();
     const workerBase = getStorefrontWorkerBaseUrl();
     if (res.data && typeof res.data === "object" && (res.data as any).public_url) {
       return NextResponse.json(
@@ -154,6 +204,7 @@ export async function POST(req: NextRequest) {
       actor,
       body: { items },
     });
+    invalidateLibraryIndexCache();
     return NextResponse.json(res.data, { status: res.status });
   }
 
@@ -170,6 +221,7 @@ export async function POST(req: NextRequest) {
         body: { target_canonical_id: body.target_canonical_id },
       }
     );
+    invalidateLibraryIndexCache();
     return NextResponse.json(res.data, { status: res.status });
   }
 
@@ -239,6 +291,7 @@ export async function POST(req: NextRequest) {
       actor,
       body: { queue_id: queueId, candidate: body.candidate || body },
     });
+    invalidateLibraryIndexCache();
     return NextResponse.json(res.data, { status: res.status });
   }
 

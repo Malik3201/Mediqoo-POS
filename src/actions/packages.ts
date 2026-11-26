@@ -82,17 +82,24 @@ export async function generatePackage(data: { project_id: string; license_id?: s
     if (!session || !session.user || !session.user.email) throw new Error("Unauthorized");
     
     await connectToDatabase();
-    const userEmail = session.user.email;
-    
+    const userEmail = session.user.email.trim().toLowerCase();
+    const masterEmail = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+
     let userId = "master-admin";
-    let isAdmin = userEmail === process.env.ADMIN_EMAIL;
-    
+    let actorName = session.user.name || "Super Admin";
+    let actorRole = "Super Admin";
+    let isAdmin = Boolean(masterEmail && userEmail === masterEmail);
+
     if (!isAdmin) {
-      const profile = await Profile.findOne({ email: userEmail }).lean();
-      if (!profile) throw new Error("Profile not found");
+      const profile: any = await Profile.findOne({ email: userEmail }).lean();
+      if (!profile || profile.status === "disabled") throw new Error("Profile not found or disabled");
       userId = profile.id;
+      actorName = profile.name || userEmail;
       const roles = await UserRole.find({ user_id: userId }).lean();
-      isAdmin = roles.some((r: any) => r.role === "admin" || r.role === "super_admin");
+      if (roles.length > 0) {
+        isAdmin = true;
+        actorRole = String((roles[0] as any).role || "admin");
+      }
     }
     if (!isAdmin) throw new Error("Forbidden");
 
@@ -188,9 +195,13 @@ export async function generatePackage(data: { project_id: string; license_id?: s
 
     await AuditLog.create({
       actor_id: userId,
+      actor_name: actorName,
+      actor_email: userEmail,
+      actor_role: actorRole,
       action: "package.generate",
       entity_type: "package",
       entity_id: pkgRow.id,
+      summary: `Generated .aivra package "${filename}" for ${project.name}`,
       metadata: { project_id: project.id, license_id: license?.id ?? null, checksum },
     });
 

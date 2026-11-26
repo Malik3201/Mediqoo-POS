@@ -37,7 +37,9 @@ import {
   MessageSquare,
   Stethoscope,
   FlaskConical,
+  QrCode,
 } from "lucide-react";
+import { StoreQrPosterModal } from "@/components/storefront/StoreQrPosterModal";
 import {
   optimizeImageForStorefront,
   type MediaAssetPurpose,
@@ -211,6 +213,7 @@ export default function PortalMyWebsitePage() {
   const [sharedLibItems, setSharedLibItems] = useState<any[]>([]);
   const [matchingCentralImages, setMatchingCentralImages] = useState(false);
   const [submittingToLibrary, setSubmittingToLibrary] = useState(false);
+  const [qrPosterOpen, setQrPosterOpen] = useState(false);
   const [confirmState, setConfirmState] = useState<{
     title: string;
     description: string;
@@ -900,6 +903,16 @@ export default function PortalMyWebsitePage() {
           {exists && (data.public_link || data.preview_link) && (
             <button
               type="button"
+              onClick={() => setQrPosterOpen(true)}
+              className="inline-flex items-center gap-1.5 min-h-[36px] rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2 text-xs font-bold text-emerald-800 transition"
+            >
+              <QrCode className="h-3.5 w-3.5 text-emerald-700" />
+              Print Store QR
+            </button>
+          )}
+          {exists && (data.public_link || data.preview_link) && (
+            <button
+              type="button"
               onClick={() => copyWebsiteLink(data.public_link || data.preview_link)}
               className="inline-flex items-center gap-1.5 min-h-[36px] rounded-xl border border-[#D8E0EA] bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-[#0F172A] transition"
             >
@@ -964,6 +977,13 @@ export default function PortalMyWebsitePage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setQrPosterOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2 text-xs font-bold text-emerald-800 transition"
+              >
+                <QrCode className="h-3.5 w-3.5" /> Print Store QR
+              </button>
               <button
                 type="button"
                 onClick={() => copyWebsiteLink(data.public_link || data.preview_link)}
@@ -4213,6 +4233,20 @@ export default function PortalMyWebsitePage() {
             />
           )}
         </>
+      )}
+
+      {/* Printable A4 Store QR Poster Modal */}
+      {exists && sf && (
+        <StoreQrPosterModal
+          open={qrPosterOpen}
+          onClose={() => setQrPosterOpen(false)}
+          pharmacyName={brandingForm.display_name || sf.pharmacy_name || "Pharmacy"}
+          websiteUrl={data?.public_link || data?.preview_link || ""}
+          logoUrl={brandingForm.logo_url ? resolvePortalMediaUrl(brandingForm.logo_url) : null}
+          phone={sf.contact_phone || sf.whatsapp_phone || null}
+          city={sf.city || null}
+          tagline={brandingForm.tagline || null}
+        />
       )}
 
       {/* Global Confirmation Modal for Destructive / High-Impact Website Actions */}

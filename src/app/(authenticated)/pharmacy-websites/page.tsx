@@ -27,7 +27,9 @@ import {
   FileText,
   Palette,
   Layers,
+  QrCode,
 } from "lucide-react";
+import { StoreQrPosterModal } from "@/components/storefront/StoreQrPosterModal";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -116,6 +118,14 @@ export default function PharmacyWebsitesAdminPage() {
   const [renameSlugValue, setRenameSlugValue] = useState("");
   const [newCustomDomain, setNewCustomDomain] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+  const [qrPosterTarget, setQrPosterTarget] = useState<{
+    pharmacyName: string;
+    websiteUrl: string;
+    logoUrl?: string | null;
+    phone?: string | null;
+    city?: string | null;
+    tagline?: string | null;
+  } | null>(null);
 
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
@@ -1231,6 +1241,22 @@ export default function PharmacyWebsitesAdminPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
+                                title="Print Store QR Poster"
+                                onClick={() =>
+                                  setQrPosterTarget({
+                                    pharmacyName: sf.pharmacy_name,
+                                    websiteUrl: sf.public_url || sf.preview_url,
+                                    phone: sf.contact_phone || sf.whatsapp_phone || null,
+                                    city: sf.city || null,
+                                  })
+                                }
+                              >
+                                <QrCode className="h-3.5 w-3.5 mr-1" />
+                                QR
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
                                 onClick={() => loadStorefrontDetails(sf.id)}
                               >
                                 Manage
@@ -1808,6 +1834,31 @@ export default function PharmacyWebsitesAdminPage() {
                       <Button
                         variant="outline"
                         size="sm"
+                        className="border-emerald-500/40 text-emerald-700 hover:bg-emerald-50"
+                        onClick={() =>
+                          setQrPosterTarget({
+                            pharmacyName:
+                              detailsData.branding?.display_name ||
+                              detailsData.storefront.pharmacy_name,
+                            websiteUrl:
+                              detailsData.storefront.public_url ||
+                              detailsData.storefront.preview_url,
+                            logoUrl: detailsData.branding?.logo_url || null,
+                            phone:
+                              detailsData.storefront.contact_phone ||
+                              detailsData.storefront.whatsapp_phone ||
+                              null,
+                            city: detailsData.storefront.city || null,
+                            tagline: detailsData.branding?.tagline || null,
+                          })
+                        }
+                      >
+                        <QrCode className="h-4 w-4 mr-1.5" /> Print Store QR
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() =>
                           copyWebsiteLink(
                             detailsData.storefront.public_url || detailsData.storefront.preview_url
@@ -2303,6 +2354,18 @@ export default function PharmacyWebsitesAdminPage() {
           )}
         </div>
       )}
+
+      {/* Printable A4 Store QR Poster Modal */}
+      <StoreQrPosterModal
+        open={Boolean(qrPosterTarget)}
+        onClose={() => setQrPosterTarget(null)}
+        pharmacyName={qrPosterTarget?.pharmacyName || ""}
+        websiteUrl={qrPosterTarget?.websiteUrl || ""}
+        logoUrl={qrPosterTarget?.logoUrl || null}
+        phone={qrPosterTarget?.phone || null}
+        city={qrPosterTarget?.city || null}
+        tagline={qrPosterTarget?.tagline || null}
+      />
     </div>
   );
 }

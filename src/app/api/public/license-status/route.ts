@@ -118,22 +118,30 @@ export async function POST(req: NextRequest) {
     // Calculate effective operational status
     const now = new Date();
     let effective_status = license.status;
+    const isTrialLicense = Boolean(license.features?.is_trial);
 
     if (effective_status === "active") {
       if (license.expires_at) {
         const expiresAt = new Date(license.expires_at);
-        const endOfExpiryDay = new Date(expiresAt);
-        endOfExpiryDay.setHours(23, 59, 59, 999);
-
-        if (now > endOfExpiryDay) {
-          const graceUntil = license.grace_until ? new Date(license.grace_until) : endOfExpiryDay;
-          const endOfGraceDay = new Date(graceUntil);
-          endOfGraceDay.setHours(23, 59, 59, 999);
-
-          if (now > endOfGraceDay) {
+        if (isTrialLicense) {
+          // Strict trial auto-lock: expires at exact timestamp with zero extra grace until Admin extends.
+          if (now > expiresAt) {
             effective_status = "blocked";
-          } else {
-            effective_status = "grace";
+          }
+        } else {
+          const endOfExpiryDay = new Date(expiresAt);
+          endOfExpiryDay.setHours(23, 59, 59, 999);
+
+          if (now > endOfExpiryDay) {
+            const graceUntil = license.grace_until ? new Date(license.grace_until) : endOfExpiryDay;
+            const endOfGraceDay = new Date(graceUntil);
+            endOfGraceDay.setHours(23, 59, 59, 999);
+
+            if (now > endOfGraceDay) {
+              effective_status = "blocked";
+            } else {
+              effective_status = "grace";
+            }
           }
         }
       }
@@ -305,7 +313,9 @@ export async function POST(req: NextRequest) {
       branding_logo_url: resolvedBranding.logoUrl,
       effective_status,
       expires_at: license.expires_at ? license.expires_at.toISOString() : null,
-      grace_until: license.grace_until ? license.grace_until.toISOString() : null,
+      grace_until: isTrialLicense ? null : (license.grace_until ? license.grace_until.toISOString() : null),
+      is_trial: isTrialLicense,
+      trial_days: isTrialLicense ? Number(license.features?.trial_days || 3) : null,
       issued_at: license.issued_at ? license.issued_at.toISOString() : null,
       license_id: license.id,
       license_version: license.license_version || 1,

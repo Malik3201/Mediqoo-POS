@@ -27,6 +27,8 @@ import BillingAdjustment from "@/models/BillingAdjustment";
 import WhatsAppIntegration from "@/models/WhatsAppIntegration";
 import { maskPhoneNumber } from "@/lib/whatsapp/crypto";
 import { resolveCloudServicesState } from "@/lib/cloud-services";
+import { requireAdminRequest, AdminAuthError } from "@/lib/admin-auth";
+import { describeModelMutation, recordAdminActivity } from "@/lib/audit-logger";
 
 const modelsMap: Record<string, any> = {
   "audit_logs": AuditLog,
@@ -195,8 +197,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mode
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ model: string }> }) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let actor;
+  try {
+    actor = await requireAdminRequest(req);
+  } catch (err: any) {
+    const status = err instanceof AdminAuthError ? err.status : 401;
+    return NextResponse.json({ error: err?.message || "Unauthorized" }, { status });
+  }
 
   const { model } = await params;
   const Model = modelsMap[model];
@@ -212,7 +219,42 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mod
         { status: 400 }
       );
     }
+
+    // If caller logs an explicit audit_log row, enrich it server-side with the real authenticated admin's name & role
+    if (model === "audit_logs") {
+      const enriched = {
+        ...body,
+        actor_id: actor.userId,
+        actor_name: actor.name,
+        actor_email: actor.email,
+        actor_role: actor.roleName,
+      };
+      const newAudit = await Model.create(enriched);
+      return NextResponse.json(newAudit);
+    }
+
+    // Stamp creator / issuer identity cleanly when not already provided
+    if (model === "clients" || model === "projects" || model === "packages") {
+      if (!body.created_by) body.created_by = actor.name || actor.userId;
+    } else if (model === "licenses") {
+      if (!body.issued_by) body.issued_by = actor.name || actor.userId;
+    }
+
     const newData = await Model.create(body);
+
+    const desc = describeModelMutation(model, "created", newData);
+    await recordAdminActivity({
+      actor,
+      action: `${desc.entityType}.create`,
+      entity_type: desc.entityType,
+      entity_id: desc.entityId,
+      summary: desc.summary,
+      metadata: {
+        model,
+        label: (newData as any)?.license_key || (newData as any)?.name || null,
+      },
+    });
+
     return NextResponse.json(newData);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -220,8 +262,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ mod
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ model: string }> }) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let actor;
+  try {
+    actor = await requireAdminRequest(req);
+  } catch (err: any) {
+    const status = err instanceof AdminAuthError ? err.status : 401;
+    return NextResponse.json({ error: err?.message || "Unauthorized" }, { status });
+  }
 
   const { model } = await params;
   const Model = modelsMap[model];
@@ -241,8 +288,33 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ mo
         delete body[field];
       }
     }
-    
-    const updatedData = await Model.findOneAndUpdate({ id }, body, { new: true }).lean();
+
+    // When a license's expiry, status, grace_until, or features change via generic PATCH,
+    // automatically bump `license_version` so POS accepts the new signed server state immediately.
+    let updateDoc: any = body;
+    if (
+      model === "licenses" &&
+      body.license_version === undefined &&
+      ("expires_at" in body || "status" in body || "grace_until" in body || "features" in body)
+    ) {
+      updateDoc = { $set: body, $inc: { license_version: 1 } };
+    }
+
+    const updatedData = await Model.findOneAndUpdate({ id }, updateDoc, { new: true }).lean();
+
+    if (model !== "audit_logs") {
+      const desc = describeModelMutation(model, "updated", updatedData, id);
+      const changedKeys = Object.keys(body || {}).slice(0, 12);
+      await recordAdminActivity({
+        actor,
+        action: `${desc.entityType}.update`,
+        entity_type: desc.entityType,
+        entity_id: desc.entityId,
+        summary: desc.summary,
+        metadata: { model, changed_fields: changedKeys },
+      });
+    }
+
     return NextResponse.json(updatedData);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -250,8 +322,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ mo
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ model: string }> }) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  let actor;
+  try {
+    actor = await requireAdminRequest(req);
+  } catch (err: any) {
+    const status = err instanceof AdminAuthError ? err.status : 401;
+    return NextResponse.json({ error: err?.message || "Unauthorized" }, { status });
+  }
 
   const { model } = await params;
   const Model = modelsMap[model];
@@ -263,7 +340,20 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ m
     const id = req.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required for DELETE" }, { status: 400 });
     
-    await Model.findOneAndDelete({ id });
+    const deletedDoc = await Model.findOneAndDelete({ id }).lean();
+
+    if (model !== "audit_logs") {
+      const desc = describeModelMutation(model, "deleted", deletedDoc, id);
+      await recordAdminActivity({
+        actor,
+        action: `${desc.entityType}.delete`,
+        entity_type: desc.entityType,
+        entity_id: desc.entityId,
+        summary: desc.summary,
+        metadata: { model },
+      });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

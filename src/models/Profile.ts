@@ -6,6 +6,10 @@ export interface IProfile extends Document {
   name: string;
   email: string;
   password_hash?: string;
+  status?: "active" | "disabled";
+  created_by?: string;
+  created_by_name?: string;
+  last_login_at?: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -16,6 +20,10 @@ const ProfileSchema = new Schema<IProfile>(
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
     password_hash: { type: String },
+    status: { type: String, enum: ["active", "disabled"], default: "active" },
+    created_by: { type: String },
+    created_by_name: { type: String },
+    last_login_at: { type: Date, default: null },
   },
   {
     timestamps: { createdAt: "created_at", updatedAt: "updated_at" },
