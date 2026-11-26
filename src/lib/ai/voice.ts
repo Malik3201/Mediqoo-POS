@@ -82,9 +82,17 @@ async function getActiveGroqKeys(): Promise<GroqKeyCandidate[]> {
 
   try {
     await connectToDatabase();
+    // Match router.ts convention: older Groq credentials saved before multi-provider support
+    // have no `provider` field (undefined/null), so query `{ provider: { $ne: "custom" } }`
+    // and also allow custom keys pointing to api.groq.com.
     const creds: any[] = await AiCredential.find({
-      provider: "groq",
       enabled: true,
+      $or: [
+        { provider: { $exists: false } },
+        { provider: null },
+        { provider: "groq" },
+        { base_url: /groq\.com/i },
+      ],
       status: { $in: ["Healthy", "Rate Limited", "Temporarily Unavailable"] },
     })
       .sort({ weight: -1, last_success_at: -1 })
