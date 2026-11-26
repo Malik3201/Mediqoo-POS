@@ -9,7 +9,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  "Access-Control-Expose-Headers": "X-TTS-Provider, X-TTS-Cache",
+  "Access-Control-Expose-Headers": "X-TTS-Provider, X-TTS-Cache, X-TTS-Voice, X-TTS-Transliterated",
 };
 
 export async function OPTIONS() {
@@ -51,7 +51,8 @@ export async function POST(req: NextRequest) {
   const result = await synthesizeAivaSpeech({
     text: String(body?.text || ""),
     voice: typeof body?.voice === "string" ? body.voice : "ur-PK-UzmaNeural",
-    rate: typeof body?.rate === "string" ? body.rate : "+4%",
+    language: typeof body?.language === "string" ? body.language : "roman_ur",
+    rate: typeof body?.rate === "string" ? body.rate : "+0%",
   });
 
   if (!result.ok) {
@@ -70,6 +71,8 @@ export async function POST(req: NextRequest) {
       "Cache-Control": "private, max-age=600",
       "X-TTS-Provider": result.provider,
       "X-TTS-Cache": result.cacheHit ? "HIT" : "MISS",
+      "X-TTS-Voice": result.effectiveVoice,
+      "X-TTS-Transliterated": result.transliterated ? "1" : "0",
     },
   });
 }

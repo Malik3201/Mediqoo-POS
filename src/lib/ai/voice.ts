@@ -95,6 +95,7 @@ async function getActiveGroqKeys(): Promise<GroqKeyCandidate[]> {
       ],
       status: { $in: ["Healthy", "Rate Limited", "Temporarily Unavailable"] },
     })
+      .select("+encrypted_key")
       .sort({ weight: -1, last_success_at: -1 })
       .lean();
 
@@ -244,6 +245,8 @@ export async function transcribeWithGroqWhisper(params: {
 interface TtsCacheEntry {
   audio: Buffer;
   provider: "edge" | "azure";
+  effectiveVoice: string;
+  transliterated: boolean;
   expiresAt: number;
 }
 
@@ -286,6 +289,111 @@ function sanitizeSpeechText(raw: string): string {
     .slice(0, 420);
 }
 
+const GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions";
+const GROQ_TRANSLIT_MODELS = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"] as const;
+const HIGH_QUALITY_MP3_FORMAT = "audio-24khz-96kbitrate-mono-mp3";
+
+const URDU_SCRIPT_RE = /[\u0600-\u06FF]/;
+const LATIN_WORD_RE = /[A-Za-z]{2,}/;
+
+/**
+ * Microsoft's `ur-PK-UzmaNeural` and `ur-PK-AsadNeural` sound like warm, natural Pakistani human speakers
+ * ONLY when given clean Urdu Nastaliq script (اردو) with numbers written in Urdu words.
+ * Feeding Latin Roman Urdu ("Aaj ki sale 7,700 rupay hui hai") forces the Urdu neural model into broken
+ * English-phoneme fallback and destroys pronunciation and accent!
+ *
+ * This fast Groq pass (`openai/gpt-oss-20b` -> fallback `qwen/qwen3.8-27b`) converts Roman Urdu / mixed
+ * POS replies into natural spoken Pakistani Urdu script while strictly preserving every exact POS figure.
+ */
+export async function prepareNaturalSpokenText(params: {
+  text: string;
+  language?: string;
+  voice: SupportedAivaVoice;
+}): Promise<{ spokenText: string; effectiveVoice: string; transliterated: boolean; modelUsed?: string }> {
+  const clean = sanitizeSpeechText(params.text);
+  const lang = (params.language || "roman_ur").toLowerCase();
+
+  // If operator explicitly selected pure English, use natural neural English voice (never Urdu voice reading English!)
+  if (lang === "en" && !URDU_SCRIPT_RE.test(clean)) {
+    const enVoice =
+      params.voice === "ur-PK-AsadNeural" ? "en-GB-RyanNeural" : "en-GB-SoniaNeural";
+    return { spokenText: clean, effectiveVoice: enVoice, transliterated: false };
+  }
+
+  // Already pure Urdu script with no Latin words and no digits needing spoken-word conversion
+  const hasLatin = LATIN_WORD_RE.test(clean);
+  const hasDigits = /\d/.test(clean);
+  if (URDU_SCRIPT_RE.test(clean) && !hasLatin && !hasDigits) {
+    return { spokenText: clean, effectiveVoice: params.voice, transliterated: false };
+  }
+
+  const systemPrompt =
+    "You convert Pakistani pharmacy POS replies into pure, natural, conversational Pakistani Urdu script (اردو) for a Pakistani Urdu neural voice actor to speak aloud.\n" +
+    "STRICT RULES:\n" +
+    "1. Output ONLY pure Urdu script (اردو). Zero English or Latin letters, zero digits, zero markdown, zero emojis, zero quotes, zero explanations.\n" +
+    "2. NEVER alter, round, or invent any number. Convert every exact number into natural Pakistani Urdu spoken words (examples: 7,700 -> سات ہزار سات سو, 45,250 -> پینتالیس ہزار دو سو پچاس, 3 -> تین, 12 -> بارہ, 0 -> صفر, 100 -> ایک سو).\n" +
+    "3. Convert every English POS/medicine word phonetically into natural Pakistani Urdu script so a Pakistani speaker pronounces it smoothly (examples: net sales -> خالص سیل, sales -> سیل, gross profit -> منافع, cash -> کیش, bills -> بلز, stock -> اسٹاک, expiry -> ایکسپائری, supplier -> سپلائر, customer -> کسٹمر, khata -> کھاتہ, screen -> اسکرین, list -> فہرست, Panadol -> پیناڈول, Augmentin -> آگمینٹن, tablet -> گولی, syrup -> شربت).\n" +
+    "4. Keep the exact same meaning in warm, respectful, clear spoken Pakistani Urdu (1 to 2 smooth sentences with proper Urdu punctuation `،` and `۔`).";
+
+  // Try live Groq models across active healthy keys
+  const keys = await getActiveGroqKeys();
+  for (const model of GROQ_TRANSLIT_MODELS) {
+    for (const cand of keys.slice(0, 2)) {
+      try {
+        const payload: Record<string, unknown> = {
+          model,
+          temperature: 0.1,
+          max_tokens: 700,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: clean },
+          ],
+        };
+        // Harmony reasoning models (`gpt-oss-*`) are much faster & never starve content with low reasoning_effort
+        if (model.includes("gpt-oss")) {
+          payload.reasoning_effort = "low";
+        }
+
+        const res = await fetch(GROQ_CHAT_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${cand.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(8_000),
+        });
+
+        if (!res.ok) {
+          // If 404 model_not_found, break inner key loop and try next model immediately
+          if (res.status === 404) break;
+          continue;
+        }
+        const data: any = await res.json().catch(() => null);
+        const rawContent = String(data?.choices?.[0]?.message?.content || "");
+        const rewritten = rawContent
+          .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+          .replace(/["'`*#<>]+/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        if (rewritten && URDU_SCRIPT_RE.test(rewritten)) {
+          return {
+            spokenText: rewritten.slice(0, 420),
+            effectiveVoice: params.voice,
+            transliterated: true,
+            modelUsed: model,
+          };
+        }
+      } catch {
+        // Try next Groq key / model cleanly
+      }
+    }
+  }
+
+  return { spokenText: clean, effectiveVoice: params.voice, transliterated: false };
+}
+
 /**
  * Future plug-in: if AZURE_SPEECH_KEY + AZURE_SPEECH_REGION are added to Vercel env later,
  * automatically switches to official Microsoft Azure Neural TTS (500k chars/mo free tier F0)
@@ -293,14 +401,15 @@ function sanitizeSpeechText(raw: string): string {
  */
 async function synthesizeWithAzureIfConfigured(
   text: string,
-  voice: SupportedAivaVoice,
+  voice: string,
   rate: string
 ): Promise<Buffer | null> {
   const key = (process.env.AZURE_SPEECH_KEY || "").trim();
   const region = (process.env.AZURE_SPEECH_REGION || "").trim();
   if (!key || !region) return null;
 
-  const ssml = `<speak version='1.0' xml:lang='ur-PK'><voice name='${voice}'><prosody rate='${escapeXml(rate)}'>${escapeXml(text)}</prosody></voice></speak>`;
+  const xmlLang = voice.startsWith("en-") ? "en-GB" : "ur-PK";
+  const ssml = `<speak version='1.0' xml:lang='${xmlLang}'><voice name='${voice}'><prosody rate='${escapeXml(rate)}'>${escapeXml(text)}</prosody></voice></speak>`;
   const res = await fetch(
     `https://${encodeURIComponent(region)}.tts.speech.microsoft.com/cognitiveservices/v1`,
     {
@@ -308,7 +417,7 @@ async function synthesizeWithAzureIfConfigured(
       headers: {
         "Ocp-Apim-Subscription-Key": key,
         "Content-Type": "application/ssml+xml",
-        "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+        "X-Microsoft-OutputFormat": HIGH_QUALITY_MP3_FORMAT,
         "User-Agent": "AivraSolPOS-Aiva/1.0",
       },
       body: ssml,
@@ -323,7 +432,7 @@ async function synthesizeWithAzureIfConfigured(
 
 async function synthesizeWithEdgeTts(
   text: string,
-  voice: SupportedAivaVoice,
+  voice: string,
   rate: string
 ): Promise<Buffer> {
   let lastErr: unknown = null;
@@ -332,7 +441,7 @@ async function synthesizeWithEdgeTts(
       const tts = new EdgeTTS();
       await tts.synthesize(text, voice, {
         rate,
-        outputFormat: "audio-24khz-48kbitrate-mono-mp3",
+        outputFormat: HIGH_QUALITY_MP3_FORMAT,
       });
       const buf = tts.toBuffer();
       if (buf && buf.length > 256) {
@@ -352,9 +461,17 @@ async function synthesizeWithEdgeTts(
 export async function synthesizeAivaSpeech(params: {
   text: string;
   voice?: string;
+  language?: string;
   rate?: string;
 }): Promise<
-  | { ok: true; audio: Buffer; provider: "edge" | "azure"; cacheHit: boolean }
+  | {
+      ok: true;
+      audio: Buffer;
+      provider: "edge" | "azure";
+      cacheHit: boolean;
+      effectiveVoice: string;
+      transliterated: boolean;
+    }
   | { ok: false; status: number; error: string; message: string }
 > {
   const cleanText = sanitizeSpeechText(params.text);
@@ -362,41 +479,80 @@ export async function synthesizeAivaSpeech(params: {
     return { ok: false, status: 400, error: "empty_text", message: "Speech text is empty." };
   }
 
-  const voice: SupportedAivaVoice = SUPPORTED_AIVA_VOICES.has(params.voice as SupportedAivaVoice)
+  const requestedVoice: SupportedAivaVoice = SUPPORTED_AIVA_VOICES.has(params.voice as SupportedAivaVoice)
     ? (params.voice as SupportedAivaVoice)
     : "ur-PK-UzmaNeural";
 
   const rate =
     typeof params.rate === "string" && /^[+-]?\d{1,2}%$/.test(params.rate.trim())
       ? params.rate.trim()
-      : "+4%";
+      : "+0%";
 
+  const langKey = (params.language || "roman_ur").toLowerCase();
   const cacheKey = crypto
     .createHash("sha256")
-    .update(`${voice}|${rate}|${cleanText}`)
+    .update(`v3|${requestedVoice}|${langKey}|${rate}|${cleanText}`)
     .digest("hex");
 
   const cached = getCachedTts(cacheKey);
   if (cached) {
-    return { ok: true, audio: cached.audio, provider: cached.provider, cacheHit: true };
+    return {
+      ok: true,
+      audio: cached.audio,
+      provider: cached.provider,
+      cacheHit: true,
+      effectiveVoice: cached.effectiveVoice,
+      transliterated: cached.transliterated,
+    };
   }
+
+  // Convert Roman Urdu / mixed text -> pure Pakistani Urdu script (or native EN voice for English)
+  const { spokenText, effectiveVoice, transliterated } = await prepareNaturalSpokenText({
+    text: cleanText,
+    language: langKey,
+    voice: requestedVoice,
+  });
 
   // 1. Optional Azure F0 Speech if configured later (seamless zero-code upgrade path)
   try {
-    const azureBuf = await synthesizeWithAzureIfConfigured(cleanText, voice, rate);
+    const azureBuf = await synthesizeWithAzureIfConfigured(spokenText, effectiveVoice, rate);
     if (azureBuf) {
-      putCachedTts(cacheKey, { audio: azureBuf, provider: "azure" });
-      return { ok: true, audio: azureBuf, provider: "azure", cacheHit: false };
+      putCachedTts(cacheKey, {
+        audio: azureBuf,
+        provider: "azure",
+        effectiveVoice,
+        transliterated,
+      });
+      return {
+        ok: true,
+        audio: azureBuf,
+        provider: "azure",
+        cacheHit: false,
+        effectiveVoice,
+        transliterated,
+      };
     }
   } catch {
     // Gracefully fall back to Edge TTS
   }
 
-  // 2. Primary Right Now: Free Microsoft Edge Neural TTS (ur-PK-UzmaNeural / ur-PK-AsadNeural)
+  // 2. Primary Right Now: Free Microsoft Edge HD Neural TTS (96kbps)
   try {
-    const edgeBuf = await synthesizeWithEdgeTts(cleanText, voice, rate);
-    putCachedTts(cacheKey, { audio: edgeBuf, provider: "edge" });
-    return { ok: true, audio: edgeBuf, provider: "edge", cacheHit: false };
+    const edgeBuf = await synthesizeWithEdgeTts(spokenText, effectiveVoice, rate);
+    putCachedTts(cacheKey, {
+      audio: edgeBuf,
+      provider: "edge",
+      effectiveVoice,
+      transliterated,
+    });
+    return {
+      ok: true,
+      audio: edgeBuf,
+      provider: "edge",
+      cacheHit: false,
+      effectiveVoice,
+      transliterated,
+    };
   } catch (err: any) {
     return {
       ok: false,
