@@ -245,19 +245,44 @@ export async function callStorefrontManageApi<T = any>(
     bodyStr = JSON.stringify(options.body);
   }
 
-  const res = await fetch(`${baseUrl}${endpointPath}`, {
-    method: options.method || "GET",
-    headers,
-    body: bodyStr,
-    cache: "no-store",
-  });
+  try {
+    const res = await fetch(`${baseUrl}${endpointPath}`, {
+      method: options.method || "GET",
+      headers,
+      body: bodyStr,
+      cache: "no-store",
+      signal: AbortSignal.timeout(45_000),
+    });
 
-  const data = (await res.json().catch(() => ({ ok: false, error: "invalid_response" }))) as T;
-  return {
-    status: res.status,
-    ok: res.ok,
-    data,
-  };
+    const text = await res.text().catch(() => "");
+    let data: any = { ok: false, error: "invalid_response" };
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = {
+          ok: false,
+          error: `upstream_http_${res.status}`,
+          message: `Storefront worker returned non-JSON HTTP ${res.status}`,
+        };
+      }
+    }
+    return {
+      status: res.status,
+      ok: res.ok,
+      data: data as T,
+    };
+  } catch (err: any) {
+    return {
+      status: 502,
+      ok: false,
+      data: {
+        ok: false,
+        error: "worker_request_failed",
+        message: String(err?.message || "Storefront worker request timed out or failed."),
+      } as unknown as T,
+    };
+  }
 }
 
 export async function callStorefrontSyncApi<T = any>(
@@ -296,19 +321,44 @@ export async function callStorefrontSyncApi<T = any>(
     bodyStr = JSON.stringify(options.body);
   }
 
-  const res = await fetch(`${baseUrl}${endpointPath}`, {
-    method: options.method || "GET",
-    headers,
-    body: bodyStr,
-    cache: "no-store",
-  });
+  try {
+    const res = await fetch(`${baseUrl}${endpointPath}`, {
+      method: options.method || "GET",
+      headers,
+      body: bodyStr,
+      cache: "no-store",
+      signal: AbortSignal.timeout(45_000),
+    });
 
-  const data = (await res.json().catch(() => ({ ok: false, error: "invalid_response" }))) as T;
-  return {
-    status: res.status,
-    ok: res.ok,
-    data,
-  };
+    const text = await res.text().catch(() => "");
+    let data: any = { ok: false, error: "invalid_response" };
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = {
+          ok: false,
+          error: `upstream_http_${res.status}`,
+          message: `Storefront worker returned non-JSON HTTP ${res.status}`,
+        };
+      }
+    }
+    return {
+      status: res.status,
+      ok: res.ok,
+      data: data as T,
+    };
+  } catch (err: any) {
+    return {
+      status: 502,
+      ok: false,
+      data: {
+        ok: false,
+        error: "worker_request_failed",
+        message: String(err?.message || "Storefront worker request timed out or failed."),
+      } as unknown as T,
+    };
+  }
 }
 
 /**

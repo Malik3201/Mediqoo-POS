@@ -6,6 +6,8 @@ import {
   type StorefrontManagementActor,
 } from "@/lib/storefront/client";
 
+export const maxDuration = 60;
+
 function qualifyMediaUrl(url: string | null | undefined, workerBase: string): string | null {
   if (!url) return null;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
