@@ -12,26 +12,46 @@ import {
 } from "@/components/ui/table";
 import {
   PortalPageHeader,
+  PortalRefreshButton,
   PortalKpiCard,
   PortalSectionCard,
   PortalStatusBadge,
   PortalEmptyState,
 } from "@/components/portal/PortalUI";
+import { fetchPortalCached, getPortalCached } from "@/lib/portal-cache";
 
 export default function PortalBillingPage() {
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const loadBilling = async (forceRefresh = false) => {
+    const url = "/api/portal/billing";
+    const cached = getPortalCached<any>(url, 60_000);
+    if (cached && cached.data?.success) {
+      setData(cached.data.items || []);
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const { data: res } = await fetchPortalCached<any>(url, {
+        ttlMs: 60_000,
+        forceRefresh,
+      });
+      if (res.success) {
+        setData(res.items || []);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetch("/api/portal/billing")
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          setData(res.items);
-        }
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    void loadBilling(false);
   }, []);
 
   const allPayments = data
@@ -55,6 +75,7 @@ export default function PortalBillingPage() {
         icon={<CreditCard className="w-5 h-5" />}
         title="Billing & Subscriptions"
         subtitle="Manage your AivraSol software licenses, billing cycles, metered usage, and payment history."
+        actions={<PortalRefreshButton loading={loading} onClick={() => void loadBilling(true)} />}
       />
 
       {/* Executive Billing KPIs */}

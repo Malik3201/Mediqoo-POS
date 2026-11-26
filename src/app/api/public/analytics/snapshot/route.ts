@@ -266,6 +266,13 @@ export async function POST(req: NextRequest) {
     if (!reset_portal_data) {
       const incomingHasInventory =
         stockValue > 0 || lowStockCount > 0 || outOfStockCount > 0 || expiringSoonCount > 0;
+      const incomingShifts = Array.isArray(statePayload?.shift_sessions)
+        ? statePayload.shift_sessions
+        : Array.isArray(statePayload?.operator_shifts)
+        ? statePayload.operator_shifts
+        : Array.isArray(statePayload?.shiftSessions)
+        ? statePayload.shiftSessions
+        : [];
       const incomingHasPortalData =
         Boolean(statePayload && typeof statePayload === "object") &&
         ((Array.isArray(statePayload.customers) && statePayload.customers.length > 0) ||
@@ -274,8 +281,7 @@ export async function POST(req: NextRequest) {
             statePayload.products_intelligence.length > 0) ||
           (Array.isArray(statePayload.recent_purchases) &&
             statePayload.recent_purchases.length > 0) ||
-          (Array.isArray(statePayload.shift_sessions) &&
-            statePayload.shift_sessions.length > 0));
+          incomingShifts.length > 0);
 
       const existingHasData =
         Number(existingInv?.stock_value ?? 0) > 0 ||
@@ -358,7 +364,14 @@ export async function POST(req: NextRequest) {
       }
       if (Array.isArray(statePayload.drawer_sessions)) updateSet.drawer_sessions = statePayload.drawer_sessions.slice(0, 40);
       if (Array.isArray(statePayload.daily_closings)) updateSet.daily_closings = statePayload.daily_closings.slice(0, 40);
-      if (Array.isArray(statePayload.shift_sessions)) updateSet.shift_sessions = statePayload.shift_sessions.slice(0, 60);
+      const rawShiftList = Array.isArray(statePayload.shift_sessions)
+        ? statePayload.shift_sessions
+        : Array.isArray(statePayload.operator_shifts)
+        ? statePayload.operator_shifts
+        : Array.isArray(statePayload.shiftSessions)
+        ? statePayload.shiftSessions
+        : null;
+      if (rawShiftList) updateSet.shift_sessions = rawShiftList.slice(0, 80);
       if (statePayload.inventory_alerts && typeof statePayload.inventory_alerts === "object") {
         updateSet.inventory_alerts = {
           expiring_items: Array.isArray(statePayload.inventory_alerts.expiring_items)

@@ -19,6 +19,7 @@ import {
   PortalSlideOver,
   PortalEmptyState,
 } from "@/components/portal/PortalUI";
+import { fetchPortalCached, getPortalCached } from "@/lib/portal-cache";
 
 function formatPKR(n: number): string {
   return `Rs ${Math.round(n || 0).toLocaleString("en-PK")}`;
@@ -62,21 +63,32 @@ function ReturnsContent() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const fetchReturns = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      params.set("period", period);
-      if (debouncedQuery) params.set("q", debouncedQuery);
-      if (refundFilter !== "all") params.set("refund", refundFilter);
+  const fetchReturns = useCallback(async (forceRefresh = false) => {
+    const params = new URLSearchParams();
+    params.set("period", period);
+    if (debouncedQuery) params.set("q", debouncedQuery);
+    if (refundFilter !== "all") params.set("refund", refundFilter);
 
-      const res = await fetch(`/api/portal/returns?${params.toString()}`);
-      if (res.ok) {
-        const json = await res.json();
-        setSalesReturns(json.sales_returns || []);
-        setPurchaseReturns(json.purchase_returns || []);
-        setSummary(json.summary || {});
-      }
+    const url = `/api/portal/returns?${params.toString()}`;
+    const cached = getPortalCached<any>(url, 40_000);
+    if (cached) {
+      setSalesReturns(cached.data.sales_returns || []);
+      setPurchaseReturns(cached.data.purchase_returns || []);
+      setSummary(cached.data.summary || {});
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const { data: json } = await fetchPortalCached<any>(url, {
+        ttlMs: 40_000,
+        forceRefresh,
+      });
+      setSalesReturns(json.sales_returns || []);
+      setPurchaseReturns(json.purchase_returns || []);
+      setSummary(json.summary || {});
     } catch (err) {
       console.error(err);
     } finally {
@@ -85,7 +97,7 @@ function ReturnsContent() {
   }, [period, debouncedQuery, refundFilter]);
 
   useEffect(() => {
-    void fetchReturns();
+    void fetchReturns(false);
   }, [fetchReturns]);
 
   return (
@@ -119,7 +131,7 @@ function ReturnsContent() {
                 Supplier ({summary.purchase_returns_count ?? purchaseReturns.length})
               </button>
             </div>
-            <PortalRefreshButton loading={loading} onClick={() => void fetchReturns()} />
+            <PortalRefreshButton loading={loading} onClick={() => void fetchReturns(true)} />
           </div>
         }
       />
@@ -154,7 +166,7 @@ function ReturnsContent() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search return #, original invoice/GRN #, customer/supplier, or product…"
-            className="w-full h-10 pl-9 pr-8 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#009A4D]/20 focus:border-[#009A4D]"
+            className="w-full min-h-[42px] pl-9 pr-8 rounded-xl border border-[#D8E0EA] text-base sm:text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-[#0F766E]"
           />
           {searchInput && (
             <button

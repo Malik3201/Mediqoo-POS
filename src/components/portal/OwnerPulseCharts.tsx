@@ -120,45 +120,47 @@ export function SalesTrendCard({
       : points.length - 1;
   const activeDot = activeIdx >= 0 ? points[activeIdx] : null;
 
-  const strokeColor = metric === "net_sales" ? "#0D9488" : "#4F46E5";
+  const strokeColor = metric === "net_sales" ? "#0F766E" : "#0F172A";
   const gradId = metric === "net_sales" ? "ownerSalesAreaGrad" : "ownerProfitAreaGrad";
 
   return (
-    <div className="bg-white rounded-2xl border border-indigo-950/[0.08] shadow-[0_4px_20px_-6px_rgba(19,27,58,0.08)] overflow-hidden flex flex-col">
-      <div className="px-4 sm:px-5 pt-4 pb-3 flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-100">
+    <div className="bg-white rounded-2xl border border-[#D8E0EA] shadow-[0_1px_3px_rgba(15,23,42,0.04)] overflow-hidden flex flex-col">
+      <div className="px-4 sm:px-5 pt-4 pb-3 flex flex-wrap items-center justify-between gap-2.5 border-b border-[#E6ECF2]">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#162044] to-[#1E3A5F] text-teal-300 flex items-center justify-center shadow-xs shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-[#0F172A] text-teal-400 flex items-center justify-center shrink-0">
             <TrendingUp className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-extrabold text-[#131B3A] tracking-tight truncate">
+            <h2 className="text-sm font-extrabold text-[#0F172A] tracking-tight truncate">
               {days}-Day Performance Trend
             </h2>
-            <p className="text-[11px] text-slate-500 truncate">
+            <p className="text-[11px] text-slate-600 truncate">
               Tap or hover any day to inspect exact figures
             </p>
           </div>
         </div>
 
-        <div className="inline-flex bg-[#F3F5FA] p-1 rounded-xl border border-indigo-950/[0.07]">
+        <div className="inline-flex bg-[#F3F5F8] p-1 rounded-xl border border-[#D8E0EA]">
           <button
             type="button"
+            data-allow-rapid-click="true"
             onClick={() => setMetric("net_sales")}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+            className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
               metric === "net_sales"
-                ? "bg-[#131B3A] text-white shadow-xs"
-                : "text-slate-600 hover:text-[#131B3A]"
+                ? "bg-[#0F766E] text-white"
+                : "text-slate-600 hover:text-[#0F172A]"
             }`}
           >
             Sales
           </button>
           <button
             type="button"
+            data-allow-rapid-click="true"
             onClick={() => setMetric("gross_profit")}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+            className={`px-3 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
               metric === "gross_profit"
-                ? "bg-[#131B3A] text-white shadow-xs"
-                : "text-slate-600 hover:text-[#131B3A]"
+                ? "bg-[#0F172A] text-white"
+                : "text-slate-600 hover:text-[#0F172A]"
             }`}
           >
             Profit
@@ -169,24 +171,24 @@ export function SalesTrendCard({
       {/* Selected Day Interactive Callout Strip */}
       <div className="px-4 sm:px-5 pt-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="text-xl sm:text-2xl font-extrabold text-[#131B3A] tabular-nums tracking-tight">
+          <span className="text-xl sm:text-2xl font-extrabold text-[#0F172A] tabular-nums tracking-tight">
             {activePoint ? fmtPKR(activePoint[metric]) : "Rs 0"}
           </span>
           {activePoint && (
-            <span className="text-xs font-bold text-teal-700 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded-full">
+            <span className="text-xs font-bold text-[#0F766E] bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
               {fmtShortDate(activePoint.date)}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+        <div className="flex items-center gap-3 text-[11px] text-slate-600">
           <span>
             Avg/day:{" "}
-            <strong className="text-[#131B3A] tabular-nums">{fmtShortPKR(stats.avg)}</strong>
+            <strong className="text-[#0F172A] tabular-nums">{fmtShortPKR(stats.avg)}</strong>
           </span>
           {stats.peak && (
             <span className="hidden sm:inline">
               Best:{" "}
-              <strong className="text-teal-700 tabular-nums">
+              <strong className="text-[#0F766E] tabular-nums">
                 {fmtShortDate(stats.peak.date)} ({fmtShortPKR(stats.peak[metric])})
               </strong>
             </span>
@@ -405,29 +407,29 @@ export function BusinessHealthCard({
   const r = 48;
   const circumference = Math.PI * r;
   const dashOffset = circumference * (1 - score / 100);
-  const arcStroke = tone === "teal" ? "#0D9488" : tone === "indigo" ? "#4F46E5" : "#D97706";
+  const arcStroke = tone === "teal" ? "#0F766E" : tone === "indigo" ? "#0F172A" : "#D97706";
 
   return (
-    <div className="bg-white rounded-2xl border border-indigo-950/[0.08] shadow-[0_4px_20px_-6px_rgba(19,27,58,0.08)] p-4 sm:p-5 flex flex-col justify-between gap-4">
+    <div className="bg-white rounded-2xl border border-[#D8E0EA] shadow-[0_1px_3px_rgba(15,23,42,0.04)] p-4 sm:p-5 flex flex-col justify-between gap-4">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+          <div className="w-8 h-8 rounded-xl bg-teal-50 border border-teal-200 text-[#0F766E] flex items-center justify-center shrink-0">
             <Sparkles className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-sm font-extrabold text-[#131B3A] leading-tight">
+            <h2 className="text-sm font-extrabold text-[#0F172A] leading-tight">
               Store Health &amp; Payments
             </h2>
-            <p className="text-[11px] text-slate-500">{periodLabel} summary</p>
+            <p className="text-[11px] text-slate-600">{periodLabel} summary</p>
           </div>
         </div>
         <span
           className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-extrabold border ${
             tone === "teal"
-              ? "bg-teal-50 text-teal-800 border-teal-200"
+              ? "bg-teal-50 text-[#0F766E] border-teal-300"
               : tone === "indigo"
-              ? "bg-indigo-50 text-indigo-800 border-indigo-200"
-              : "bg-amber-50 text-amber-800 border-amber-200"
+              ? "bg-slate-100 text-[#0F172A] border-slate-300"
+              : "bg-amber-50 text-amber-900 border-amber-300"
           }`}
         >
           {label}

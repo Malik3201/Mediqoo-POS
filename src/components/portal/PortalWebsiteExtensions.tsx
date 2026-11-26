@@ -17,6 +17,7 @@ import {
   Pencil,
 } from "lucide-react";
 import type { MediaAssetPurpose } from "@/lib/storefront/image-optimizer";
+import { PortalActionButton, PortalConfirmModal } from "@/components/portal/PortalUI";
 
 interface SharedTabProps {
   sfId: string;
@@ -50,6 +51,14 @@ export function PortalReviewsTab({
 }) {
   const [filterStatus, setFilterStatus] = useState<"all" | "pending" | "published" | "hidden">("all");
   const [replyDraftById, setReplyDraftById] = useState<Record<string, string>>({});
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    details?: string;
+    confirmLabel: string;
+    tone: "danger" | "warning" | "primary";
+    onConfirm: () => Promise<void>;
+  } | null>(null);
 
   const pendingCount = reviews.filter((r) => r.status === "pending").length;
   const publishedCount = reviews.filter((r) => r.status === "published").length;
@@ -60,35 +69,45 @@ export function PortalReviewsTab({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xs flex flex-wrap items-center justify-between gap-4">
+      <div className="rounded-2xl border border-[#D8E0EA] bg-white p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-emerald-600" />
-            <h2 className="text-base font-bold text-slate-900">
+            <MessageSquare className="h-4 w-4 text-[#0F766E]" />
+            <h2 className="text-base font-bold text-[#0F172A]">
               Verified Order Reviews &amp; Customer Feedback
             </h2>
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-600">
             Customers submit feedback directly from their Order Tracking page. Publish reviews individually or all at once to showcase them on your website.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {pendingCount > 0 && (
-            <button
-              type="button"
+            <PortalActionButton
+              variant="primary"
+              size="md"
               disabled={saving}
-              onClick={async () => {
-                const res = await postWebsiteAction("publish_all_reviews");
-                notify(
-                  `Published ${res?.published_count ?? pendingCount} pending customer review(s) on your website!`
-                );
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[#009A4D] hover:bg-emerald-700 text-white px-4 py-2 text-xs font-bold shadow-xs transition"
+              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+              onClick={() =>
+                setConfirmState({
+                  title: `Publish all ${pendingCount} pending review(s)?`,
+                  description:
+                    "All pending customer reviews will immediately become visible on your live pharmacy website.",
+                  confirmLabel: `Publish All (${pendingCount})`,
+                  tone: "primary",
+                  onConfirm: async () => {
+                    const res = await postWebsiteAction("publish_all_reviews");
+                    notify(
+                      `Published ${res?.published_count ?? pendingCount} pending customer review(s) on your website!`
+                    );
+                    setConfirmState(null);
+                  },
+                })
+              }
             >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>Publish All Pending ({pendingCount})</span>
-            </button>
+              Publish All Pending ({pendingCount})
+            </PortalActionButton>
           )}
         </div>
       </div>
@@ -227,42 +246,78 @@ export function PortalReviewsTab({
                         <span>Publish on Website</span>
                       </button>
                     ) : (
-                      <button
-                        type="button"
+                      <PortalActionButton
+                        variant="secondary"
+                        size="sm"
                         disabled={saving}
-                        onClick={async () => {
-                          await postWebsiteAction("update_review", {
-                            review_id: rev.id,
-                            status: "hidden",
-                          });
-                          notify("Review hidden from public website");
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold"
+                        icon={<EyeOff className="h-3.5 w-3.5" />}
+                        onClick={() =>
+                          setConfirmState({
+                            title: "Hide this review from your website?",
+                            description:
+                              "This review will no longer be visible to public website visitors. You can republish it later.",
+                            details: `${rev.customer_name} (${rev.order_number})`,
+                            confirmLabel: "Yes, Hide Review",
+                            tone: "warning",
+                            onConfirm: async () => {
+                              await postWebsiteAction("update_review", {
+                                review_id: rev.id,
+                                status: "hidden",
+                              });
+                              notify("Review hidden from public website");
+                              setConfirmState(null);
+                            },
+                          })
+                        }
                       >
-                        <EyeOff className="h-3.5 w-3.5" />
-                        <span>Hide</span>
-                      </button>
+                        Hide
+                      </PortalActionButton>
                     )}
                   </div>
 
-                  <button
-                    type="button"
+                  <PortalActionButton
+                    variant="danger"
+                    size="sm"
                     disabled={saving}
-                    onClick={async () => {
-                      await postWebsiteAction("delete_review", { review_id: rev.id });
-                      notify("Deleted review");
-                    }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold"
+                    icon={<Trash2 className="h-3.5 w-3.5" />}
+                    onClick={() =>
+                      setConfirmState({
+                        title: "Delete customer review permanently?",
+                        description:
+                          "This permanently removes this customer review and cannot be undone.",
+                        details: `${rev.customer_name} • ${rev.order_number}`,
+                        confirmLabel: "Delete Review",
+                        tone: "danger",
+                        onConfirm: async () => {
+                          await postWebsiteAction("delete_review", { review_id: rev.id });
+                          notify("Deleted review");
+                          setConfirmState(null);
+                        },
+                      })
+                    }
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Delete</span>
-                  </button>
+                    Delete
+                  </PortalActionButton>
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      <PortalConfirmModal
+        open={Boolean(confirmState)}
+        onClose={() => setConfirmState(null)}
+        onConfirm={async () => {
+          if (confirmState) await confirmState.onConfirm();
+        }}
+        title={confirmState?.title || ""}
+        description={confirmState?.description}
+        details={confirmState?.details}
+        confirmLabel={confirmState?.confirmLabel || "Confirm"}
+        tone={confirmState?.tone || "primary"}
+        loading={saving}
+      />
     </div>
   );
 }
@@ -297,6 +352,7 @@ export function PortalDoctorsTab({
   notify,
 }: SharedTabProps & { doctors: any[] }) {
   const [form, setForm] = useState({ ...EMPTY_DOCTOR });
+  const [doctorToDelete, setDoctorToDelete] = useState<any | null>(null);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -491,9 +547,13 @@ export function PortalDoctorsTab({
           <span>Show this doctor live on website</span>
         </label>
 
-        <button
-          type="button"
-          disabled={saving || !form.name.trim()}
+        <PortalActionButton
+          variant="primary"
+          size="md"
+          fullWidth
+          loading={saving}
+          loadingText="Saving Doctor…"
+          disabled={!form.name.trim()}
           onClick={async () => {
             await postWebsiteAction("upsert_doctor", {
               payload: {
@@ -504,10 +564,9 @@ export function PortalDoctorsTab({
             notify(form.id ? "Updated doctor details on website" : "Added doctor to your website!");
             setForm({ ...EMPTY_DOCTOR });
           }}
-          className="w-full py-2.5 rounded-xl bg-[#009A4D] hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs"
         >
-          {saving ? "Saving…" : form.id ? "Update Doctor Profile" : "Save & Publish Doctor"}
-        </button>
+          {form.id ? "Update Doctor Profile" : "Save & Publish Doctor"}
+        </PortalActionButton>
       </div>
 
       {/* Existing Doctors List */}
@@ -606,12 +665,10 @@ export function PortalDoctorsTab({
                     <button
                       type="button"
                       disabled={saving}
-                      onClick={async () => {
-                        await postWebsiteAction("delete_doctor", { doctor_id: doc.id });
-                        notify(`Removed ${doc.name}`);
-                      }}
-                      className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
+                      onClick={() => setDoctorToDelete(doc)}
+                      className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 flex items-center justify-center cursor-pointer"
                       title="Delete doctor"
+                      aria-label={`Delete ${doc.name}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -622,6 +679,27 @@ export function PortalDoctorsTab({
           </div>
         )}
       </div>
+
+      <PortalConfirmModal
+        open={Boolean(doctorToDelete)}
+        onClose={() => setDoctorToDelete(null)}
+        onConfirm={async () => {
+          if (!doctorToDelete) return;
+          await postWebsiteAction("delete_doctor", { doctor_id: doctorToDelete.id });
+          notify(`Removed ${doctorToDelete.name}`);
+          setDoctorToDelete(null);
+        }}
+        loading={saving}
+        tone="danger"
+        title="Delete Doctor Profile?"
+        description="This doctor profile and timings will be removed from your pharmacy website immediately."
+        details={
+          doctorToDelete
+            ? `${doctorToDelete.name}${doctorToDelete.specialization ? ` • ${doctorToDelete.specialization}` : ""}`
+            : undefined
+        }
+        confirmLabel="Yes, Delete Doctor"
+      />
     </div>
   );
 }
@@ -665,6 +743,7 @@ export function PortalServicesTab({
   notify,
 }: SharedTabProps & { services: any[] }) {
   const [form, setForm] = useState({ ...EMPTY_SERVICE, items: [...EMPTY_SERVICE.items] });
+  const [serviceToDelete, setServiceToDelete] = useState<any | null>(null);
 
   const updateItem = (idx: number, patch: Partial<ServicePriceItem>) => {
     setForm((prev) => ({
@@ -915,9 +994,13 @@ export function PortalServicesTab({
           <span>Publish this service live on website</span>
         </label>
 
-        <button
-          type="button"
-          disabled={saving || !form.title.trim()}
+        <PortalActionButton
+          variant="primary"
+          size="md"
+          fullWidth
+          loading={saving}
+          loadingText="Saving Service…"
+          disabled={!form.title.trim()}
           onClick={async () => {
             const cleanItems = form.items.filter((i) => i.name.trim());
             await postWebsiteAction("upsert_service", {
@@ -930,10 +1013,9 @@ export function PortalServicesTab({
             notify(form.id ? "Updated custom service!" : "Published custom service on website!");
             setForm({ ...EMPTY_SERVICE, items: [...EMPTY_SERVICE.items] });
           }}
-          className="w-full py-2.5 rounded-xl bg-[#009A4D] hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-xs"
         >
-          {saving ? "Saving…" : form.id ? "Update Service & Prices" : "Save & Publish Service"}
-        </button>
+          {form.id ? "Update Service & Prices" : "Save & Publish Service"}
+        </PortalActionButton>
       </div>
 
       {/* Existing Custom Services List */}
@@ -1034,12 +1116,10 @@ export function PortalServicesTab({
                       <button
                         type="button"
                         disabled={saving}
-                        onClick={async () => {
-                          await postWebsiteAction("delete_service", { service_id: svc.id });
-                          notify(`Deleted service "${svc.title}"`);
-                        }}
-                        className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200"
+                        onClick={() => setServiceToDelete(svc)}
+                        className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 flex items-center justify-center cursor-pointer"
                         title="Delete service"
+                        aria-label={`Delete ${svc.title}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1072,6 +1152,23 @@ export function PortalServicesTab({
           </div>
         )}
       </div>
+
+      <PortalConfirmModal
+        open={Boolean(serviceToDelete)}
+        onClose={() => setServiceToDelete(null)}
+        onConfirm={async () => {
+          if (!serviceToDelete) return;
+          await postWebsiteAction("delete_service", { service_id: serviceToDelete.id });
+          notify(`Deleted service "${serviceToDelete.title}"`);
+          setServiceToDelete(null);
+        }}
+        loading={saving}
+        tone="danger"
+        title="Delete Custom Service / Lab?"
+        description="This service and its entire test/price list will be permanently removed from your live website."
+        details={serviceToDelete ? serviceToDelete.title : undefined}
+        confirmLabel="Yes, Delete Service"
+      />
     </div>
   );
 }

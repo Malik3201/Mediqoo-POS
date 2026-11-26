@@ -27,15 +27,17 @@ export async function GET(_req: NextRequest) {
     await connectToDatabase();
     const clientId = session.client_id;
 
-    const [client, portalState, actionState] = await Promise.all([
+    const [client, portalStates, actionState] = await Promise.all([
       Client.findOne({ id: clientId }).select("timezone name").lean<any>(),
-      OwnerPortalState.findOne({ client_id: clientId })
+      OwnerPortalState.find({ client_id: clientId })
         .sort({ captured_at: -1 })
-        .lean<any>(),
+        .lean<any[]>(),
       OwnerActionState.findOne({ client_id: clientId })
         .select("cash_reviews")
         .lean<any>(),
     ]);
+
+    const portalState = portalStates[0] || null;
 
     const cashReviewsMap = new Map<string, any>();
     for (const cr of actionState?.cash_reviews || []) {
@@ -195,15 +197,130 @@ export async function GET(_req: NextRequest) {
         last_reconciled_at: null,
       };
 
-    const drawerSessions: any[] = (portalState?.drawer_sessions || []).map((s: any) => ({
+    // Merge drawer_sessions, shift_sessions (supporting operator_shifts / shiftSessions aliases), and daily_closings across licenses
+    const drawerSessionsMap = new Map<string, any>();
+    const rawShiftsMap = new Map<string, any>();
+    const formalDailyClosings: any[] = [];
+
+    for (const st of portalStates) {
+      for (const ds of st?.drawer_sessions || []) {
+        const key = String(ds?.id || `${ds?.business_date}-${ds?.opened_at}`);
+        if (!drawerSessionsMap.has(key)) drawerSessionsMap.set(key, ds);
+      }
+      const candidates = [
+        ...(Array.isArray(st?.shift_sessions) ? st.shift_sessions : []),
+        ...(Array.isArray((st as any)?.operator_shifts) ? (st as any).operator_shifts : []),
+        ...(Array.isArray((st as any)?.shiftSessions) ? (st as any).shiftSessions : []),
+      ];
+      for (const raw of candidates) {
+        if (!raw || typeof raw !== "object") continue;
+        const sid = String(
+          raw.session_id || raw.sessionId || raw.id || `${raw.business_date || raw.businessDate}-${raw.shift_number || raw.shiftNumber}-${raw.started_at || raw.startedAt}`
+        );
+        if (!rawShiftsMap.has(sid)) {
+          rawShiftsMap.set(sid, raw);
+        }
+      }
+      for (const dc of st?.daily_closings || []) {
+        formalDailyClosings.push(dc);
+      }
+    }
+
+    const drawerSessions: any[] = Array.from(drawerSessionsMap.values()).map((s: any) => ({
       ...s,
       owner_review: cashReviewsMap.get(s.id) || null,
     }));
-    const shiftSessions: any[] = (portalState?.shift_sessions || [])
-      .map((s: any) => ({
+
+    const normalizeShift = (s: any) => {
+      const sessionId = String(s.session_id ?? s.sessionId ?? s.id ?? "");
+      const statusRaw = String(s.status ?? "closed").toLowerCase();
+      const status = statusRaw === "open" || statusRaw === "active" ? "active" : "closed";
+      const openingCash = Number(s.opening_cash ?? s.openingCash ?? s.starting_balance ?? 0) || 0;
+      const netSales = Number(s.net_sales ?? s.netSales ?? 0) || 0;
+      const grossSales = Number(s.gross_sales ?? s.grossSales ?? netSales) || 0;
+      const invoiceCount = Number(s.invoice_count ?? s.invoiceCount ?? 0) || 0;
+      const returnCount = Number(s.return_count ?? s.returnCount ?? 0) || 0;
+      const returnTotal = Number(s.return_total ?? s.returnTotal ?? 0) || 0;
+      const cashRefunds = Number(s.cash_refunds ?? s.cashRefunds ?? returnTotal) || 0;
+      const purchaseCount = Number(s.purchase_count ?? s.purchaseCount ?? 0) || 0;
+      const totalPurchaseValue = Number(s.total_purchase_value ?? s.totalPurchaseValue ?? 0) || 0;
+      const supplierPaymentCount = Number(s.supplier_payment_count ?? s.supplierPaymentCount ?? 0) || 0;
+      const supplierPaymentTotal = Number(
+        s.supplier_payment_total ?? s.supplierPaymentTotal ?? s.purchases_paid ?? 0
+      ) || 0;
+      const supplierCashPaid = Number(
+        s.supplier_cash_paid ?? s.supplierCashPaid ?? supplierPaymentTotal
+      ) || 0;
+      const khataCollectionCount = Number(s.khata_collection_count ?? s.khataCollectionCount ?? 0) || 0;
+      const khataCollectionTotal = Number(
+        s.khata_collection_total ?? s.khataCollectionTotal ?? s.credit_collected ?? 0
+      ) || 0;
+      const khataCashCollected = Number(
+        s.khata_cash_collected ?? s.khataCashCollected ?? khataCollectionTotal
+      ) || 0;
+      const expenseCount = Number(s.expense_count ?? s.expenseCount ?? 0) || 0;
+      const totalExpenses = Number(s.total_expenses ?? s.totalExpenses ?? 0) || 0;
+      const cashExpenses = Number(s.cash_expenses ?? s.cashExpenses ?? totalExpenses) || 0;
+      const expectedCash = Number(s.expected_cash ?? s.expectedCash ?? openingCash) || 0;
+      const countedCashRaw = s.counted_cash ?? s.countedCash;
+      const countedCash =
+        countedCashRaw !== undefined && countedCashRaw !== null ? Number(countedCashRaw) : null;
+      const varianceRaw = s.cash_variance ?? s.cashVariance ?? s.variance;
+      const cashVariance =
+        varianceRaw !== undefined && varianceRaw !== null ? Number(varianceRaw) : null;
+
+      return {
         ...s,
-        owner_review: cashReviewsMap.get(s.session_id || s.id) || null,
-      }))
+        id: sessionId,
+        session_id: sessionId,
+        business_date: s.business_date ?? s.businessDate ?? formatLocalDate(new Date(s.started_at || s.startedAt || Date.now()), timezone),
+        shift_number: Number(s.shift_number ?? s.shiftNumber ?? 1) || 1,
+        operator_id: s.operator_id ?? s.operatorId ?? "",
+        operator_name: s.operator_name ?? s.operatorName ?? "POS Operator",
+        operator_code: s.operator_code ?? s.operatorCode ?? undefined,
+        operator_role: s.operator_role ?? s.operatorRole ?? "staff",
+        terminal_number: Number(s.terminal_number ?? s.terminalNumber ?? 1) || 1,
+        status,
+        started_at: s.started_at ?? s.startedAt ?? null,
+        ended_at: s.ended_at ?? s.endedAt ?? null,
+        duration_minutes: Number(s.duration_minutes ?? s.durationMinutes ?? 0) || 0,
+        opening_cash: openingCash,
+        invoice_count: invoiceCount,
+        gross_sales: grossSales,
+        discount_total: Number(s.discount_total ?? s.totalDiscounts ?? 0) || 0,
+        net_sales: netSales,
+        cash_sales: Number(s.cash_sales ?? s.cashSales ?? 0) || 0,
+        card_sales: Number(s.card_sales ?? s.cardSales ?? 0) || 0,
+        wallet_sales: Number(s.wallet_sales ?? s.walletSales ?? 0) || 0,
+        credit_sales: Number(s.credit_sales ?? s.creditSales ?? 0) || 0,
+        return_count: returnCount,
+        return_total: returnTotal,
+        cash_refunds: cashRefunds,
+        purchase_count: purchaseCount,
+        total_purchase_value: totalPurchaseValue,
+        purchase_return_total: Number(s.purchase_return_total ?? s.purchaseReturnsValue ?? 0) || 0,
+        khata_collection_count: khataCollectionCount,
+        khata_collection_total: khataCollectionTotal,
+        khata_cash_collected: khataCashCollected,
+        supplier_payment_count: supplierPaymentCount,
+        supplier_payment_total: supplierPaymentTotal,
+        supplier_cash_paid: supplierCashPaid,
+        expense_count: expenseCount,
+        total_expenses: totalExpenses,
+        cash_expenses: cashExpenses,
+        expected_cash: expectedCash,
+        counted_cash: countedCash,
+        cash_variance: cashVariance,
+        close_reason: s.close_reason ?? s.closeReason ?? null,
+        closed_by_name: s.closed_by_name ?? s.closedByName ?? null,
+        closing_note: s.closing_note ?? s.closingNote ?? null,
+        is_empty: Boolean(s.is_empty ?? s.isEmpty ?? false),
+        owner_review: cashReviewsMap.get(sessionId) || null,
+      };
+    };
+
+    const shiftSessions: any[] = Array.from(rawShiftsMap.values())
+      .map(normalizeShift)
       .sort(
         (a: any, b: any) =>
           new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime()
@@ -211,18 +328,25 @@ export async function GET(_req: NextRequest) {
     const todayLocalStr = formatLocalDate(new Date(), timezone);
     const nonEmptyShifts = shiftSessions.filter((s: any) => !s.is_empty);
     const todayShifts = nonEmptyShifts.filter((s: any) => s.business_date === todayLocalStr);
+    const openShiftsCount = shiftSessions.filter((s: any) => s.status === "active").length;
+    const closedTodayShiftsCount = todayShifts.filter((s: any) => s.status !== "active").length;
     const shiftsSummary = {
       total_shifts: nonEmptyShifts.length,
+      all_shifts_including_empty: shiftSessions.length,
       today_shifts: todayShifts.length,
-      open_shifts: shiftSessions.filter((s: any) => s.status === "active").length,
+      open_shifts: openShiftsCount,
+      closed_today_shifts: closedTodayShiftsCount,
       variance_alerts_count: nonEmptyShifts.filter(
         (s: any) => s.cash_variance !== null && s.cash_variance !== undefined && Math.abs(Number(s.cash_variance)) >= 1
       ).length,
       today_net_sales: Math.round(
         todayShifts.reduce((acc: number, s: any) => acc + (Number(s.net_sales) || 0), 0) * 100
       ) / 100,
+      today_expected_cash: Math.round(
+        todayShifts.reduce((acc: number, s: any) => acc + (Number(s.expected_cash) || 0), 0) * 100
+      ) / 100,
+      last_synced_at: portalState?.captured_at ? new Date(portalState.captured_at).toISOString() : null,
     };
-    const formalDailyClosings: any[] = portalState?.daily_closings || [];
 
     // Also build daily cash breakdown for the last 14 active business days so owners can inspect
     // daily cash reconciliation even on days where a formal closing record was not locked

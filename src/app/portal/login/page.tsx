@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ShieldCheck, Activity, Wallet, PackageCheck } from "lucide-react";
+import { clearPortalSessionCache } from "@/lib/portal-cache";
 
 export default function PortalLoginPage() {
   const router = useRouter();
@@ -27,6 +28,7 @@ export default function PortalLoginPage() {
         setError(data.error ?? "Invalid email or password.");
         return;
       }
+      clearPortalSessionCache();
       router.push("/portal/dashboard");
     } catch {
       setError("Connection error. Please try again.");
@@ -143,7 +145,7 @@ export default function PortalLoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full h-12 px-4 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#009A4D] transition-all text-sm shadow-2xs"
+                className="w-full h-12 px-4 bg-white border border-[#D8E0EA] rounded-xl text-[#0F172A] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-[#0F766E] transition-all text-base sm:text-sm"
                 placeholder="you@pharmacy.com"
               />
             </div>
@@ -163,7 +165,7 @@ export default function PortalLoginPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full h-12 px-4 pr-12 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#009A4D] transition-all text-sm shadow-2xs"
+                  className="w-full h-12 px-4 pr-12 bg-white border border-[#D8E0EA] rounded-xl text-[#0F172A] placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-[#0F766E] transition-all text-base sm:text-sm"
                   placeholder="Enter your password"
                 />
                 <button

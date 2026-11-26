@@ -27,6 +27,11 @@ import {
   PortalSlideOver,
   PortalEmptyState,
 } from "@/components/portal/PortalUI";
+import {
+  fetchPortalCached,
+  getPortalCached,
+  invalidatePortalCache,
+} from "@/lib/portal-cache";
 
 function formatPKR(n: number): string {
   return `Rs ${Math.round(n || 0).toLocaleString("en-PK")}`;
@@ -89,17 +94,28 @@ function KhataContent() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const fetchCustomers = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (debouncedQuery) params.set("q", debouncedQuery);
-      if (statusFilter !== "all") params.set("status", statusFilter);
-      if (sortBy) params.set("sort", sortBy);
+  const fetchCustomers = useCallback(async (forceRefresh = false) => {
+    const params = new URLSearchParams();
+    if (debouncedQuery) params.set("q", debouncedQuery);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (sortBy) params.set("sort", sortBy);
 
-      const res = await fetch(`/api/portal/customers?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to load customers");
-      const json = await res.json();
+    const url = `/api/portal/customers?${params.toString()}`;
+    const cached = getPortalCached<any>(url, 40_000);
+    if (cached) {
+      setCustomers(cached.data.customers || []);
+      setSummary(cached.data.summary || {});
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const { data: json } = await fetchPortalCached<any>(url, {
+        ttlMs: 40_000,
+        forceRefresh,
+      });
       setCustomers(json.customers || []);
       setSummary(json.summary || {});
     } catch (err) {
@@ -110,7 +126,7 @@ function KhataContent() {
   }, [debouncedQuery, statusFilter, sortBy]);
 
   useEffect(() => {
-    void fetchCustomers();
+    void fetchCustomers(false);
   }, [fetchCustomers]);
 
   const loadCustomerDetail = useCallback(
@@ -163,7 +179,8 @@ function KhataContent() {
       });
       if (res.ok) {
         setMetaSavedMsg("Saved owner note");
-        void fetchCustomers();
+        invalidatePortalCache("/api/portal/customers");
+        void fetchCustomers(true);
         setTimeout(() => setMetaSavedMsg(""), 2500);
       }
     } catch (err) {
@@ -296,7 +313,7 @@ function KhataContent() {
         title="Customer Khata & Credit"
         subtitle="Track verified customer receivables, running ledgers, printable statements, and owner follow-up notes."
         actions={
-          <PortalRefreshButton loading={loading} onClick={() => void fetchCustomers()} />
+          <PortalRefreshButton loading={loading} onClick={() => void fetchCustomers(true)} />
         }
       />
 

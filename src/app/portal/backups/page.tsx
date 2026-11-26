@@ -13,7 +13,6 @@ import {
   Database,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { formatBytes } from "@/lib/utils";
 import {
   PortalPageHeader,
@@ -21,7 +20,10 @@ import {
   PortalSectionCard,
   PortalStatusBadge,
   PortalEmptyState,
+  PortalActionButton,
+  PortalConfirmModal,
 } from "@/components/portal/PortalUI";
+import { fetchPortalCached, getPortalCached } from "@/lib/portal-cache";
 
 interface Backup {
   id: string;
@@ -39,27 +41,40 @@ export default function PortalBackupsPage() {
   const [backups, setBackups] = useState<Backup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [pendingDownload, setPendingDownload] = useState<{ id: string; label: string } | null>(null);
 
-  const fetchBackups = async () => {
-    setLoading(true);
+  const fetchBackups = async (forceRefresh = false) => {
+    const url = "/api/portal/backups";
+    const cached = getPortalCached<any>(url, 45_000);
+    if (cached) {
+      setBackups(cached.data.backups || []);
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
+      setLoading(true);
+    }
+
     setError("");
     try {
-      const res = await fetch("/api/portal/backups", { cache: "no-store" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load backups");
+      const { data } = await fetchPortalCached<any>(url, {
+        ttlMs: 45_000,
+        forceRefresh,
+      });
       setBackups(data.backups || []);
     } catch (err: any) {
-      setError(err.message);
+      if (!cached) setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchBackups();
+    void fetchBackups(false);
   }, []);
 
   const downloadBackup = async (id: string, label: string) => {
+    setDownloadingId(id);
     const toastId = toast.loading(`Preparing ${label} download...`);
     try {
       const res = await fetch(`/api/portal/backups/${id}/download`);
@@ -73,8 +88,11 @@ export default function PortalBackupsPage() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      setPendingDownload(null);
     } catch (err: any) {
       toast.error(err.message, { id: toastId });
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -93,7 +111,7 @@ export default function PortalBackupsPage() {
             {hasBackups ? "Protected" : "Never Backed Up"}
           </PortalStatusBadge>
         }
-        actions={<PortalRefreshButton loading={loading} onClick={fetchBackups} />}
+        actions={<PortalRefreshButton loading={loading} onClick={() => void fetchBackups(true)} />}
       />
 
       {error && (
@@ -200,13 +218,19 @@ export default function PortalBackupsPage() {
             </div>
 
             <div className="p-4 pt-0">
-              <Button
-                className="w-full min-h-[44px] rounded-lg bg-[#059669] hover:bg-[#047857] text-white font-bold shadow-xs"
-                onClick={() => downloadBackup(latestBackup.id, "Latest Backup")}
+              <PortalActionButton
+                variant="primary"
+                size="lg"
+                fullWidth
+                loading={downloadingId === latestBackup.id}
+                loadingText="Preparing Download…"
+                icon={<Download className="h-4 w-4" />}
+                onClick={() =>
+                  setPendingDownload({ id: latestBackup.id, label: "Latest Encrypted Backup" })
+                }
               >
-                <Download className="h-4 w-4 mr-2" />
                 Download Latest Backup
-              </Button>
+              </PortalActionButton>
             </div>
           </PortalSectionCard>
 
@@ -262,14 +286,22 @@ export default function PortalBackupsPage() {
               </div>
 
               <div className="p-4 pt-0">
-                <Button
-                  variant="outline"
-                  className="w-full min-h-[44px] rounded-xl font-bold border-slate-200 hover:bg-slate-50"
-                  onClick={() => downloadBackup(previousBackup.id, "Previous Backup")}
+                <PortalActionButton
+                  variant="secondary"
+                  size="lg"
+                  fullWidth
+                  loading={downloadingId === previousBackup.id}
+                  loadingText="Preparing Download…"
+                  icon={<Download className="h-4 w-4" />}
+                  onClick={() =>
+                    setPendingDownload({
+                      id: previousBackup.id,
+                      label: "Previous Encrypted Backup",
+                    })
+                  }
                 >
-                  <Download className="h-4 w-4 mr-2" />
                   Download Previous Backup
-                </Button>
+                </PortalActionButton>
               </div>
             </PortalSectionCard>
           ) : (
@@ -285,6 +317,21 @@ export default function PortalBackupsPage() {
           )}
         </div>
       )}
+
+      <PortalConfirmModal
+        open={Boolean(pendingDownload)}
+        onClose={() => setPendingDownload(null)}
+        onConfirm={async () => {
+          if (!pendingDownload) return;
+          await downloadBackup(pendingDownload.id, pendingDownload.label);
+        }}
+        loading={Boolean(pendingDownload && downloadingId === pendingDownload.id)}
+        tone="primary"
+        title="Download Encrypted Pharmacy Backup?"
+        description="This downloads a full encrypted recovery archive containing your pharmacy's POS data. Keep the downloaded file stored securely."
+        details={pendingDownload?.label}
+        confirmLabel="Download Archive"
+      />
     </div>
   );
 }

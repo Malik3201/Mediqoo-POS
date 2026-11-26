@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ShieldCheck,
   Building2,
@@ -14,8 +15,16 @@ import {
   EyeOff,
   MapPin,
   Lock,
+  LogOut,
 } from "lucide-react";
 import { PortalPharmacyLogoCard } from "@/components/portal/pharmacy-logo-card";
+import { PortalActionButton, PortalConfirmModal } from "@/components/portal/PortalUI";
+import {
+  clearPortalSessionCache,
+  fetchPortalCached,
+  getPortalCached,
+  invalidatePortalCache,
+} from "@/lib/portal-cache";
 
 interface ProfileData {
   profile: {
@@ -43,11 +52,15 @@ interface ProfileData {
 }
 
 export default function OwnerProfilePage() {
+  const router = useRouter();
   const [data, setData] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [downloadingCard, setDownloadingCard] = useState(false);
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [confirmPwOpen, setConfirmPwOpen] = useState(false);
 
   // Edit Profile state
   const [isEditing, setIsEditing] = useState(false);
@@ -70,29 +83,43 @@ export default function OwnerProfilePage() {
   const [pwMsg, setPwMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
-    fetchProfile();
+    void fetchProfile(false);
   }, []);
 
-  async function fetchProfile() {
-    try {
+  function applyProfile(json: any) {
+    setData(json);
+    setFormData({
+      name: json.profile?.name || "",
+      pharmacy_name: json.pharmacy?.name || "",
+      phone: json.pharmacy?.phone || "",
+      address: json.pharmacy?.address || "",
+    });
+  }
+
+  async function fetchProfile(forceRefresh = false) {
+    const url = "/api/portal/profile";
+    const cached = getPortalCached<any>(url, 60_000);
+    if (cached && cached.data?.ok) {
+      applyProfile(cached.data);
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
       setLoading(true);
+    }
+
+    try {
       setError(null);
-      const res = await fetch("/api/portal/profile");
-      if (!res.ok) throw new Error("Failed to load owner profile.");
-      const json = await res.json();
+      const { data: json } = await fetchPortalCached<any>(url, {
+        ttlMs: 60_000,
+        forceRefresh,
+      });
       if (json.ok) {
-        setData(json);
-        setFormData({
-          name: json.profile?.name || "",
-          pharmacy_name: json.pharmacy?.name || "",
-          phone: json.pharmacy?.phone || "",
-          address: json.pharmacy?.address || "",
-        });
+        applyProfile(json);
       } else {
         throw new Error(json.error || "Failed to load profile data");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to load profile.");
+      if (!cached) setError(err.message || "Failed to load profile.");
     } finally {
       setLoading(false);
     }
@@ -114,7 +141,9 @@ export default function OwnerProfilePage() {
       }
       setProfileMsg({ type: "success", text: "Profile details updated successfully!" });
       setIsEditing(false);
-      await fetchProfile();
+      invalidatePortalCache("/api/portal/profile");
+      invalidatePortalCache("/api/portal/overview");
+      await fetchProfile(true);
     } catch (err: any) {
       setProfileMsg({ type: "error", text: err.message || "Failed to save profile." });
     } finally {
@@ -122,7 +151,7 @@ export default function OwnerProfilePage() {
     }
   }
 
-  async function handleChangePassword(e: React.FormEvent) {
+  function handleChangePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
     setPwMsg(null);
 
@@ -141,6 +170,10 @@ export default function OwnerProfilePage() {
       return;
     }
 
+    setConfirmPwOpen(true);
+  }
+
+  async function executeChangePassword() {
     try {
       setChangingPassword(true);
       const res = await fetch("/api/portal/auth/change-password", {
@@ -155,14 +188,28 @@ export default function OwnerProfilePage() {
       if (!res.ok || !json.ok) {
         throw new Error(json.message || json.error || "Failed to change password.");
       }
+      setConfirmPwOpen(false);
       setPwMsg({ type: "success", text: "Password changed successfully! Keep it confidential." });
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (err: any) {
+      setConfirmPwOpen(false);
       setPwMsg({ type: "error", text: err.message || "Unable to change password." });
     } finally {
       setChangingPassword(false);
+    }
+  }
+
+  async function executeProfileLogout() {
+    setLoggingOut(true);
+    try {
+      clearPortalSessionCache();
+      await fetch("/api/portal/auth/logout", { method: "POST" });
+      setConfirmLogoutOpen(false);
+      router.replace("/portal/login");
+    } finally {
+      setLoggingOut(false);
     }
   }
 
@@ -569,7 +616,10 @@ export default function OwnerProfilePage() {
                 pharmacyName={data.pharmacy.name}
                 currentLogoUrl={data.pharmacy.logo}
                 canEdit={data.profile.role === "owner" || data.profile.role === "admin"}
-                onChanged={fetchProfile}
+                onChanged={() => {
+                  invalidatePortalCache("/api/portal/profile");
+                  return fetchProfile(true);
+                }}
               />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
@@ -745,7 +795,7 @@ export default function OwnerProfilePage() {
             </div>
           )}
 
-          <form onSubmit={handleChangePassword} className="space-y-4">
+          <form onSubmit={handleChangePasswordSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                 Current Password
@@ -804,16 +854,61 @@ export default function OwnerProfilePage() {
               />
             </div>
 
-            <button
+            <PortalActionButton
               type="submit"
-              disabled={changingPassword}
-              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.99] text-white text-xs font-extrabold shadow-sm transition-all disabled:opacity-60 cursor-pointer"
+              variant="dark"
+              size="md"
+              fullWidth
+              loading={changingPassword}
+              loadingText="Updating Password…"
             >
-              {changingPassword ? "Updating Password…" : "Update Password"}
-            </button>
+              Update Password
+            </PortalActionButton>
           </form>
+
+          <div className="pt-4 border-t border-slate-200 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-extrabold text-[#0F172A]">Active Portal Session</p>
+              <p className="text-[11px] text-slate-500">Sign out safely from this device</p>
+            </div>
+            <PortalActionButton
+              variant="danger"
+              size="sm"
+              icon={<LogOut className="w-3.5 h-3.5" />}
+              onClick={() => setConfirmLogoutOpen(true)}
+            >
+              Sign Out
+            </PortalActionButton>
+          </div>
         </div>
       </div>
+
+      {/* Password Update Confirmation Modal */}
+      <PortalConfirmModal
+        open={confirmPwOpen}
+        onClose={() => setConfirmPwOpen(false)}
+        onConfirm={executeChangePassword}
+        loading={changingPassword}
+        tone="warning"
+        title="Update Owner Portal Password?"
+        description="Your Owner Portal login password will be updated immediately. Make sure you remember your new password."
+        details={`Account: ${data.profile.email}`}
+        confirmLabel="Yes, Update Password"
+      />
+
+      {/* Sign Out Confirmation Modal */}
+      <PortalConfirmModal
+        open={confirmLogoutOpen}
+        onClose={() => setConfirmLogoutOpen(false)}
+        onConfirm={executeProfileLogout}
+        loading={loggingOut}
+        tone="danger"
+        title="Log out of Owner Portal?"
+        description="You will be signed out of your pharmacy owner session on this device."
+        details={`${data.pharmacy.name} (${data.profile.email})`}
+        confirmLabel="Yes, Log Out"
+        cancelLabel="Stay Logged In"
+      />
     </div>
   );
 }

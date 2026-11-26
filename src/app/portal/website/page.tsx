@@ -47,6 +47,15 @@ import {
   PortalDoctorsTab,
   PortalServicesTab,
 } from "@/components/portal/PortalWebsiteExtensions";
+import {
+  PortalActionButton,
+  PortalConfirmModal,
+} from "@/components/portal/PortalUI";
+import {
+  fetchPortalCached,
+  getPortalCached,
+  invalidatePortalCache,
+} from "@/lib/portal-cache";
 
 type PortalWebsiteTab =
   | "overview"
@@ -202,6 +211,28 @@ export default function PortalMyWebsitePage() {
   const [sharedLibItems, setSharedLibItems] = useState<any[]>([]);
   const [matchingCentralImages, setMatchingCentralImages] = useState(false);
   const [submittingToLibrary, setSubmittingToLibrary] = useState(false);
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    description: string;
+    details?: string;
+    confirmLabel: string;
+    tone: "danger" | "warning" | "primary";
+    onConfirm: () => Promise<void>;
+  } | null>(null);
+
+  const requestConfirm = (cfg: {
+    title: string;
+    description: string;
+    details?: string;
+    confirmLabel: string;
+    tone?: "danger" | "warning" | "primary";
+    onConfirm: () => Promise<void>;
+  }) => {
+    setConfirmState({
+      tone: "warning",
+      ...cfg,
+    });
+  };
 
   const notify = (msg: string) => {
     setActionToast(msg);
@@ -210,68 +241,85 @@ export default function PortalMyWebsitePage() {
     }, 3200);
   };
 
-  const loadWebsiteStatus = async () => {
-    setLoading(true);
+  const applyWebsiteJson = (json: any) => {
+    setData(json);
+
+    if (json.branding) {
+      const b = json.branding;
+      setBrandingForm({
+        display_name: b.display_name || json.storefront?.pharmacy_name || "",
+        tagline: b.tagline || "",
+        theme_preset: b.theme_preset || "emerald_clinical",
+        primary_color: b.primary_color || "#009A4D",
+        secondary_color: b.secondary_color || "#0F172A",
+        accent_color: b.accent_color || "#10B981",
+        hero_title: b.hero_title || "",
+        hero_subtitle: b.hero_subtitle || "",
+        hero_banner_url: b.hero_banner_url || b.hero_image_url || "",
+        about_title: b.about_title || "",
+        about_content: b.about_content || "",
+        footer_tagline: b.footer_tagline || "",
+        logo_url: b.logo_url || "",
+        show_verified_license_badge: Number(b.show_verified_license_badge ?? 1) === 1,
+      });
+    }
+
+    if (json.settings) {
+      const s = json.settings;
+      const hrs = s.opening_hours || {};
+      setSettingsForm({
+        catalog_mode: s.catalog_mode || "inventory_first",
+        auto_sync_all_products: Boolean(s.auto_sync_all_products || s.publishing_mode === "in_stock_approved"),
+        hide_out_of_stock: Number(s.hide_out_of_stock || 0) === 1,
+        show_stock_badges: Number(s.show_stock_badges ?? 1) === 1,
+        allow_rx_inquiries: Number(s.allow_rx_inquiries ?? 1) === 1,
+        whatsapp_order_assist_enabled: Number(s.whatsapp_order_assist_enabled ?? 1) === 1,
+        delivery_enabled: Number(s.delivery_enabled ?? 1) === 1,
+        pickup_enabled: Number(s.pickup_enabled ?? 1) === 1,
+        standard_delivery_fee_pkr: Number(s.standard_delivery_fee_pkr ?? 150),
+        free_delivery_threshold_pkr: Number(s.free_delivery_threshold_pkr ?? 2000),
+        minimum_order_value_pkr: Number(s.minimum_order_value_pkr ?? 300),
+        estimated_delivery_minutes: Number(s.estimated_delivery_minutes ?? 45),
+        announcement_bar_enabled: Number(s.announcement_bar_enabled ?? 1) === 1,
+        announcement_bar_text: s.announcement_bar_text || "",
+        seo_title: s.seo_title || "",
+        seo_description: s.seo_description || "",
+        legal_disclaimer_text: s.legal_disclaimer_text || "",
+        pharmacist_supervision_note: s.pharmacist_supervision_note || "",
+        maintenance_mode: Number(s.maintenance_mode || 0) === 1,
+        maintenance_message: s.maintenance_message || "",
+        mon_sat_hours: hrs.mon_sat || "09:00 AM - 11:00 PM",
+        sun_hours: hrs.sun || "10:00 AM - 10:00 PM",
+        is_24_hours: Boolean(hrs.is_24_hours),
+      });
+    }
+  };
+
+  const loadWebsiteStatus = async (forceRefresh = false) => {
+    const url = "/api/portal/website";
+    const cached = getPortalCached<any>(url, 30_000);
+    if (cached && cached.data?.ok) {
+      applyWebsiteJson(cached.data);
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
+      setLoading(true);
+    }
+
     setError(null);
     try {
-      const res = await fetch("/api/portal/website", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || "Failed to load website status");
+      const { data: json } = await fetchPortalCached<any>(url, {
+        ttlMs: 30_000,
+        forceRefresh,
+      });
+      if (!json?.ok) {
+        throw new Error(json?.error || "Failed to load website status");
       }
-      setData(json);
-
-      if (json.branding) {
-        const b = json.branding;
-        setBrandingForm({
-          display_name: b.display_name || json.storefront?.pharmacy_name || "",
-          tagline: b.tagline || "",
-          theme_preset: b.theme_preset || "emerald_clinical",
-          primary_color: b.primary_color || "#009A4D",
-          secondary_color: b.secondary_color || "#0F172A",
-          accent_color: b.accent_color || "#10B981",
-          hero_title: b.hero_title || "",
-          hero_subtitle: b.hero_subtitle || "",
-          hero_banner_url: b.hero_banner_url || b.hero_image_url || "",
-          about_title: b.about_title || "",
-          about_content: b.about_content || "",
-          footer_tagline: b.footer_tagline || "",
-          logo_url: b.logo_url || "",
-          show_verified_license_badge: Number(b.show_verified_license_badge ?? 1) === 1,
-        });
-      }
-
-      if (json.settings) {
-        const s = json.settings;
-        const hrs = s.opening_hours || {};
-        setSettingsForm({
-          catalog_mode: s.catalog_mode || "inventory_first",
-          auto_sync_all_products: Boolean(s.auto_sync_all_products || s.publishing_mode === "in_stock_approved"),
-          hide_out_of_stock: Number(s.hide_out_of_stock || 0) === 1,
-          show_stock_badges: Number(s.show_stock_badges ?? 1) === 1,
-          allow_rx_inquiries: Number(s.allow_rx_inquiries ?? 1) === 1,
-          whatsapp_order_assist_enabled: Number(s.whatsapp_order_assist_enabled ?? 1) === 1,
-          delivery_enabled: Number(s.delivery_enabled ?? 1) === 1,
-          pickup_enabled: Number(s.pickup_enabled ?? 1) === 1,
-          standard_delivery_fee_pkr: Number(s.standard_delivery_fee_pkr ?? 150),
-          free_delivery_threshold_pkr: Number(s.free_delivery_threshold_pkr ?? 2000),
-          minimum_order_value_pkr: Number(s.minimum_order_value_pkr ?? 300),
-          estimated_delivery_minutes: Number(s.estimated_delivery_minutes ?? 45),
-          announcement_bar_enabled: Number(s.announcement_bar_enabled ?? 1) === 1,
-          announcement_bar_text: s.announcement_bar_text || "",
-          seo_title: s.seo_title || "",
-          seo_description: s.seo_description || "",
-          legal_disclaimer_text: s.legal_disclaimer_text || "",
-          pharmacist_supervision_note: s.pharmacist_supervision_note || "",
-          maintenance_mode: Number(s.maintenance_mode || 0) === 1,
-          maintenance_message: s.maintenance_message || "",
-          mon_sat_hours: hrs.mon_sat || "09:00 AM - 11:00 PM",
-          sun_hours: hrs.sun || "10:00 AM - 10:00 PM",
-          is_24_hours: Boolean(hrs.is_24_hours),
-        });
-      }
+      applyWebsiteJson(json);
     } catch (err: any) {
-      setError(err.message || "Unable to load website configuration");
+      if (!cached) {
+        setError(err.message || "Unable to load website configuration");
+      }
     } finally {
       setLoading(false);
     }
@@ -302,7 +350,7 @@ export default function PortalMyWebsitePage() {
       }
       const onOpenOrders = () => {
         setActiveTab("orders");
-        void loadWebsiteStatus();
+        void loadWebsiteStatus(true);
       };
       window.addEventListener("mediqoo:open-website-orders", onOpenOrders);
       return () => {
@@ -323,7 +371,8 @@ export default function PortalMyWebsitePage() {
       if (!res.ok || json.error) {
         throw new Error(json.message || json.error || `Action ${action} failed`);
       }
-      await loadWebsiteStatus();
+      invalidatePortalCache("/api/portal/website");
+      await loadWebsiteStatus(true);
       return json;
     } catch (err: any) {
       notify(`Error: ${err.message}`);
@@ -834,24 +883,25 @@ export default function PortalMyWebsitePage() {
             </button>
           )}
           {exists && (
-            <button
-              type="button"
-              disabled={saving}
+            <PortalActionButton
+              variant="secondary"
+              size="sm"
+              loading={saving}
+              loadingText="Syncing POS…"
+              icon={<RefreshCw className="h-3.5 w-3.5 text-[#0F766E]" />}
               onClick={async () => {
                 await postWebsiteAction("sync_pos_catalog");
                 notify("POS catalog synchronized to website");
               }}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2 text-xs font-bold text-emerald-800 transition"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${saving ? "animate-spin" : ""}`} />
               Sync POS Products
-            </button>
+            </PortalActionButton>
           )}
           {exists && (data.public_link || data.preview_link) && (
             <button
               type="button"
               onClick={() => copyWebsiteLink(data.public_link || data.preview_link)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-800 shadow-xs transition"
+              className="inline-flex items-center gap-1.5 min-h-[36px] rounded-xl border border-[#D8E0EA] bg-white hover:bg-slate-50 px-3.5 py-2 text-xs font-bold text-[#0F172A] transition"
             >
               <Copy className="h-3.5 w-3.5 text-slate-600" />
               Copy Link
@@ -862,17 +912,18 @@ export default function PortalMyWebsitePage() {
               href={data.public_link || data.preview_link}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-lg bg-[#009A4D] hover:bg-emerald-700 px-4 py-2 text-xs font-semibold text-white shadow-sm transition"
+              className="inline-flex items-center gap-2 min-h-[36px] rounded-xl bg-[#0F766E] hover:bg-[#115E59] px-4 py-2 text-xs font-bold text-white shadow-2xs transition"
             >
               Open Website <ExternalLink className="h-3.5 w-3.5" />
             </a>
           )}
           <button
             type="button"
-            onClick={loadWebsiteStatus}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 shadow-xs"
+            disabled={loading}
+            onClick={() => void loadWebsiteStatus(true)}
+            className="inline-flex items-center gap-1.5 min-h-[36px] rounded-xl border border-[#D8E0EA] bg-white hover:bg-slate-50 px-3 py-2 text-xs font-bold text-[#0F172A] disabled:opacity-60"
           >
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            <RefreshCw className={`h-3.5 w-3.5 text-[#0F766E] ${loading ? "animate-spin" : ""}`} /> Refresh
           </button>
         </div>
       </div>
@@ -1346,15 +1397,25 @@ export default function PortalMyWebsitePage() {
                         <button
                           type="button"
                           disabled={saving || uploadingImage}
-                          onClick={async () => {
-                            const updated = { ...brandingForm, hero_banner_url: "" };
-                            setBrandingForm(updated);
-                            await postWebsiteAction("update_branding", {
-                              payload: { ...updated, hero_banner_url: null },
-                            });
-                            notify("Reverted hero photo to default retail pharmacy image");
-                          }}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 px-3 py-2 text-xs font-bold"
+                          onClick={() =>
+                            requestConfirm({
+                              title: "Reset Homepage Hero Photo?",
+                              description:
+                                "This removes your custom uploaded pharmacy hero photo and reverts to the default pharmacy storefront image.",
+                              confirmLabel: "Yes, Reset Photo",
+                              tone: "warning",
+                              onConfirm: async () => {
+                                const updated = { ...brandingForm, hero_banner_url: "" };
+                                setBrandingForm(updated);
+                                await postWebsiteAction("update_branding", {
+                                  payload: { ...updated, hero_banner_url: null },
+                                });
+                                notify("Reverted hero photo to default retail pharmacy image");
+                                setConfirmState(null);
+                              },
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 min-h-[38px] rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 px-3 py-2 text-xs font-bold"
                         >
                           <RotateCcw className="h-3.5 w-3.5 text-slate-600" />
                           <span>Reset Default</span>
@@ -1544,17 +1605,18 @@ export default function PortalMyWebsitePage() {
                   />
                 </div>
 
-                <button
-                  type="button"
-                  disabled={saving}
+                <PortalActionButton
+                  variant="primary"
+                  size="md"
+                  loading={saving}
+                  loadingText="Saving Branding…"
                   onClick={async () => {
                     await postWebsiteAction("update_branding", { payload: brandingForm });
                     notify("Saved website branding & appearance");
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-[#009A4D] hover:bg-emerald-700 text-white text-xs font-bold shadow-xs"
                 >
-                  {saving ? "Saving Branding…" : "Save Appearance & Branding"}
-                </button>
+                  Save Appearance &amp; Branding
+                </PortalActionButton>
               </div>
 
               {/* Live Visual Preview Card */}
@@ -1666,43 +1728,72 @@ export default function PortalMyWebsitePage() {
                   <button
                     type="button"
                     disabled={saving}
-                    onClick={async () => {
+                    onClick={() => {
                       const nextVal = !settingsForm.auto_sync_all_products;
-                      setSettingsForm((s) => ({ ...s, auto_sync_all_products: nextVal }));
-                      await postWebsiteAction("update_settings", {
-                        payload: {
-                          ...settingsForm,
-                          auto_sync_all_products: nextVal,
-                          publishing_mode: nextVal ? "in_stock_approved" : "manual_only",
+                      requestConfirm({
+                        title: nextVal
+                          ? "Enable Auto-Sync POS Inventory?"
+                          : "Disable Auto-Sync POS Inventory?",
+                        description: nextVal
+                          ? "All active in-stock medicines from your POS will automatically publish on your live website."
+                          : "New medicines synced from POS will stay hidden until you publish them manually.",
+                        confirmLabel: nextVal ? "Yes, Enable Auto-Sync" : "Yes, Disable Auto-Sync",
+                        tone: nextVal ? "primary" : "warning",
+                        onConfirm: async () => {
+                          setSettingsForm((s) => ({ ...s, auto_sync_all_products: nextVal }));
+                          await postWebsiteAction("update_settings", {
+                            payload: {
+                              ...settingsForm,
+                              auto_sync_all_products: nextVal,
+                              publishing_mode: nextVal ? "in_stock_approved" : "manual_only",
+                            },
+                          });
+                          notify(
+                            nextVal
+                              ? "Auto-Sync Enabled: POS will automatically publish all active medicines"
+                              : "Auto-Sync Disabled: Reverted to manual item approval"
+                          );
+                          setConfirmState(null);
                         },
                       });
-                      notify(nextVal ? "Auto-Sync Enabled: POS will automatically publish all active medicines" : "Auto-Sync Disabled: Reverted to manual item approval");
                     }}
-                    className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border transition ${
+                    className={`inline-flex items-center gap-1.5 min-h-[38px] px-3.5 py-2 rounded-xl text-xs font-bold border transition ${
                       settingsForm.auto_sync_all_products
-                        ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
-                        : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
+                        ? "bg-[#0F766E] text-white border-[#0F766E]"
+                        : "bg-white text-[#0F172A] border-[#D8E0EA] hover:bg-slate-50"
                     }`}
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 ${settingsForm.auto_sync_all_products ? "text-emerald-100" : "text-slate-400"}`} />
+                    <RefreshCw className={`h-3.5 w-3.5 ${settingsForm.auto_sync_all_products ? "text-teal-200" : "text-slate-400"}`} />
                     Auto-Sync POS Inventory: {settingsForm.auto_sync_all_products ? "ON" : "OFF"}
                   </button>
 
-                  <button
-                    type="button"
+                  <PortalActionButton
+                    variant="secondary"
+                    size="sm"
                     disabled={saving || products.length === 0}
-                    onClick={async () => {
-                      await postWebsiteAction("update_product_publishing", {
-                        items: products.map((p) => ({ pos_product_id: p.pos_product_id, publish_status: "published" })),
-                      });
-                      notify(`Published all ${products.length} medicines to website live catalog`);
-                      await loadWebsiteStatus();
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-bold transition"
+                    icon={<CheckCircle2 className="h-3.5 w-3.5 text-[#0F766E]" />}
+                    onClick={() =>
+                      requestConfirm({
+                        title: `Publish all ${products.length} synced medicines?`,
+                        description:
+                          "Every eligible (non-controlled) synced medicine in your catalog will immediately appear live on your public pharmacy website.",
+                        confirmLabel: `Publish All (${products.length})`,
+                        tone: "primary",
+                        onConfirm: async () => {
+                          await postWebsiteAction("update_product_publishing", {
+                            items: products.map((p) => ({
+                              pos_product_id: p.pos_product_id,
+                              publish_status: "published",
+                            })),
+                          });
+                          notify(`Published all ${products.length} medicines to website live catalog`);
+                          setConfirmState(null);
+                        },
+                      })
+                    }
                   >
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
                     Publish All Synced Medicines ({products.length})
-                  </button>
+                  </PortalActionButton>
 
                   <button
                     type="button"
@@ -2194,7 +2285,20 @@ export default function PortalMyWebsitePage() {
                         <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
                           <button
                             type="button"
-                            onClick={handleRevertToShared}
+                            onClick={() =>
+                              requestConfirm({
+                                title: "Revert to Central Shared Image?",
+                                description:
+                                  "Your custom pharmacy photo for this product will be replaced by the central verified library image (or default placeholder).",
+                                details: editingProduct?.name,
+                                confirmLabel: "Yes, Revert Photo",
+                                tone: "warning",
+                                onConfirm: async () => {
+                                  await handleRevertToShared();
+                                  setConfirmState(null);
+                                },
+                              })
+                            }
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900"
                           >
                             <RotateCcw className="h-3 w-3" /> Revert to Central Shared Image
@@ -2619,13 +2723,31 @@ export default function PortalMyWebsitePage() {
                                 disabled={saving}
                                 onChange={async (e) => {
                                   const nextPay = e.target.value;
-                                  await postWebsiteAction("update_order_status", {
-                                    order_id: ord.id,
-                                    status: ord.status,
-                                    payment_status: nextPay,
-                                    note: `Payment status updated to ${nextPay} in Owner Portal`,
-                                  });
-                                  notify(`Payment status for ${ord.order_number} set to ${nextPay}`);
+                                  const applyPay = async () => {
+                                    await postWebsiteAction("update_order_status", {
+                                      order_id: ord.id,
+                                      status: ord.status,
+                                      payment_status: nextPay,
+                                      note: `Payment status updated to ${nextPay} in Owner Portal`,
+                                    });
+                                    notify(`Payment status for ${ord.order_number} set to ${nextPay}`);
+                                  };
+                                  if (nextPay === "refunded") {
+                                    requestConfirm({
+                                      title: `Mark order #${ord.order_number} as Refunded?`,
+                                      description:
+                                        "This updates the online order payment status to Refunded for customer tracking.",
+                                      details: `${ord.customer_name} • PKR ${Number(ord.total_pkr || 0).toLocaleString()}`,
+                                      confirmLabel: "Yes, Mark Refunded",
+                                      tone: "danger",
+                                      onConfirm: async () => {
+                                        await applyPay();
+                                        setConfirmState(null);
+                                      },
+                                    });
+                                    return;
+                                  }
+                                  await applyPay();
                                 }}
                                 className={`w-full min-h-[36px] rounded-xl border px-2 py-1 text-[11px] font-bold ${
                                   paymentSt === "paid"
@@ -2654,12 +2776,31 @@ export default function PortalMyWebsitePage() {
                                 disabled={saving}
                                 onChange={async (e) => {
                                   const nextSt = e.target.value;
-                                  await postWebsiteAction("update_order_status", {
-                                    order_id: ord.id,
-                                    status: nextSt,
-                                    note: `Updated to ${nextSt} by Pharmacy Owner`,
-                                  });
-                                  notify(`Order ${ord.order_number} updated to ${nextSt}`);
+                                  const applyOrderStatus = async () => {
+                                    await postWebsiteAction("update_order_status", {
+                                      order_id: ord.id,
+                                      status: nextSt,
+                                      note: `Updated to ${nextSt} by Pharmacy Owner`,
+                                    });
+                                    notify(`Order ${ord.order_number} updated to ${nextSt}`);
+                                  };
+                                  if (nextSt === "cancelled" || nextSt === "rejected") {
+                                    requestConfirm({
+                                      title: `${nextSt === "rejected" ? "Reject" : "Cancel"} Order #${ord.order_number}?`,
+                                      description:
+                                        "The customer will see this order as cancelled/rejected on their tracking page. Are you sure?",
+                                      details: `${ord.customer_name} (${ord.customer_phone}) • PKR ${Number(ord.total_pkr || 0).toLocaleString()}`,
+                                      confirmLabel:
+                                        nextSt === "rejected" ? "Yes, Reject Order" : "Yes, Cancel Order",
+                                      tone: "danger",
+                                      onConfirm: async () => {
+                                        await applyOrderStatus();
+                                        setConfirmState(null);
+                                      },
+                                    });
+                                    return;
+                                  }
+                                  await applyOrderStatus();
                                 }}
                                 className="w-full min-h-[36px] rounded-xl border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-800"
                               >
@@ -2786,13 +2927,31 @@ export default function PortalMyWebsitePage() {
                                 disabled={saving}
                                 onChange={async (e) => {
                                   const nextPay = e.target.value;
-                                  await postWebsiteAction("update_order_status", {
-                                    order_id: ord.id,
-                                    status: ord.status,
-                                    payment_status: nextPay,
-                                    note: `Payment status updated to ${nextPay} in Owner Portal`,
-                                  });
-                                  notify(`Payment status for ${ord.order_number} set to ${nextPay}`);
+                                  const applyPay = async () => {
+                                    await postWebsiteAction("update_order_status", {
+                                      order_id: ord.id,
+                                      status: ord.status,
+                                      payment_status: nextPay,
+                                      note: `Payment status updated to ${nextPay} in Owner Portal`,
+                                    });
+                                    notify(`Payment status for ${ord.order_number} set to ${nextPay}`);
+                                  };
+                                  if (nextPay === "refunded") {
+                                    requestConfirm({
+                                      title: `Mark order #${ord.order_number} as Refunded?`,
+                                      description:
+                                        "This updates the online order payment status to Refunded for customer tracking.",
+                                      details: `${ord.customer_name} • PKR ${Number(ord.total_pkr || 0).toLocaleString()}`,
+                                      confirmLabel: "Yes, Mark Refunded",
+                                      tone: "danger",
+                                      onConfirm: async () => {
+                                        await applyPay();
+                                        setConfirmState(null);
+                                      },
+                                    });
+                                    return;
+                                  }
+                                  await applyPay();
                                 }}
                                 className={`rounded-xl border px-2 py-1 text-[11px] font-bold ${
                                   paymentSt === "paid"
@@ -2844,12 +3003,31 @@ export default function PortalMyWebsitePage() {
                                 disabled={saving}
                                 onChange={async (e) => {
                                   const nextSt = e.target.value;
-                                  await postWebsiteAction("update_order_status", {
-                                    order_id: ord.id,
-                                    status: nextSt,
-                                    note: `Updated to ${nextSt} by Pharmacy Owner`,
-                                  });
-                                  notify(`Order ${ord.order_number} updated to ${nextSt}`);
+                                  const applyOrderStatus = async () => {
+                                    await postWebsiteAction("update_order_status", {
+                                      order_id: ord.id,
+                                      status: nextSt,
+                                      note: `Updated to ${nextSt} by Pharmacy Owner`,
+                                    });
+                                    notify(`Order ${ord.order_number} updated to ${nextSt}`);
+                                  };
+                                  if (nextSt === "cancelled" || nextSt === "rejected") {
+                                    requestConfirm({
+                                      title: `${nextSt === "rejected" ? "Reject" : "Cancel"} Order #${ord.order_number}?`,
+                                      description:
+                                        "The customer will see this order as cancelled/rejected on their tracking page. Are you sure?",
+                                      details: `${ord.customer_name} (${ord.customer_phone}) • PKR ${Number(ord.total_pkr || 0).toLocaleString()}`,
+                                      confirmLabel:
+                                        nextSt === "rejected" ? "Yes, Reject Order" : "Yes, Cancel Order",
+                                      tone: "danger",
+                                      onConfirm: async () => {
+                                        await applyOrderStatus();
+                                        setConfirmState(null);
+                                      },
+                                    });
+                                    return;
+                                  }
+                                  await applyOrderStatus();
                                 }}
                                 className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800"
                               >
@@ -3316,11 +3494,22 @@ export default function PortalMyWebsitePage() {
                         </div>
                         <button
                           type="button"
-                          onClick={async () => {
-                            await postWebsiteAction("delete_promotion", { promotion_id: p.id });
-                            notify("Deleted promotion");
-                          }}
-                          className="text-red-600 hover:underline font-semibold shrink-0"
+                          onClick={() =>
+                            requestConfirm({
+                              title: `Delete Promotion "${p.title}"?`,
+                              description:
+                                "Customers will no longer be able to apply this discount or promo code at checkout.",
+                              details: p.code ? `Code: ${p.code}` : p.title,
+                              confirmLabel: "Yes, Delete Promotion",
+                              tone: "danger",
+                              onConfirm: async () => {
+                                await postWebsiteAction("delete_promotion", { promotion_id: p.id });
+                                notify("Deleted promotion");
+                                setConfirmState(null);
+                              },
+                            })
+                          }
+                          className="min-h-[34px] px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold shrink-0 cursor-pointer"
                         >
                           Remove
                         </button>
@@ -3397,11 +3586,21 @@ export default function PortalMyWebsitePage() {
                       </div>
                       <button
                         type="button"
-                        onClick={async () => {
-                          await postWebsiteAction("delete_banner", { banner_id: b.id });
-                          notify("Removed banner");
-                        }}
-                        className="text-red-600 hover:underline font-semibold"
+                        onClick={() =>
+                          requestConfirm({
+                            title: `Delete Promotional Banner "${b.title}"?`,
+                            description:
+                              "This banner will be removed from your live pharmacy homepage immediately.",
+                            confirmLabel: "Yes, Delete Banner",
+                            tone: "danger",
+                            onConfirm: async () => {
+                              await postWebsiteAction("delete_banner", { banner_id: b.id });
+                              notify("Removed banner");
+                              setConfirmState(null);
+                            },
+                          })
+                        }
+                        className="min-h-[34px] px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold cursor-pointer"
                       >
                         Delete
                       </button>
@@ -3511,17 +3710,18 @@ export default function PortalMyWebsitePage() {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={saving}
+                <PortalActionButton
+                  variant="primary"
+                  size="md"
+                  loading={saving}
+                  loadingText="Saving Delivery…"
                   onClick={async () => {
                     await postWebsiteAction("update_settings", { payload: settingsForm });
                     notify("Saved delivery & pickup settings");
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-[#009A4D] text-white text-xs font-bold"
                 >
                   Save Delivery Configuration
-                </button>
+                </PortalActionButton>
               </div>
 
               {/* Delivery Zones CRUD */}
@@ -3576,11 +3776,22 @@ export default function PortalMyWebsitePage() {
                       </div>
                       <button
                         type="button"
-                        onClick={async () => {
-                          await postWebsiteAction("delete_delivery_zone", { zone_id: z.id });
-                          notify("Removed delivery zone");
-                        }}
-                        className="text-red-600 font-semibold"
+                        onClick={() =>
+                          requestConfirm({
+                            title: `Delete Delivery Zone "${z.zone_name}"?`,
+                            description:
+                              "Customers in this area will fall back to your standard delivery fee and delivery time.",
+                            details: `PKR ${z.fee_pkr} • ~${z.estimated_minutes} mins`,
+                            confirmLabel: "Yes, Delete Zone",
+                            tone: "danger",
+                            onConfirm: async () => {
+                              await postWebsiteAction("delete_delivery_zone", { zone_id: z.id });
+                              notify("Removed delivery zone");
+                              setConfirmState(null);
+                            },
+                          })
+                        }
+                        className="min-h-[34px] px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold cursor-pointer"
                       >
                         Delete
                       </button>
@@ -3632,9 +3843,11 @@ export default function PortalMyWebsitePage() {
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                   />
                 </div>
-                <button
-                  type="button"
-                  disabled={saving}
+                <PortalActionButton
+                  variant="primary"
+                  size="md"
+                  loading={saving}
+                  loadingText="Saving Hours…"
                   onClick={async () => {
                     await postWebsiteAction("update_settings", {
                       payload: {
@@ -3648,10 +3861,9 @@ export default function PortalMyWebsitePage() {
                     });
                     notify("Updated pharmacy opening hours");
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-[#009A4D] text-white text-xs font-bold"
                 >
                   Save Opening Hours
-                </button>
+                </PortalActionButton>
               </div>
 
               <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4 shadow-xs">
@@ -3810,17 +4022,41 @@ export default function PortalMyWebsitePage() {
                   />
                 </div>
 
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={async () => {
-                    await postWebsiteAction("update_settings", { payload: settingsForm });
-                    notify("Saved website settings & SEO metadata");
+                <PortalActionButton
+                  variant={settingsForm.maintenance_mode ? "warning" : "primary"}
+                  size="md"
+                  loading={saving}
+                  loadingText="Saving Settings…"
+                  onClick={() => {
+                    const prevMaint = Number(data?.settings?.maintenance_mode || 0) === 1;
+                    if (settingsForm.maintenance_mode !== prevMaint) {
+                      requestConfirm({
+                        title: settingsForm.maintenance_mode
+                          ? "Enable Maintenance Mode & Pause Website?"
+                          : "Disable Maintenance Mode & Bring Website Live?",
+                        description: settingsForm.maintenance_mode
+                          ? "Customers visiting your online pharmacy will see a maintenance notice and will NOT be able to place new orders until you turn it off."
+                          : "Your pharmacy website will immediately resume accepting customer visits and online orders.",
+                        confirmLabel: settingsForm.maintenance_mode
+                          ? "Yes, Pause Website"
+                          : "Yes, Go Live",
+                        tone: settingsForm.maintenance_mode ? "warning" : "primary",
+                        onConfirm: async () => {
+                          await postWebsiteAction("update_settings", { payload: settingsForm });
+                          notify("Saved website settings & SEO metadata");
+                          setConfirmState(null);
+                        },
+                      });
+                      return;
+                    }
+                    void (async () => {
+                      await postWebsiteAction("update_settings", { payload: settingsForm });
+                      notify("Saved website settings & SEO metadata");
+                    })();
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-[#009A4D] text-white text-xs font-bold"
                 >
-                  Save Settings & SEO
-                </button>
+                  Save Settings &amp; SEO
+                </PortalActionButton>
               </div>
 
               {/* Domains & Custom Domain Connection */}
@@ -3836,20 +4072,30 @@ export default function PortalMyWebsitePage() {
                     placeholder="e.g. www.alshifapharmacy.pk"
                     className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-mono"
                   />
-                  <button
-                    type="button"
+                  <PortalActionButton
+                    variant="dark"
+                    size="sm"
                     disabled={saving || !customDomainInput.trim()}
-                    onClick={async () => {
-                      await postWebsiteAction("add_custom_domain", {
-                        hostname: customDomainInput.trim(),
+                    onClick={() => {
+                      const hostname = customDomainInput.trim();
+                      requestConfirm({
+                        title: `Connect Custom Domain "${hostname}"?`,
+                        description:
+                          "This registers your custom domain for DNS verification so customers can visit your pharmacy storefront at this address.",
+                        details: hostname,
+                        confirmLabel: "Yes, Connect Domain",
+                        tone: "primary",
+                        onConfirm: async () => {
+                          await postWebsiteAction("add_custom_domain", { hostname });
+                          setCustomDomainInput("");
+                          notify("Registered custom domain for DNS verification");
+                          setConfirmState(null);
+                        },
                       });
-                      setCustomDomainInput("");
-                      notify("Registered custom domain for DNS verification");
                     }}
-                    className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold"
                   >
                     Connect Domain
-                  </button>
+                  </PortalActionButton>
                 </div>
 
                 <div className="divide-y divide-slate-100 text-xs">
@@ -3968,6 +4214,21 @@ export default function PortalMyWebsitePage() {
           )}
         </>
       )}
+
+      {/* Global Confirmation Modal for Destructive / High-Impact Website Actions */}
+      <PortalConfirmModal
+        open={Boolean(confirmState)}
+        onClose={() => setConfirmState(null)}
+        onConfirm={async () => {
+          if (confirmState) await confirmState.onConfirm();
+        }}
+        title={confirmState?.title || ""}
+        description={confirmState?.description}
+        details={confirmState?.details}
+        confirmLabel={confirmState?.confirmLabel || "Confirm"}
+        tone={confirmState?.tone || "warning"}
+        loading={saving}
+      />
     </div>
   );
 }

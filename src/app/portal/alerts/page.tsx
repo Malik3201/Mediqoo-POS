@@ -22,7 +22,14 @@ import {
   PortalSectionCard,
   PortalStatusBadge,
   PortalEmptyState,
+  PortalActionButton,
+  PortalConfirmModal,
 } from "@/components/portal/PortalUI";
+import {
+  fetchPortalCached,
+  getPortalCached,
+  invalidatePortalCache,
+} from "@/lib/portal-cache";
 
 const CATEGORY_TABS = [
   { id: "all", label: "All Alerts" },
@@ -98,26 +105,42 @@ function AlertsPageInner() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskCategory, setNewTaskCategory] = useState("audit");
   const [addingTask, setAddingTask] = useState(false);
+  const [confirmAlertAction, setConfirmAlertAction] = useState<{
+    alert: any;
+    nextStatus: "open" | "resolved";
+  } | null>(null);
 
-  const loadAlerts = useCallback(async () => {
-    setLoading(true);
+  const loadAlerts = useCallback(async (forceRefresh = false) => {
+    const params = new URLSearchParams({
+      category,
+      status: statusFilter,
+      severity: severityFilter,
+    });
+    const url = `/api/portal/alerts?${params.toString()}`;
+    const cached = getPortalCached<any>(url, 30_000);
+    if (cached) {
+      setData(cached.data);
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const params = new URLSearchParams({
-        category,
-        status: statusFilter,
-        severity: severityFilter,
+      const { data: json } = await fetchPortalCached<any>(url, {
+        ttlMs: 30_000,
+        forceRefresh,
       });
-      const res = await fetch(`/api/portal/alerts?${params.toString()}`);
-      if (res.ok) {
-        setData(await res.json());
-      }
+      setData(json);
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
   }, [category, statusFilter, severityFilter]);
 
   useEffect(() => {
-    void loadAlerts();
+    void loadAlerts(false);
   }, [loadAlerts]);
 
   const updateAlertStatus = async (
@@ -139,7 +162,10 @@ function AlertsPageInner() {
       });
       if (res.ok) {
         setActiveNoteBoxId(null);
-        await loadAlerts();
+        setConfirmAlertAction(null);
+        invalidatePortalCache("/api/portal/alerts");
+        invalidatePortalCache("/api/portal/overview");
+        await loadAlerts(true);
       }
     } finally {
       setUpdatingId(null);
@@ -163,7 +189,8 @@ function AlertsPageInner() {
       });
       if (res.ok) {
         setNewTaskTitle("");
-        await loadAlerts();
+        invalidatePortalCache("/api/portal/alerts");
+        await loadAlerts(true);
       }
     } finally {
       setAddingTask(false);
@@ -182,7 +209,8 @@ function AlertsPageInner() {
         status: task.status === "completed" ? "open" : "completed",
       }),
     });
-    await loadAlerts();
+    invalidatePortalCache("/api/portal/alerts");
+    await loadAlerts(true);
   };
 
   const selectCategory = (catId: string) => {
@@ -204,7 +232,7 @@ function AlertsPageInner() {
         icon={<BellRing className="w-5 h-5" />}
         title="Exception Alerts & Supervision"
         subtitle="Audit discounts, cash variance, expiry exposure, supplier cost spikes, and sync health."
-        actions={<PortalRefreshButton loading={loading} onClick={() => void loadAlerts()} />}
+        actions={<PortalRefreshButton loading={loading} onClick={() => void loadAlerts(true)} />}
       />
 
       {/* Executive Alert KPI Strip */}
@@ -428,23 +456,27 @@ function AlertsPageInner() {
                     )}
 
                     {alert.resolution_status !== "resolved" ? (
-                      <button
-                        type="button"
-                        disabled={updatingId === alert.id}
-                        onClick={() => void updateAlertStatus(alert.id, "resolved")}
-                        className="min-h-[36px] px-3 py-1.5 rounded-xl border border-emerald-300 bg-emerald-50 text-[#009A4D] text-xs font-bold hover:bg-emerald-100 disabled:opacity-50"
+                      <PortalActionButton
+                        variant="primary"
+                        size="sm"
+                        loading={updatingId === alert.id}
+                        onClick={() =>
+                          setConfirmAlertAction({ alert, nextStatus: "resolved" })
+                        }
                       >
                         Resolve
-                      </button>
+                      </PortalActionButton>
                     ) : (
-                      <button
-                        type="button"
-                        disabled={updatingId === alert.id}
-                        onClick={() => void updateAlertStatus(alert.id, "open")}
-                        className="min-h-[36px] px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 disabled:opacity-50"
+                      <PortalActionButton
+                        variant="secondary"
+                        size="sm"
+                        loading={updatingId === alert.id}
+                        onClick={() =>
+                          setConfirmAlertAction({ alert, nextStatus: "open" })
+                        }
                       >
                         Reopen
-                      </button>
+                      </PortalActionButton>
                     )}
 
                     <button
@@ -574,6 +606,43 @@ function AlertsPageInner() {
       <InvoiceDetailDrawer
         invoiceId={selectedInvoiceId}
         onClose={() => setSelectedInvoiceId(null)}
+      />
+
+      {/* Confirmation Modal for Resolving / Reopening Alerts */}
+      <PortalConfirmModal
+        open={Boolean(confirmAlertAction)}
+        onClose={() => setConfirmAlertAction(null)}
+        onConfirm={async () => {
+          if (!confirmAlertAction) return;
+          await updateAlertStatus(
+            confirmAlertAction.alert.id,
+            confirmAlertAction.nextStatus
+          );
+        }}
+        loading={Boolean(confirmAlertAction && updatingId === confirmAlertAction.alert.id)}
+        tone={
+          confirmAlertAction?.nextStatus === "resolved"
+            ? confirmAlertAction.alert.severity === "critical"
+              ? "warning"
+              : "primary"
+            : "warning"
+        }
+        title={
+          confirmAlertAction?.nextStatus === "resolved"
+            ? "Mark Anomaly Alert as Resolved?"
+            : "Reopen Resolved Alert?"
+        }
+        description={
+          confirmAlertAction?.nextStatus === "resolved"
+            ? "Confirm that you have reviewed this operational alert. You can reopen it anytime from the Resolved filter."
+            : "This alert will move back to Open status for active supervision."
+        }
+        details={confirmAlertAction?.alert?.title}
+        confirmLabel={
+          confirmAlertAction?.nextStatus === "resolved"
+            ? "Yes, Mark Resolved"
+            : "Yes, Reopen Alert"
+        }
       />
     </div>
   );

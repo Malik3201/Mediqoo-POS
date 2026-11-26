@@ -24,7 +24,14 @@ import {
   PortalStatusBadge,
   PortalSlideOver,
   PortalEmptyState,
+  PortalActionButton,
+  PortalConfirmModal,
 } from "@/components/portal/PortalUI";
+import {
+  fetchPortalCached,
+  getPortalCached,
+  invalidatePortalCache,
+} from "@/lib/portal-cache";
 
 function formatPKR(n: number | null | undefined): string {
   return `Rs ${Math.round(Number(n) || 0).toLocaleString("en-PK")}`;
@@ -80,46 +87,64 @@ function CashSupervisionContent() {
       : "operator-shifts";
 
   const [activeTab, setActiveTab] = useState<"operator-shifts" | "closings" | "shifts">(initialTab);
+
+  useEffect(() => {
+    if (tabParam === "closings") setActiveTab("closings");
+    else if (tabParam === "shifts" || sessionParam) setActiveTab("shifts");
+    else if (tabParam === "operator-shifts") setActiveTab("operator-shifts");
+  }, [tabParam, sessionParam]);
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedSession, setSelectedSession] = useState<any | null>(null);
   const [selectedOperatorShift, setSelectedOperatorShift] = useState<any | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [pendingAuditConfirm, setPendingAuditConfirm] = useState<{
+    sessionId: string;
+    businessDate?: string;
+    status: "reviewed" | "flagged_for_audit";
+    label: string;
+  } | null>(null);
 
   // Operator Shifts filters
   const [shiftDateFilter, setShiftDateFilter] = useState<string>("all");
   const [shiftStaffFilter, setShiftStaffFilter] = useState<string>("all");
-  const [hideEmptyShifts, setHideEmptyShifts] = useState<boolean>(true);
+  const [hideEmptyShifts, setHideEmptyShifts] = useState<boolean>(false);
 
-  const loadCashData = useCallback(async () => {
-    setLoading(true);
+  const loadCashData = useCallback(async (forceRefresh = false) => {
+    const url = "/api/portal/cash";
+    const cached = getPortalCached<any>(url, 30_000);
+    if (cached) {
+      setData(cached.data);
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const res = await fetch("/api/portal/cash");
-      if (res.ok) {
-        const json = await res.json();
-        setData(json);
-        if (sessionParam && json?.drawer_sessions) {
-          const found = json.drawer_sessions.find((s: any) => s.id === sessionParam);
-          if (found) {
-            setSelectedSession(found);
-            setReviewNote(found.owner_review?.note || "");
-          }
-        }
-        // If no operator shifts exist yet and user didn't explicitly request operator-shifts, default cleanly to closings
-        if (!tabParam && !sessionParam && (!json?.shift_sessions || json.shift_sessions.length === 0)) {
-          setActiveTab("closings");
+      const { data: json } = await fetchPortalCached<any>(url, {
+        ttlMs: 30_000,
+        forceRefresh,
+      });
+      setData(json);
+      if (sessionParam && json?.drawer_sessions) {
+        const found = json.drawer_sessions.find((s: any) => s.id === sessionParam);
+        if (found) {
+          setSelectedSession(found);
+          setReviewNote(found.owner_review?.note || "");
         }
       }
+      // Always keep Daily Shifts (operator-shifts) visible as Tab #1 — never silently switch away!
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [sessionParam, tabParam]);
+  }, [sessionParam]);
 
   useEffect(() => {
-    void loadCashData();
+    void loadCashData(false);
   }, [loadCashData]);
 
   const handleSubmitCashReview = async (
@@ -157,7 +182,10 @@ function CashSupervisionContent() {
             owner_review: json.cash_review,
           });
         }
-        await loadCashData();
+        invalidatePortalCache("/api/portal/cash");
+        invalidatePortalCache("/api/portal/overview");
+        setPendingAuditConfirm(null);
+        await loadCashData(true);
       }
     } catch (err) {
       console.error(err);
@@ -214,11 +242,11 @@ function CashSupervisionContent() {
   return (
     <div className="space-y-4 sm:space-y-5 animate-portal-in">
       <PortalPageHeader
-        icon={<Wallet className="w-5 h-5" />}
-        title="Cash, Shifts & Day Close Supervision"
-        subtitle="Monitor live operator shifts, shift-by-shift sales & cash handovers, drawer balances, and daily Z-Report closings."
+        icon={<Clock className="w-5 h-5" />}
+        title="Daily Shifts, Cash & Day Close"
+        subtitle="Audit every staff shift's sales, returns, purchases paid, credit collections, expenses, and physical cash handovers."
         actions={
-          <PortalRefreshButton loading={loading} onClick={() => void loadCashData()} />
+          <PortalRefreshButton loading={loading} onClick={() => void loadCashData(true)} />
         }
       />
 
@@ -392,45 +420,54 @@ function CashSupervisionContent() {
         </div>
       </PortalSectionCard>
 
-      {/* Segmented Switcher: Operator Shifts | Daily Closings | Drawer Sessions */}
-      <div className="flex items-center bg-slate-100/90 border border-slate-200/80 rounded-2xl p-1 w-full sm:w-fit overflow-x-auto">
+      {/* Segmented Switcher: Daily Shifts (Tab #1) | Day Closings (Tab #2) | Cash Drawers (Tab #3) */}
+      <div className="flex items-center bg-white border border-[#D8E0EA] rounded-2xl p-1 w-full sm:w-fit overflow-x-auto no-scrollbar">
         <button
           type="button"
+          data-allow-rapid-click="true"
           onClick={() => setActiveTab("operator-shifts")}
-          className={`flex-1 sm:flex-initial min-h-[38px] px-4 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5 ${
+          className={`flex-1 sm:flex-initial min-h-[40px] px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all whitespace-nowrap inline-flex items-center justify-center gap-1.5 cursor-pointer ${
             activeTab === "operator-shifts"
-              ? "bg-white text-slate-900 shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
+              ? "bg-[#0F766E] text-white"
+              : "text-slate-700 hover:bg-[#F3F5F8]"
           }`}
         >
-          <span>Operator Shifts ({visibleOperatorShifts.length})</span>
+          <span>Daily Shifts ({visibleOperatorShifts.length})</span>
           {shiftsSummary.open_shifts > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800">
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                activeTab === "operator-shifts"
+                  ? "bg-white text-[#0F766E]"
+                  : "bg-teal-100 text-[#0F766E]"
+              }`}
+            >
               {shiftsSummary.open_shifts} Live
             </span>
           )}
         </button>
         <button
           type="button"
+          data-allow-rapid-click="true"
           onClick={() => setActiveTab("closings")}
-          className={`flex-1 sm:flex-initial min-h-[38px] px-4 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+          className={`flex-1 sm:flex-initial min-h-[40px] px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all whitespace-nowrap cursor-pointer ${
             activeTab === "closings"
-              ? "bg-white text-slate-900 shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
+              ? "bg-[#0F766E] text-white"
+              : "text-slate-700 hover:bg-[#F3F5F8]"
           }`}
         >
-          Daily Closings ({dailyClosings.length})
+          Day Closings ({dailyClosings.length})
         </button>
         <button
           type="button"
+          data-allow-rapid-click="true"
           onClick={() => setActiveTab("shifts")}
-          className={`flex-1 sm:flex-initial min-h-[38px] px-4 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+          className={`flex-1 sm:flex-initial min-h-[40px] px-3.5 sm:px-4 py-1.5 rounded-xl text-xs font-extrabold transition-all whitespace-nowrap cursor-pointer ${
             activeTab === "shifts"
-              ? "bg-white text-slate-900 shadow-xs"
-              : "text-slate-600 hover:text-slate-900"
+              ? "bg-[#0F766E] text-white"
+              : "text-slate-700 hover:bg-[#F3F5F8]"
           }`}
         >
-          Drawer Sessions ({drawerSessions.length})
+          Cash Drawers ({drawerSessions.length})
         </button>
       </div>
 
@@ -534,13 +571,46 @@ function CashSupervisionContent() {
             {visibleOperatorShifts.length === 0 ? (
               <PortalEmptyState
                 icon={<Clock className="w-6 h-6" />}
-                title="No Operator Shifts Synced Yet"
-                description="Once staff start or close shifts on the POS counter under Multi-User Mode, each shift's full sales, returns, purchases, credit collections, expenses, and cash count will appear here automatically."
+                title={
+                  allOperatorShifts.length > 0
+                    ? "No Shifts Match Current Filters"
+                    : "No Daily Operator Shifts Synced Yet"
+                }
+                description={
+                  allOperatorShifts.length > 0
+                    ? "Try clearing your Date/Staff filter or showing zero-activity shifts to view all recorded shifts."
+                    : "When cashiers or pharmacists start or close shifts in AivraSol POS (Multi-User Mode), each shift's opening balance, sales, returns, purchases paid, credit collected, expenses, and counted cash sync here automatically."
+                }
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {allOperatorShifts.length > 0 && (
+                      <PortalActionButton
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setShiftDateFilter("all");
+                          setShiftStaffFilter("all");
+                          setHideEmptyShifts(false);
+                        }}
+                      >
+                        Reset Shift Filters
+                      </PortalActionButton>
+                    )}
+                    <PortalActionButton
+                      size="sm"
+                      variant="primary"
+                      loading={loading}
+                      onClick={() => void loadCashData(true)}
+                    >
+                      Sync Latest Shifts
+                    </PortalActionButton>
+                  </div>
+                }
               />
             ) : (
               <>
-                {/* Mobile Operator Shift Cards */}
-                <div className="md:hidden divide-y divide-slate-100">
+                {/* Mobile Operator Shift Cards (Clean 360px-safe layout with all shift metrics) */}
+                <div className="md:hidden divide-y divide-[#E6ECF2]">
                   {visibleOperatorShifts.map((sh: any) => {
                     const isOpen = sh.status === "active";
                     const isHandover = sh.close_reason === "admin_takeover";
@@ -556,20 +626,25 @@ function CashSupervisionContent() {
                           setSelectedOperatorShift(sh);
                           setReviewNote(sh.owner_review?.note || "");
                         }}
-                        className="w-full text-left p-4 active:bg-emerald-50/40 transition-colors space-y-2.5"
+                        className="w-full text-left p-4 hover:bg-[#F3F5F8] transition-colors space-y-2.5 cursor-pointer"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="text-sm font-extrabold text-slate-900">
-                              #{sh.shift_number} · {sh.operator_name}
-                            </p>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-sm font-extrabold text-[#0F172A]">
+                                #{sh.shift_number} · {sh.operator_name}
+                              </p>
+                              <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 text-[9.5px] font-bold uppercase text-slate-700">
+                                {sh.operator_role || "staff"}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5">
                               {sh.business_date} · {formatTimeOnly(sh.started_at)} – {formatTimeOnly(sh.ended_at)} (
                               {formatDuration(sh.duration_minutes)})
                             </p>
                             <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
                               {isOpen ? (
-                                <PortalStatusBadge tone="emerald">LIVE OPEN</PortalStatusBadge>
+                                <PortalStatusBadge tone="emerald" dot>LIVE OPEN</PortalStatusBadge>
                               ) : isHandover ? (
                                 <PortalStatusBadge tone="amber">Admin Handover</PortalStatusBadge>
                               ) : (
@@ -581,42 +656,65 @@ function CashSupervisionContent() {
                                   {formatPKR(sh.cash_variance)}
                                 </PortalStatusBadge>
                               )}
+                              {sh.owner_review && (
+                                <PortalStatusBadge
+                                  tone={sh.owner_review.status === "reviewed" ? "sky" : "amber"}
+                                >
+                                  {sh.owner_review.status === "reviewed" ? "Reviewed" : "Flagged"}
+                                </PortalStatusBadge>
+                              )}
                             </div>
                           </div>
                           <div className="text-right shrink-0">
-                            <span className="text-[10px] font-bold uppercase text-slate-400 block">
-                              Net Sales ({sh.invoice_count || 0})
+                            <span className="text-[10px] font-bold uppercase text-slate-500 block">
+                              Sales ({sh.invoice_count || 0})
                             </span>
-                            <span className="text-sm font-extrabold text-[#009A4D] tabular-nums">
+                            <span className="text-sm font-extrabold text-[#0F766E] tabular-nums">
                               {formatPKR(sh.net_sales)}
                             </span>
-                            <span className="text-[11px] font-bold text-slate-700 block tabular-nums">
-                              Exp Cash: {formatPKR(sh.expected_cash)}
+                            <span className="text-[11px] font-bold text-[#0F172A] block tabular-nums mt-0.5">
+                              Exp: {formatPKR(sh.expected_cash)}
                             </span>
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-4 gap-1.5 rounded-xl bg-slate-50 border border-slate-100 p-2 text-[10.5px]">
-                          <div>
-                            <span className="text-slate-400 block">Start Bal</span>
-                            <strong className="text-slate-800 tabular-nums">{formatPKR(sh.opening_cash)}</strong>
+                        <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-[#F3F5F8] border border-[#D8E0EA] p-2.5 text-[10.5px]">
+                          <div className="min-w-0">
+                            <span className="text-slate-500 block">Start Bal</span>
+                            <strong className="text-[#0F172A] tabular-nums truncate block">{formatPKR(sh.opening_cash)}</strong>
                           </div>
-                          <div>
-                            <span className="text-slate-400 block">Khata In</span>
-                            <strong className="text-emerald-700 tabular-nums">
+                          <div className="min-w-0">
+                            <span className="text-slate-500 block">Credit In</span>
+                            <strong className="text-[#0F766E] tabular-nums truncate block">
                               +{formatPKR(sh.khata_collection_total)}
                             </strong>
                           </div>
-                          <div>
-                            <span className="text-slate-400 block">Returns</span>
-                            <strong className="text-rose-600 tabular-nums">
+                          <div className="min-w-0 text-right">
+                            <span className="text-slate-500 block">Returns</span>
+                            <strong className="text-rose-700 tabular-nums truncate block">
                               -{formatPKR(sh.return_total)}
                             </strong>
                           </div>
-                          <div className="text-right">
-                            <span className="text-slate-400 block">Expenses</span>
-                            <strong className="text-rose-600 tabular-nums">
+                          <div className="min-w-0">
+                            <span className="text-slate-500 block">Purch. Paid</span>
+                            <strong className="text-rose-700 tabular-nums truncate block">
+                              -{formatPKR(sh.supplier_payment_total)}
+                            </strong>
+                          </div>
+                          <div className="min-w-0">
+                            <span className="text-slate-500 block">Expenses</span>
+                            <strong className="text-rose-700 tabular-nums truncate block">
                               -{formatPKR(sh.total_expenses)}
+                            </strong>
+                          </div>
+                          <div className="min-w-0 text-right">
+                            <span className="text-slate-500 block">Counted</span>
+                            <strong className="text-[#0F172A] tabular-nums truncate block">
+                              {sh.counted_cash !== null && sh.counted_cash !== undefined
+                                ? formatPKR(sh.counted_cash)
+                                : isOpen
+                                ? "Running"
+                                : "—"}
                             </strong>
                           </div>
                         </div>
@@ -1291,35 +1389,39 @@ function CashSupervisionContent() {
                 placeholder="Add an owner review or shift verification note…"
                 className="w-full p-2.5 rounded-xl bg-white border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-[#009A4D]"
               />
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={submittingReview}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <PortalActionButton
+                  variant="primary"
+                  size="md"
+                  loading={submittingReview}
                   onClick={() =>
-                    void handleSubmitCashReview(
-                      selectedOperatorShift.session_id || selectedOperatorShift.id,
-                      selectedOperatorShift.business_date,
-                      "reviewed"
-                    )
+                    setPendingAuditConfirm({
+                      sessionId: selectedOperatorShift.session_id || selectedOperatorShift.id,
+                      businessDate: selectedOperatorShift.business_date,
+                      status: "reviewed",
+                      label: `Shift #${selectedOperatorShift.shift_number} (${selectedOperatorShift.operator_name})`,
+                    })
                   }
-                  className="flex-1 min-h-[38px] py-2 px-3 rounded-xl bg-[#009A4D] text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50"
+                  className="flex-1"
                 >
-                  Mark Reviewed
-                </button>
-                <button
-                  type="button"
-                  disabled={submittingReview}
+                  Mark Shift Reviewed
+                </PortalActionButton>
+                <PortalActionButton
+                  variant="warning"
+                  size="md"
+                  loading={submittingReview}
                   onClick={() =>
-                    void handleSubmitCashReview(
-                      selectedOperatorShift.session_id || selectedOperatorShift.id,
-                      selectedOperatorShift.business_date,
-                      "flagged_for_audit"
-                    )
+                    setPendingAuditConfirm({
+                      sessionId: selectedOperatorShift.session_id || selectedOperatorShift.id,
+                      businessDate: selectedOperatorShift.business_date,
+                      status: "flagged_for_audit",
+                      label: `Shift #${selectedOperatorShift.shift_number} (${selectedOperatorShift.operator_name})`,
+                    })
                   }
-                  className="flex-1 min-h-[38px] py-2 px-3 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold hover:bg-amber-200 disabled:opacity-50"
+                  className="flex-1"
                 >
                   Flag for Audit
-                </button>
+                </PortalActionButton>
               </div>
             </div>
           </div>
@@ -1428,34 +1530,38 @@ function CashSupervisionContent() {
               />
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                <button
-                  type="button"
-                  disabled={submittingReview}
+                <PortalActionButton
+                  variant="primary"
+                  size="md"
+                  loading={submittingReview}
                   onClick={() =>
-                    void handleSubmitCashReview(
-                      selectedSession.id,
-                      selectedSession.business_date,
-                      "reviewed"
-                    )
+                    setPendingAuditConfirm({
+                      sessionId: selectedSession.id,
+                      businessDate: selectedSession.business_date,
+                      status: "reviewed",
+                      label: `${selectedSession.drawer_name || "Counter Drawer"} (${selectedSession.business_date})`,
+                    })
                   }
-                  className="flex-1 min-h-[40px] py-2 px-3 rounded-xl bg-[#009A4D] text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                  className="flex-1"
                 >
                   Mark Shift Reviewed
-                </button>
-                <button
-                  type="button"
-                  disabled={submittingReview}
+                </PortalActionButton>
+                <PortalActionButton
+                  variant="warning"
+                  size="md"
+                  loading={submittingReview}
                   onClick={() =>
-                    void handleSubmitCashReview(
-                      selectedSession.id,
-                      selectedSession.business_date,
-                      "flagged_for_audit"
-                    )
+                    setPendingAuditConfirm({
+                      sessionId: selectedSession.id,
+                      businessDate: selectedSession.business_date,
+                      status: "flagged_for_audit",
+                      label: `${selectedSession.drawer_name || "Counter Drawer"} (${selectedSession.business_date})`,
+                    })
                   }
-                  className="flex-1 min-h-[40px] py-2 px-3 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold hover:bg-amber-200 disabled:opacity-50 transition-colors"
+                  className="flex-1"
                 >
                   Flag for Audit
-                </button>
+                </PortalActionButton>
               </div>
             </div>
 
@@ -1523,6 +1629,41 @@ function CashSupervisionContent() {
           </div>
         )}
       </PortalSlideOver>
+      {/* Confirmation Modal for Shift Audit Review / Flagging */}
+      <PortalConfirmModal
+        open={Boolean(pendingAuditConfirm)}
+        onClose={() => setPendingAuditConfirm(null)}
+        onConfirm={async () => {
+          if (!pendingAuditConfirm) return;
+          await handleSubmitCashReview(
+            pendingAuditConfirm.sessionId,
+            pendingAuditConfirm.businessDate,
+            pendingAuditConfirm.status
+          );
+        }}
+        loading={submittingReview}
+        tone={pendingAuditConfirm?.status === "flagged_for_audit" ? "warning" : "primary"}
+        title={
+          pendingAuditConfirm?.status === "flagged_for_audit"
+            ? "Flag Cash Discrepancy for Audit?"
+            : "Mark Shift as Reviewed?"
+        }
+        description={
+          pendingAuditConfirm?.status === "flagged_for_audit"
+            ? "This marks the shift as flagged in your Owner Cloud audit log so you can investigate the discrepancy with counter staff."
+            : "This records your owner verification status in the cloud audit trail (does not alter historical POS ledger figures)."
+        }
+        details={
+          pendingAuditConfirm
+            ? `${pendingAuditConfirm.label}${reviewNote.trim() ? ` • Note: "${reviewNote.trim()}"` : ""}`
+            : undefined
+        }
+        confirmLabel={
+          pendingAuditConfirm?.status === "flagged_for_audit"
+            ? "Yes, Flag for Audit"
+            : "Confirm Reviewed"
+        }
+      />
     </div>
   );
 }

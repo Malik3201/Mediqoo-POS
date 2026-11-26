@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Building2, Check, Image as ImageIcon, Loader2, RotateCcw, Trash2, Upload, X, ZoomIn, ZoomOut } from "lucide-react";
+import { PortalActionButton, PortalConfirmModal } from "@/components/portal/PortalUI";
 
 const MAX_INPUT_BYTES = 5 * 1024 * 1024;
 const ACCEPTED_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
@@ -21,6 +22,7 @@ export function PortalPharmacyLogoCard({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [imgError, setImgError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Crop modal state
@@ -130,13 +132,13 @@ export function PortalPharmacyLogoCard({
   };
 
   const handleRemove = async () => {
-    if (!window.confirm("Remove custom pharmacy logo and revert to the default fallback?")) return;
     setBusy(true);
     setMsg(null);
     try {
       const res = await fetch("/api/portal/branding/logo", { method: "DELETE" });
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json.message || json.error || "Failed to remove logo.");
+      setConfirmRemoveOpen(false);
       setMsg({ type: "success", text: "Pharmacy logo removed." });
       await onChanged();
     } catch (err: any) {
@@ -194,15 +196,15 @@ export function PortalPharmacyLogoCard({
               {currentLogoUrl && !imgError ? "Change Logo" : "Upload Logo"}
             </button>
             {currentLogoUrl && !imgError && (
-              <button
-                type="button"
+              <PortalActionButton
+                variant="danger"
+                size="sm"
                 disabled={busy}
-                onClick={() => void handleRemove()}
-                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer disabled:opacity-60"
+                icon={<Trash2 className="h-3.5 w-3.5" />}
+                onClick={() => setConfirmRemoveOpen(true)}
               >
-                <Trash2 className="h-3.5 w-3.5" />
                 Remove
-              </button>
+              </PortalActionButton>
             )}
           </div>
         )}
@@ -336,6 +338,17 @@ export function PortalPharmacyLogoCard({
           </div>
         </div>
       )}
+      <PortalConfirmModal
+        open={confirmRemoveOpen}
+        onClose={() => setConfirmRemoveOpen(false)}
+        onConfirm={handleRemove}
+        loading={busy}
+        tone="danger"
+        title="Remove Custom Pharmacy Logo?"
+        description="Your pharmacy logo will be removed from Owner Portal, POS receipts, and invoices, reverting to the default monogram."
+        details={pharmacyName}
+        confirmLabel="Yes, Remove Logo"
+      />
     </div>
   );
 }

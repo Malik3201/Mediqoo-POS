@@ -20,6 +20,7 @@ import {
   PortalKpiCard,
   PortalEmptyState,
 } from "@/components/portal/PortalUI";
+import { fetchPortalCached, getPortalCached } from "@/lib/portal-cache";
 
 function formatPKR(n: number): string {
   return `Rs ${Math.round(n || 0).toLocaleString("en-PK")}`;
@@ -79,28 +80,44 @@ function SalesExplorerContent() {
   }, [searchInput]);
 
   const fetchSales = useCallback(
-    async (cursorToken: string | null = null) => {
-      if (cursorToken) setLoadingMore(true);
-      else setLoading(true);
+    async (cursorToken: string | null = null, forceRefresh = false) => {
+      const params = new URLSearchParams();
+      params.set("period", period);
+      if (period === "custom") {
+        if (fromDate) params.set("from", fromDate);
+        if (toDate) params.set("to", toDate);
+      }
+      if (debouncedQuery) params.set("q", debouncedQuery);
+      if (payment !== "all") params.set("payment", payment);
+      if (cashier !== "all") params.set("cashier", cashier);
+      if (supervisionFilter !== "all") params.set("filter", supervisionFilter);
+      if (cursorToken) params.set("cursor", cursorToken);
+      params.set("limit", "25");
+
+      const url = `/api/portal/sales?${params.toString()}`;
+      const cached = !cursorToken ? getPortalCached<any>(url, 30_000) : null;
+
+      if (cursorToken) {
+        setLoadingMore(true);
+      } else if (cached) {
+        setInvoices(cached.data.invoices || []);
+        setSummary(cached.data.summary || {});
+        if (Array.isArray(cached.data.cashiers)) setCashiers(cached.data.cashiers);
+        setRetentionPolicy(cached.data.retention_policy || null);
+        setNextCursor(cached.data.next_cursor || null);
+        setHasMore(Boolean(cached.data.has_more));
+        setLoading(false);
+        if (!forceRefresh && cached.isFresh) return;
+      } else {
+        setLoading(true);
+      }
       setError("");
 
       try {
-        const params = new URLSearchParams();
-        params.set("period", period);
-        if (period === "custom") {
-          if (fromDate) params.set("from", fromDate);
-          if (toDate) params.set("to", toDate);
-        }
-        if (debouncedQuery) params.set("q", debouncedQuery);
-        if (payment !== "all") params.set("payment", payment);
-        if (cashier !== "all") params.set("cashier", cashier);
-        if (supervisionFilter !== "all") params.set("filter", supervisionFilter);
-        if (cursorToken) params.set("cursor", cursorToken);
-        params.set("limit", "25");
-
-        const res = await fetch(`/api/portal/sales?${params.toString()}`);
-        if (!res.ok) throw new Error("Failed to load sales invoices");
-        const json = await res.json();
+        const { data: json } = await fetchPortalCached<any>(url, {
+          ttlMs: 30_000,
+          forceRefresh: forceRefresh || Boolean(cursorToken),
+        });
 
         if (cursorToken) {
           setInvoices((prev) => [...prev, ...(json.invoices || [])]);
@@ -113,7 +130,7 @@ function SalesExplorerContent() {
         setNextCursor(json.next_cursor || null);
         setHasMore(Boolean(json.has_more));
       } catch (err: any) {
-        setError(err.message || "Error loading invoices");
+        if (!cached) setError(err.message || "Error loading invoices");
       } finally {
         setLoading(false);
         setLoadingMore(false);
@@ -123,7 +140,7 @@ function SalesExplorerContent() {
   );
 
   useEffect(() => {
-    void fetchSales(null);
+    void fetchSales(null, false);
   }, [fetchSales]);
 
   const activeAdvancedCount =
@@ -138,7 +155,7 @@ function SalesExplorerContent() {
         icon={<Receipt className="w-5 h-5" />}
         title="Sales & Invoice Explorer"
         subtitle="Search, filter & inspect every finalized counter invoice, discount, tender & return"
-        actions={<PortalRefreshButton loading={loading} onClick={() => void fetchSales(null)} />}
+        actions={<PortalRefreshButton loading={loading} onClick={() => void fetchSales(null, true)} />}
       />
 
       {/* Search, Period & Smart Collapsible Filters */}
@@ -151,7 +168,7 @@ function SalesExplorerContent() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search invoice #, customer name/phone, or medicine…"
-              className="w-full h-10 pl-9 pr-9 rounded-xl border border-slate-200 text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#009A4D]/20 focus:border-[#009A4D]"
+              className="w-full min-h-[42px] pl-9 pr-9 rounded-xl border border-[#D8E0EA] text-base sm:text-sm text-[#0F172A] placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-600/20 focus:border-[#0F766E]"
             />
             {searchInput && (
               <button

@@ -15,6 +15,7 @@ import HistoricalRecentSale from "@/models/HistoricalRecentSale";
 import Project from "@/models/Project";
 import {
   computeFinancialSummary,
+  formatLocalDate,
   getClientDateRange,
   getDailyBuckets,
   splitDateRange,
@@ -566,6 +567,69 @@ export async function GET(req: NextRequest) {
       low_stock_items: [],
     };
 
+    // Aggregate & normalize operator shift sessions across portal states for Overview Daily Shifts card
+    const rawShiftMap = new Map<string, any>();
+    for (const st of portalStates) {
+      const candidates = [
+        ...(Array.isArray(st?.shift_sessions) ? st.shift_sessions : []),
+        ...(Array.isArray((st as any)?.operator_shifts) ? (st as any).operator_shifts : []),
+        ...(Array.isArray((st as any)?.shiftSessions) ? (st as any).shiftSessions : []),
+      ];
+      for (const s of candidates) {
+        if (!s || typeof s !== "object") continue;
+        const sid = String(s.session_id ?? s.sessionId ?? s.id ?? `${s.business_date ?? s.businessDate}-${s.shift_number ?? s.shiftNumber}-${s.started_at ?? s.startedAt}`);
+        if (!rawShiftMap.has(sid)) {
+          const stRaw = String(s.status ?? "closed").toLowerCase();
+          rawShiftMap.set(sid, {
+            session_id: sid,
+            shift_number: Number(s.shift_number ?? s.shiftNumber ?? 1) || 1,
+            business_date: s.business_date ?? s.businessDate ?? formatLocalDate(new Date(s.started_at || s.startedAt || Date.now()), timezone),
+            operator_name: s.operator_name ?? s.operatorName ?? "POS Operator",
+            operator_role: s.operator_role ?? s.operatorRole ?? "staff",
+            status: stRaw === "open" || stRaw === "active" ? "active" : "closed",
+            started_at: s.started_at ?? s.startedAt ?? null,
+            ended_at: s.ended_at ?? s.endedAt ?? null,
+            invoice_count: Number(s.invoice_count ?? s.invoiceCount ?? 0) || 0,
+            net_sales: Number(s.net_sales ?? s.netSales ?? 0) || 0,
+            expected_cash: Number(s.expected_cash ?? s.expectedCash ?? 0) || 0,
+            cash_variance:
+              s.cash_variance !== undefined && s.cash_variance !== null
+                ? Number(s.cash_variance)
+                : s.cashVariance !== undefined && s.cashVariance !== null
+                ? Number(s.cashVariance)
+                : null,
+            is_empty: Boolean(s.is_empty ?? s.isEmpty ?? false),
+          });
+        }
+      }
+    }
+    const allNormalizedShifts = Array.from(rawShiftMap.values()).sort(
+      (a, b) => new Date(b.started_at || 0).getTime() - new Date(a.started_at || 0).getTime()
+    );
+    const todayLocalDateStr = formatLocalDate(new Date(), timezone);
+    const nonEmptyOpShifts = allNormalizedShifts.filter((s) => !s.is_empty);
+    const todayOpShifts = nonEmptyOpShifts.filter((s) => s.business_date === todayLocalDateStr);
+    const activeOpShiftsCount = allNormalizedShifts.filter((s) => s.status === "active").length;
+    const closedTodayOpShiftsCount = todayOpShifts.filter((s) => s.status !== "active").length;
+    const shiftVarianceAlertsCount = nonEmptyOpShifts.filter(
+      (s) => s.cash_variance !== null && Math.abs(Number(s.cash_variance)) >= 1
+    ).length;
+
+    const dailyShiftsWidget = {
+      today_date: todayLocalDateStr,
+      today_count: todayOpShifts.length,
+      active_count: activeOpShiftsCount,
+      closed_today_count: closedTodayOpShiftsCount,
+      total_synced_count: nonEmptyOpShifts.length,
+      today_net_sales:
+        Math.round(todayOpShifts.reduce((acc, s) => acc + (Number(s.net_sales) || 0), 0) * 100) / 100,
+      today_expected_cash:
+        Math.round(todayOpShifts.reduce((acc, s) => acc + (Number(s.expected_cash) || 0), 0) * 100) / 100,
+      variance_alerts_count: shiftVarianceAlertsCount,
+      last_synced_at: primaryState?.captured_at ? new Date(primaryState.captured_at).toISOString() : null,
+      latest_shifts: (todayOpShifts.length > 0 ? todayOpShifts : nonEmptyOpShifts).slice(0, 4),
+    };
+
     // Compute live Customer & Supplier positions (falling back to live event derivation if portalState not yet synced)
     let customerOutstandingTotal = 0;
     let customerOutstandingCount = 0;
@@ -1006,6 +1070,7 @@ export async function GET(req: NextRequest) {
         top_three_actions: actionRequired.slice(0, 3),
       },
       action_required: actionRequired,
+      daily_shifts: dailyShiftsWidget,
       recent_sales: recentSales,
       top_products: finalTopProducts,
     });

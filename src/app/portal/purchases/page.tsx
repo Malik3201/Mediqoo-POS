@@ -28,6 +28,7 @@ import {
   PortalSlideOver,
   PortalEmptyState,
 } from "@/components/portal/PortalUI";
+import { fetchPortalCached, getPortalCached } from "@/lib/portal-cache";
 
 function formatPKR(n: number): string {
   return `Rs ${Math.round(n || 0).toLocaleString("en-PK")}`;
@@ -85,22 +86,37 @@ function PurchasesContent() {
   }, [searchInput]);
 
   const fetchPurchasesData = useCallback(
-    async (cursorToken: string | null = null) => {
-      if (cursorToken) setLoadingMore(true);
-      else setLoading(true);
+    async (cursorToken: string | null = null, forceRefresh = false) => {
+      const params = new URLSearchParams();
+      params.set("period", period);
+      if (debouncedQuery) params.set("q", debouncedQuery);
+      if (supplierFilter !== "all") params.set("supplier", supplierFilter);
+      if (supplierStatusFilter !== "all") params.set("filter", supplierStatusFilter);
+      if (cursorToken) params.set("cursor", cursorToken);
+      params.set("limit", "25");
+
+      const url = `/api/portal/purchases?${params.toString()}`;
+      const cached = !cursorToken ? getPortalCached<any>(url, 40_000) : null;
+
+      if (cursorToken) {
+        setLoadingMore(true);
+      } else if (cached) {
+        setPurchases(cached.data.purchases || []);
+        setSuppliers(cached.data.suppliers || []);
+        setSummary(cached.data.summary || {});
+        setNextCursor(cached.data.next_cursor || null);
+        setHasMore(Boolean(cached.data.has_more));
+        setLoading(false);
+        if (!forceRefresh && cached.isFresh) return;
+      } else {
+        setLoading(true);
+      }
 
       try {
-        const params = new URLSearchParams();
-        params.set("period", period);
-        if (debouncedQuery) params.set("q", debouncedQuery);
-        if (supplierFilter !== "all") params.set("supplier", supplierFilter);
-        if (supplierStatusFilter !== "all") params.set("filter", supplierStatusFilter);
-        if (cursorToken) params.set("cursor", cursorToken);
-        params.set("limit", "25");
-
-        const res = await fetch(`/api/portal/purchases?${params.toString()}`);
-        if (!res.ok) throw new Error("Failed to load purchases");
-        const json = await res.json();
+        const { data: json } = await fetchPortalCached<any>(url, {
+          ttlMs: 40_000,
+          forceRefresh: forceRefresh || Boolean(cursorToken),
+        });
 
         if (cursorToken) {
           setPurchases((prev) => [...prev, ...(json.purchases || [])]);
@@ -122,7 +138,7 @@ function PurchasesContent() {
   );
 
   useEffect(() => {
-    void fetchPurchasesData(null);
+    void fetchPurchasesData(null, false);
   }, [fetchPurchasesData]);
 
   // Load specific Purchase / GRN detail
@@ -227,7 +243,7 @@ function PurchasesContent() {
 
             <PortalRefreshButton
               loading={loading}
-              onClick={() => void fetchPurchasesData(null)}
+              onClick={() => void fetchPurchasesData(null, true)}
             />
           </div>
         }

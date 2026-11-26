@@ -205,15 +205,56 @@
 }
 
 .animate-portal-in {
-  animation: portalFadeIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: portalFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .animate-portal-drawer {
-  animation: portalSheetUp 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: portalSheetUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @media (min-width: 640px) {
   .animate-portal-drawer {
-    animation: portalDrawerRight 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: portalDrawerRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
+}
+
+/* ── Owner Portal Tactile Feedback & Anti-Double-Click Guard ──────────────── */
+.portal-shell {
+  overflow-x: clip;
+  background-color: #F3F5F8;
+  color: #0F172A;
+}
+
+.portal-shell button:not(:disabled),
+.portal-shell a[href],
+.portal-shell [role="button"] {
+  transition: transform 95ms ease, opacity 120ms ease, background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  touch-action: manipulation;
+}
+
+.portal-shell button:not(:disabled):active,
+.portal-shell [role="button"]:active {
+  transform: scale(0.97);
+  opacity: 0.9;
+}
+
+.portal-shell [data-portal-clicked="true"] {
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.32) !important;
+  outline: none;
+}
+
+@keyframes portalTopProgress {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(-15%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-portal-progress {
+  animation: portalTopProgress 1.05s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }

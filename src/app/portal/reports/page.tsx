@@ -27,6 +27,7 @@ import {
   PortalRefreshButton,
   PortalStatusBadge,
 } from "@/components/portal/PortalUI";
+import { fetchPortalCached, getPortalCached } from "@/lib/portal-cache";
 
 type ReportCategory = "sales" | "purchases" | "customers" | "inventory" | "financial";
 type ReportPeriod = "today" | "7d" | "30d" | "90d";
@@ -93,31 +94,38 @@ function ReportsCenterContent() {
   const [prefsApplied, setPrefsApplied] = useState(false);
 
   const fetchReport = useCallback(
-    async (cat: ReportCategory, per: ReportPeriod) => {
-      setLoading(true);
+    async (cat: ReportCategory, per: ReportPeriod, forceRefresh = false) => {
+      const url = `/api/portal/reports?category=${encodeURIComponent(cat)}&period=${encodeURIComponent(per)}`;
+      const cached = getPortalCached<any>(url, 45_000);
+      if (cached) {
+        setData(cached.data);
+        setLoading(false);
+        if (!forceRefresh && cached.isFresh) return;
+      } else {
+        setLoading(true);
+      }
+
       try {
-        const res = await fetch(
-          `/api/portal/reports?category=${encodeURIComponent(cat)}&period=${encodeURIComponent(per)}`
-        );
-        if (res.ok) {
-          const json = await res.json();
-          setData(json);
-          if (
-            !prefsApplied &&
-            !searchParams.get("category") &&
-            !searchParams.get("period") &&
-            json.saved_prefs?.default_category
-          ) {
-            setPrefsApplied(true);
-            const savedCat = json.saved_prefs.default_category as ReportCategory;
-            const savedPer = (json.saved_prefs.default_period as ReportPeriod) || per;
-            if (savedCat !== cat || savedPer !== per) {
-              setCategory(savedCat);
-              setPeriod(savedPer);
-            }
-          } else {
-            setPrefsApplied(true);
+        const { data: json } = await fetchPortalCached<any>(url, {
+          ttlMs: 45_000,
+          forceRefresh,
+        });
+        setData(json);
+        if (
+          !prefsApplied &&
+          !searchParams.get("category") &&
+          !searchParams.get("period") &&
+          json.saved_prefs?.default_category
+        ) {
+          setPrefsApplied(true);
+          const savedCat = json.saved_prefs.default_category as ReportCategory;
+          const savedPer = (json.saved_prefs.default_period as ReportPeriod) || per;
+          if (savedCat !== cat || savedPer !== per) {
+            setCategory(savedCat);
+            setPeriod(savedPer);
           }
+        } else {
+          setPrefsApplied(true);
         }
       } catch (err) {
         console.error("Failed to load report:", err);
@@ -129,7 +137,7 @@ function ReportsCenterContent() {
   );
 
   useEffect(() => {
-    void fetchReport(category, period);
+    void fetchReport(category, period, false);
   }, [category, period, fetchReport]);
 
   const handleSaveDefaultPrefs = async () => {
@@ -362,7 +370,7 @@ function ReportsCenterContent() {
 
             <PortalRefreshButton
               loading={loading}
-              onClick={() => void fetchReport(category, period)}
+              onClick={() => void fetchReport(category, period, true)}
             />
           </div>
         }

@@ -30,6 +30,11 @@ import {
   PortalSlideOver,
   PortalEmptyState,
 } from "@/components/portal/PortalUI";
+import {
+  fetchPortalCached,
+  getPortalCached,
+  invalidatePortalCache,
+} from "@/lib/portal-cache";
 
 function formatPKR(n: number | undefined | null): string {
   const val = Number(n || 0);
@@ -121,30 +126,40 @@ function InventoryPageInner() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const loadInventory = useCallback(async () => {
-    setLoading(true);
+  const loadInventory = useCallback(async (forceRefresh = false) => {
+    const params = new URLSearchParams({
+      filter,
+      category,
+      page: String(page),
+      limit: "25",
+    });
+    if (debouncedQ) params.set("q", debouncedQ);
+    const url = `/api/portal/inventory?${params.toString()}`;
+    const cached = getPortalCached<any>(url, 40_000);
+    if (cached) {
+      setData(cached.data);
+      setLoading(false);
+      if (!forceRefresh && cached.isFresh) return;
+    } else {
+      setLoading(true);
+    }
+
     setError(null);
     try {
-      const params = new URLSearchParams({
-        filter,
-        category,
-        page: String(page),
-        limit: "25",
+      const { data: json } = await fetchPortalCached<any>(url, {
+        ttlMs: 40_000,
+        forceRefresh,
       });
-      if (debouncedQ) params.set("q", debouncedQ);
-      const res = await fetch(`/api/portal/inventory?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to load inventory intelligence");
-      const json = await res.json();
       setData(json);
     } catch (err: any) {
-      setError(err.message || "Error loading inventory");
+      if (!cached) setError(err.message || "Error loading inventory");
     } finally {
       setLoading(false);
     }
   }, [filter, category, page, debouncedQ]);
 
   useEffect(() => {
-    void loadInventory();
+    void loadInventory(false);
   }, [loadInventory]);
 
   const loadProductDetail = useCallback(async (pid: string) => {
@@ -199,7 +214,8 @@ function InventoryPageInner() {
         }),
       });
       if (res.ok) {
-        await loadInventory();
+        invalidatePortalCache("/api/portal/inventory");
+        await loadInventory(true);
         if (selectedProductId === prod.product_id) {
           await loadProductDetail(prod.product_id);
         }
@@ -228,7 +244,7 @@ function InventoryPageInner() {
         title="Inventory Intelligence & Insights"
         subtitle="Stock valuation, verified WAC margins, movement velocity, supplier cost spikes & reorder watchlist."
         actions={
-          <PortalRefreshButton loading={loading} onClick={() => void loadInventory()} />
+          <PortalRefreshButton loading={loading} onClick={() => void loadInventory(true)} />
         }
       />
 
