@@ -8,7 +8,14 @@
  * - Computes SHA-256 content hash (`sha256Hex`) for R2/D1 deduplication
  */
 
-export type MediaAssetPurpose = "logo" | "banner" | "product" | "category" | "favicon";
+export type MediaAssetPurpose =
+  | "logo"
+  | "banner"
+  | "product"
+  | "category"
+  | "favicon"
+  | "doctor"
+  | "service";
 
 export interface OptimizedImageResult {
   base64Data: string;
@@ -25,13 +32,15 @@ export interface OptimizedImageResult {
 
 const PURPOSE_SPEC: Record<
   MediaAssetPurpose,
-  { maxDimension: number; targetMaxBytes: number; initialQuality: number }
+  { maxDimension: number; targetMaxBytes: number; initialQuality: number; minQuality: number }
 > = {
-  logo: { maxDimension: 500, targetMaxBytes: 45 * 1024, initialQuality: 0.88 },
-  favicon: { maxDimension: 192, targetMaxBytes: 20 * 1024, initialQuality: 0.88 },
-  category: { maxDimension: 600, targetMaxBytes: 55 * 1024, initialQuality: 0.84 },
-  product: { maxDimension: 900, targetMaxBytes: 90 * 1024, initialQuality: 0.85 },
-  banner: { maxDimension: 1400, targetMaxBytes: 180 * 1024, initialQuality: 0.84 },
+  logo: { maxDimension: 360, targetMaxBytes: 25 * 1024, initialQuality: 0.84, minQuality: 0.56 },
+  favicon: { maxDimension: 128, targetMaxBytes: 12 * 1024, initialQuality: 0.84, minQuality: 0.56 },
+  category: { maxDimension: 480, targetMaxBytes: 35 * 1024, initialQuality: 0.82, minQuality: 0.54 },
+  doctor: { maxDimension: 480, targetMaxBytes: 35 * 1024, initialQuality: 0.82, minQuality: 0.54 },
+  product: { maxDimension: 640, targetMaxBytes: 40 * 1024, initialQuality: 0.82, minQuality: 0.54 },
+  service: { maxDimension: 840, targetMaxBytes: 55 * 1024, initialQuality: 0.8, minQuality: 0.52 },
+  banner: { maxDimension: 1280, targetMaxBytes: 95 * 1024, initialQuality: 0.8, minQuality: 0.52 },
 };
 
 const ALLOWED_INPUT_TYPES = new Set([
@@ -156,10 +165,26 @@ export async function optimizeImageForStorefront(
   let quality = spec.initialQuality;
   let blob = await canvasToBlob(canvas, quality);
 
-  // Adaptive step-down while keeping medicine label text sharp (never below 0.64)
-  while (blob.size > spec.targetMaxBytes && quality > 0.66) {
+  // Adaptive quality step-down to enforce ultra-lightweight KB footprint for R2 Free Tier
+  while (blob.size > spec.targetMaxBytes && quality > spec.minQuality) {
     quality = Math.round((quality - 0.06) * 100) / 100;
     blob = await canvasToBlob(canvas, quality);
+  }
+
+  // If still above target bytes (e.g., dense high-detail photo), downscale dimensions smoothly once
+  if (blob.size > spec.targetMaxBytes && Math.max(targetW, targetH) > 360) {
+    const downscale = 0.78;
+    targetW = Math.max(120, Math.round(targetW * downscale));
+    targetH = Math.max(120, Math.round(targetH * downscale));
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx2 = canvas.getContext("2d");
+    if (ctx2) {
+      ctx2.imageSmoothingEnabled = true;
+      ctx2.imageSmoothingQuality = "high";
+      ctx2.drawImage(img, 0, 0, targetW, targetH);
+      blob = await canvasToBlob(canvas, Math.max(spec.minQuality, quality));
+    }
   }
 
   const arrayBuffer = await blob.arrayBuffer();

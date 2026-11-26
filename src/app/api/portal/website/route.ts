@@ -157,8 +157,8 @@ export async function GET(req: NextRequest) {
   const urls = getStorefrontPublicPreviewUrl(sf.slug, sf.primary_domain);
   const hasVerifiedDomain = domains.some((d) => d.verification_status === "verified");
 
-  // Fetch products, online orders, and notification summary in parallel for the Owner Portal tabs
-  const [productsRes, ordersRes, notifRes] = await Promise.all([
+  // Fetch products, online orders, reviews, doctors, custom services & notification summary in parallel
+  const [productsRes, ordersRes, notifRes, reviewsRes, doctorsRes, servicesRes] = await Promise.all([
     callStorefrontManageApi(
       `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/products?limit=100`,
       { method: "GET", actor }
@@ -169,6 +169,18 @@ export async function GET(req: NextRequest) {
     ),
     callStorefrontManageApi(
       `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders/notifications`,
+      { method: "GET", actor }
+    ),
+    callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/reviews`,
+      { method: "GET", actor }
+    ),
+    callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/doctors`,
+      { method: "GET", actor }
+    ),
+    callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/services`,
       { method: "GET", actor }
     ),
   ]);
@@ -205,6 +217,9 @@ export async function GET(req: NextRequest) {
     sync_cursors: res.data.sync_cursors || [],
     products: productsRes.data?.products || [],
     orders: ordersRes.data?.orders || [],
+    reviews: reviewsRes.data?.reviews || [],
+    doctors: doctorsRes.data?.doctors || [],
+    custom_services: servicesRes.data?.services || [],
   });
 }
 
@@ -426,6 +441,69 @@ export async function POST(req: NextRequest) {
     const res = await callStorefrontManageApi(
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/branches`,
       { method: "PUT", actor, body: body.payload || body }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "update_review" && body.review_id) {
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/reviews/${encodeURIComponent(body.review_id)}`,
+      {
+        method: "PATCH",
+        actor,
+        body: {
+          status: body.status,
+          owner_reply: body.owner_reply,
+        },
+      }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "publish_all_reviews") {
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/reviews/publish-all`,
+      { method: "POST", actor }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "delete_review" && body.review_id) {
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/reviews/${encodeURIComponent(body.review_id)}`,
+      { method: "DELETE", actor }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "upsert_doctor") {
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/doctors`,
+      { method: "PUT", actor, body: body.payload || body }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "delete_doctor" && body.doctor_id) {
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/doctors/${encodeURIComponent(body.doctor_id)}`,
+      { method: "DELETE", actor }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "upsert_service") {
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/services`,
+      { method: "PUT", actor, body: body.payload || body }
+    );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "delete_service" && body.service_id) {
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/services/${encodeURIComponent(body.service_id)}`,
+      { method: "DELETE", actor }
     );
     return NextResponse.json(res.data, { status: res.status });
   }

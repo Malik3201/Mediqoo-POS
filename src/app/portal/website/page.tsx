@@ -34,11 +34,19 @@ import {
   Share2,
   Layers,
   Image as ImageIcon,
+  MessageSquare,
+  Stethoscope,
+  FlaskConical,
 } from "lucide-react";
 import {
   optimizeImageForStorefront,
   type MediaAssetPurpose,
 } from "@/lib/storefront/image-optimizer";
+import {
+  PortalReviewsTab,
+  PortalDoctorsTab,
+  PortalServicesTab,
+} from "@/components/portal/PortalWebsiteExtensions";
 
 type PortalWebsiteTab =
   | "overview"
@@ -46,6 +54,9 @@ type PortalWebsiteTab =
   | "products"
   | "promotions"
   | "orders"
+  | "reviews"
+  | "doctors"
+  | "services"
   | "delivery"
   | "contact"
   | "settings";
@@ -279,6 +290,9 @@ export default function PortalMyWebsitePage() {
           "products",
           "promotions",
           "orders",
+          "reviews",
+          "doctors",
+          "services",
           "delivery",
           "contact",
           "settings",
@@ -351,6 +365,10 @@ export default function PortalMyWebsitePage() {
               ? "branding_logo"
               : purpose === "banner"
               ? "banner"
+              : purpose === "doctor"
+              ? "doctor"
+              : purpose === "service"
+              ? "service"
               : undefined),
           entity_id: entityId,
         },
@@ -359,13 +377,14 @@ export default function PortalMyWebsitePage() {
       if (onUrlReady && publicUrl) {
         onUrlReady(publicUrl);
       }
+      const origKb = Math.max(1, Math.round(file.size / 1024));
       const kb = (optimized.byteSize / 1024).toFixed(1);
       setLastUploadStats(
-        `Optimized to WebP (${optimized.width}×${optimized.height}px, ${kb} KB, ${
+        `Auto-compressed ${origKb} KB → ${kb} KB WebP (${optimized.width}×${optimized.height}px, ${
           res?.deduplicated ? "deduplicated existing R2 object" : `${optimized.compressionRatio}% smaller`
         })`
       );
-      notify(`Uploaded optimized WebP ${purpose} image (${kb} KB)`);
+      notify(`Auto-compressed ${origKb} KB → ${kb} KB WebP (${purpose})`);
     } catch (err: any) {
       notify(err.message || "Image optimization failed");
     } finally {
@@ -542,6 +561,10 @@ export default function PortalMyWebsitePage() {
 
   const products: any[] = data?.products || [];
   const orders: any[] = data?.orders || [];
+  const reviews: any[] = data?.reviews || [];
+  const doctors: any[] = data?.doctors || [];
+  const customServices: any[] = data?.custom_services || [];
+  const pendingReviewsCount = reviews.filter((r) => r.status === "pending").length;
   const promotions: any[] = data?.promotions || [];
   const banners: any[] = data?.banners || [];
   const deliveryZones: any[] = data?.delivery_zones || [];
@@ -908,7 +931,7 @@ export default function PortalMyWebsitePage() {
             </div>
           </div>
 
-          {/* 8-Tab Navigation Bar */}
+          {/* Tab Navigation Bar */}
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar bg-slate-100/90 p-1.5 rounded-2xl border border-slate-200/80">
             {(
               [
@@ -920,6 +943,18 @@ export default function PortalMyWebsitePage() {
                   label: `Online Orders (${orders.length})`,
                   icon: ShoppingBag,
                   badge: orderMetrics.pendingNew,
+                },
+                {
+                  id: "reviews",
+                  label: `Reviews (${reviews.length})`,
+                  icon: MessageSquare,
+                  badge: pendingReviewsCount,
+                },
+                { id: "doctors", label: `Doctors (${doctors.length})`, icon: Stethoscope },
+                {
+                  id: "services",
+                  label: `Lab & Services (${customServices.length})`,
+                  icon: FlaskConical,
                 },
                 { id: "promotions", label: "Promotions & Banners", icon: Megaphone },
                 { id: "delivery", label: "Delivery & Pickup", icon: Truck },
@@ -3886,6 +3921,50 @@ export default function PortalMyWebsitePage() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* =============================================================== */}
+          {/* TAB 9: CUSTOMER ORDER REVIEWS (1-CLICK PUBLISH + PUBLISH ALL)   */}
+          {/* =============================================================== */}
+          {activeTab === "reviews" && (
+            <PortalReviewsTab
+              reviews={reviews}
+              saving={saving}
+              postWebsiteAction={postWebsiteAction}
+              notify={notify}
+            />
+          )}
+
+          {/* =============================================================== */}
+          {/* TAB 10: OPTIONAL IN-HOUSE DOCTORS & CLINIC TIMINGS              */}
+          {/* =============================================================== */}
+          {activeTab === "doctors" && (
+            <PortalDoctorsTab
+              doctors={doctors}
+              sfId={sf.id}
+              saving={saving}
+              uploadingImage={uploadingImage}
+              resolveMediaUrl={resolvePortalMediaUrl}
+              postWebsiteAction={postWebsiteAction}
+              uploadCompressedWebP={handleWebPImageUpload}
+              notify={notify}
+            />
+          )}
+
+          {/* =============================================================== */}
+          {/* TAB 11: CUSTOM PHARMACY SERVICES & DIAGNOSTIC LAB TESTS         */}
+          {/* =============================================================== */}
+          {activeTab === "services" && (
+            <PortalServicesTab
+              services={customServices}
+              sfId={sf.id}
+              saving={saving}
+              uploadingImage={uploadingImage}
+              resolveMediaUrl={resolvePortalMediaUrl}
+              postWebsiteAction={postWebsiteAction}
+              uploadCompressedWebP={handleWebPImageUpload}
+              notify={notify}
+            />
           )}
         </>
       )}
