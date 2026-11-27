@@ -157,7 +157,14 @@ export default function LicensesPage() {
   const { data: session } = useSession();
   const queryClient = useQueryClient();
   
-  const { data: rows = [], isLoading: loadingLicenses } = useDataQuery("licenses", { populate: "clients,projects" });
+  const { data: rawLicenseRows = [], isLoading: loadingLicenses } = useDataQuery("licenses", { populate: "clients,projects" });
+  // Quick-Trial licenses stay ONLY in the Quick Trial tab until they are converted to a Full License
+  // (convert_full sets features.is_trial = false, after which they appear here automatically).
+  const rows = useMemo(
+    () => (rawLicenseRows as any[]).filter((r: any) => r?.features?.is_trial !== true),
+    [rawLicenseRows]
+  );
+  const hiddenTrialCount = (rawLicenseRows as any[]).length - rows.length;
   const { data: projects = [], isLoading: loadingProjects } = useDataQuery("projects");
   const { data: billingPeriods = [], isLoading: loadingPeriods } = useDataQuery("license_billing_periods");
   const { data: vouchers = [] } = useDataQuery("license_renewal_invoices");
@@ -668,6 +675,15 @@ export default function LicensesPage() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Issue, review and revoke commercial licenses bound to project deployments.
+            {hiddenTrialCount > 0 && (
+              <>
+                {" "}
+                <a href="/quick-trial" className="font-medium text-primary hover:underline">
+                  {hiddenTrialCount} trial license{hiddenTrialCount === 1 ? "" : "s"} in Quick Trial
+                </a>{" "}
+                (shown here after Make Full).
+              </>
+            )}
           </p>
         </div>
         <Button onClick={openNew} disabled={projects.length === 0}>
