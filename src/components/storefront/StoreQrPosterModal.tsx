@@ -10,9 +10,6 @@ import {
   Check,
   QrCode,
   Sparkles,
-  Smartphone,
-  ShieldCheck,
-  ShoppingBag,
 } from "lucide-react";
 
 export interface StoreQrPosterProps {
@@ -86,10 +83,6 @@ function escapeHtml(input: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function formatDisplayUrl(url: string): string {
-  return String(url || "").replace(/^https?:\/\//i, "").replace(/\/+$/, "");
 }
 
 async function imageUrlToDataUri(url: string): Promise<string | null> {
@@ -183,7 +176,6 @@ export function StoreQrPosterModal({
       return;
     }
 
-    const displayUrl = formatDisplayUrl(cleanUrl);
     const metaLine = [city, phone].filter(Boolean).join("  •  ");
 
     const html = `<!doctype html>
@@ -233,7 +225,7 @@ export function StoreQrPosterModal({
       flex: 1;
       border: 1.5pt solid #E2E8F0;
       border-radius: 18pt;
-      padding: 12mm 13mm 9mm 13mm;
+      padding: 14mm 14mm 10mm 14mm;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -246,35 +238,21 @@ export function StoreQrPosterModal({
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 4mm;
+      gap: 4.5mm;
       width: 100%;
     }
     .pharm-logo {
-      height: 18mm;
-      max-width: 65mm;
+      height: 20mm;
+      max-width: 72mm;
       object-fit: contain;
       padding: 2mm 4mm;
       background: #FFFFFF;
       border: 1pt solid #E2E8F0;
       border-radius: 10pt;
     }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 2mm;
-      padding: 1.8mm 5mm;
-      border-radius: 999px;
-      background: ${theme.badgeBg};
-      color: ${theme.badgeText};
-      font-size: 9pt;
-      font-weight: 800;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      border: 1pt solid ${theme.borderTint};
-    }
     .pharm-name {
       margin: 0;
-      font-size: 27pt;
+      font-size: 30pt;
       font-weight: 900;
       letter-spacing: -0.025em;
       color: #0F172A;
@@ -283,7 +261,7 @@ export function StoreQrPosterModal({
     }
     .tagline {
       margin: 0;
-      font-size: 11pt;
+      font-size: 11.5pt;
       font-weight: 500;
       color: #475569;
     }
@@ -291,31 +269,31 @@ export function StoreQrPosterModal({
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6mm;
+      gap: 8mm;
       width: 100%;
     }
     .qr-outer {
       position: relative;
-      padding: 7.5mm;
+      padding: 8.5mm;
       background: #FFFFFF;
-      border-radius: 20pt;
+      border-radius: 22pt;
       border: 2pt solid ${theme.primary};
       box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
     }
     .corner {
       position: absolute;
-      width: 10mm;
-      height: 10mm;
+      width: 11mm;
+      height: 11mm;
       border-color: ${theme.primaryDark};
       border-style: solid;
     }
-    .c-tl { top: -2pt; left: -2pt; border-width: 4pt 0 0 4pt; border-top-left-radius: 20pt; }
-    .c-tr { top: -2pt; right: -2pt; border-width: 4pt 4pt 0 0; border-top-right-radius: 20pt; }
-    .c-bl { bottom: -2pt; left: -2pt; border-width: 0 0 4pt 4pt; border-bottom-left-radius: 20pt; }
-    .c-br { bottom: -2pt; right: -2pt; border-width: 0 4pt 4pt 0; border-bottom-right-radius: 20pt; }
+    .c-tl { top: -2pt; left: -2pt; border-width: 4pt 0 0 4pt; border-top-left-radius: 22pt; }
+    .c-tr { top: -2pt; right: -2pt; border-width: 4pt 4pt 0 0; border-top-right-radius: 22pt; }
+    .c-bl { bottom: -2pt; left: -2pt; border-width: 0 0 4pt 4pt; border-bottom-left-radius: 22pt; }
+    .c-br { bottom: -2pt; right: -2pt; border-width: 0 4pt 4pt 0; border-bottom-right-radius: 22pt; }
     .qr-box {
-      width: 102mm;
-      height: 102mm;
+      width: 112mm;
+      height: 112mm;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -330,72 +308,28 @@ export function StoreQrPosterModal({
       flex-direction: column;
       align-items: center;
       gap: 3mm;
-      max-width: 158mm;
+      max-width: 160mm;
     }
     .cta-headline {
       margin: 0;
-      font-size: 20pt;
+      font-size: 22pt;
       font-weight: 800;
       letter-spacing: -0.015em;
       color: #0F172A;
-      line-height: 1.25;
+      line-height: 1.28;
     }
     .cta-headline span {
       color: ${theme.primary};
     }
-    .steps {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 5mm;
-      margin-top: 1.5mm;
-      flex-wrap: wrap;
-    }
-    .step {
-      display: inline-flex;
-      align-items: center;
-      gap: 2mm;
-      font-size: 9.5pt;
-      font-weight: 700;
-      color: #334155;
-      background: #F8FAFC;
-      border: 1pt solid #E2E8F0;
-      padding: 1.8mm 3.8mm;
-      border-radius: 999px;
-    }
-    .step-num {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 5mm;
-      height: 5mm;
-      border-radius: 999px;
-      background: ${theme.primary};
-      color: #FFFFFF;
-      font-size: 8pt;
-      font-weight: 800;
-    }
-    .url-pill {
-      margin-top: 2mm;
-      padding: 2mm 6mm;
-      border-radius: 999px;
-      background: ${theme.softBg};
-      border: 1pt solid ${theme.borderTint};
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 9.5pt;
-      font-weight: 700;
-      color: ${theme.primaryDark};
-      word-break: break-all;
-    }
     .meta-line {
-      margin-top: 1mm;
-      font-size: 9.5pt;
+      margin-top: 1.5mm;
+      font-size: 10.5pt;
       font-weight: 600;
       color: #64748B;
     }
     .footer {
       width: 100%;
-      padding-top: 4mm;
+      padding-top: 4.5mm;
       border-top: 1pt solid #E2E8F0;
       display: flex;
       align-items: center;
@@ -431,7 +365,6 @@ export function StoreQrPosterModal({
     <div class="frame">
       <div class="header">
         ${pharmLogoData ? `<img src="${pharmLogoData}" alt="${escapeHtml(cleanName)}" class="pharm-logo" />` : ""}
-        <div class="pill">Official Online Pharmacy Store</div>
         <h1 class="pharm-name">${escapeHtml(cleanName)}</h1>
         ${tagline ? `<p class="tagline">${escapeHtml(tagline)}</p>` : `<p class="tagline">Genuine Medicines • Fast Home Delivery &amp; Counter Pickup</p>`}
       </div>
@@ -449,12 +382,6 @@ export function StoreQrPosterModal({
           <h2 class="cta-headline">
             Scan for Online Shopping from <span>${escapeHtml(cleanName)}</span>
           </h2>
-          <div class="steps">
-            <span class="step"><span class="step-num">1</span> Open Phone Camera</span>
-            <span class="step"><span class="step-num">2</span> Scan QR Code</span>
-            <span class="step"><span class="step-num">3</span> Order Online Instantly</span>
-          </div>
-          <div class="url-pill">${escapeHtml(displayUrl)}</div>
           ${metaLine ? `<div class="meta-line">${escapeHtml(metaLine)}</div>` : ""}
         </div>
       </div>
@@ -524,40 +451,28 @@ export function StoreQrPosterModal({
       ctx.roundRect(padX + 2, padTop + 2, frameW - 4, 480, [40, 40, 0, 0]);
       ctx.fill();
 
-      // Official badge pill
-      ctx.fillStyle = theme.badgeBg;
-      ctx.beginPath();
-      ctx.roundRect(W / 2 - 270, padTop + 76, 540, 56, 28);
-      ctx.fill();
-      ctx.strokeStyle = theme.borderTint;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = theme.badgeText;
-      ctx.font = "800 24px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("OFFICIAL ONLINE PHARMACY STORE", W / 2, padTop + 112);
-
       // Pharmacy Name
+      ctx.textAlign = "center";
       ctx.fillStyle = "#0F172A";
-      ctx.font = "900 72px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
-      ctx.fillText(cleanName.slice(0, 34), W / 2, padTop + 235, frameW - 140);
+      ctx.font = "900 78px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+      ctx.fillText(cleanName.slice(0, 34), W / 2, padTop + 190, frameW - 140);
 
       // Tagline
       ctx.fillStyle = "#475569";
-      ctx.font = "500 30px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+      ctx.font = "500 32px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
       ctx.fillText(
         tagline || "Genuine Medicines • Fast Home Delivery & Counter Pickup",
         W / 2,
-        padTop + 298,
+        padTop + 260,
         frameW - 160
       );
 
       // Large QR Card
-      const qrSize = 860;
-      const qrCardPad = 60;
+      const qrSize = 930;
+      const qrCardPad = 64;
       const qrCardSize = qrSize + qrCardPad * 2;
       const qrCardX = (W - qrCardSize) / 2;
-      const qrCardY = padTop + 390;
+      const qrCardY = padTop + 360;
 
       ctx.fillStyle = "#FFFFFF";
       ctx.shadowColor = "rgba(15, 23, 42, 0.10)";
@@ -581,34 +496,20 @@ export function StoreQrPosterModal({
       ctx.drawImage(qrImg, qrCardX + qrCardPad, qrCardY + qrCardPad, qrSize, qrSize);
 
       // Headline below QR
-      const ctaY = qrCardY + qrCardSize + 125;
+      const ctaY = qrCardY + qrCardSize + 135;
       ctx.fillStyle = "#0F172A";
-      ctx.font = "800 50px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+      ctx.font = "800 54px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
       ctx.fillText("Scan for Online Shopping from", W / 2, ctaY, frameW - 140);
       ctx.fillStyle = theme.primary;
-      ctx.font = "900 58px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
-      ctx.fillText(cleanName.slice(0, 36), W / 2, ctaY + 78, frameW - 140);
+      ctx.font = "900 62px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+      ctx.fillText(cleanName.slice(0, 36), W / 2, ctaY + 84, frameW - 140);
 
-      // URL pill
-      const displayUrl = formatDisplayUrl(cleanUrl);
-      const pillY = ctaY + 135;
-      ctx.fillStyle = theme.softBg;
-      ctx.beginPath();
-      ctx.roundRect(W / 2 - 520, pillY, 1040, 68, 34);
-      ctx.fill();
-      ctx.strokeStyle = theme.borderTint;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = theme.primaryDark;
-      ctx.font = "700 26px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-      ctx.fillText(displayUrl, W / 2, pillY + 43, 980);
-
-      // Subtle contact line
+      // Subtle contact line (no raw URL shown on poster)
       const metaLine = [city, phone].filter(Boolean).join("  •  ");
       if (metaLine) {
         ctx.fillStyle = "#64748B";
-        ctx.font = "600 26px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
-        ctx.fillText(metaLine, W / 2, pillY + 122, frameW - 160);
+        ctx.font = "600 28px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+        ctx.fillText(metaLine, W / 2, ctaY + 154, frameW - 160);
       }
 
       // Footer divider + small new orange AivraSol logo at bottom
@@ -713,36 +614,26 @@ export function StoreQrPosterModal({
                   }}
                 >
                   {/* Pharmacy Header */}
-                  <div className="space-y-2 w-full flex flex-col items-center">
+                  <div className="space-y-2 w-full flex flex-col items-center pt-1">
                     {logoUrl && (
                       <img
                         src={logoUrl}
                         alt={cleanName}
-                        className="h-10 max-w-[140px] object-contain rounded-lg border border-slate-200 bg-white px-2 py-1"
+                        className="h-11 max-w-[150px] object-contain rounded-lg border border-slate-200 bg-white px-2 py-1"
                       />
                     )}
-                    <span
-                      className="inline-flex items-center gap-1 rounded-full px-3 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.14em]"
-                      style={{
-                        backgroundColor: theme.badgeBg,
-                        color: theme.badgeText,
-                        border: `1px solid ${theme.borderTint}`,
-                      }}
-                    >
-                      <ShieldCheck className="h-2.5 w-2.5" /> Official Online Pharmacy Store
-                    </span>
-                    <h3 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 leading-tight">
+                    <h3 className="text-2xl font-black tracking-tight text-slate-900 leading-tight">
                       {cleanName}
                     </h3>
-                    <p className="text-[10.5px] text-slate-500 font-medium leading-snug max-w-[280px]">
+                    <p className="text-[11px] text-slate-500 font-medium leading-snug max-w-[290px]">
                       {tagline || "Genuine Medicines • Fast Home Delivery & Counter Pickup"}
                     </p>
                   </div>
 
                   {/* Giant Vector QR Frame */}
-                  <div className="my-2 flex flex-col items-center gap-3 w-full">
+                  <div className="my-2 flex flex-col items-center gap-4 w-full">
                     <div
-                      className="relative p-3.5 bg-white rounded-2xl shadow-md"
+                      className="relative p-4 bg-white rounded-2xl shadow-md"
                       style={{ border: `2.5px solid ${theme.primary}` }}
                     >
                       <span
@@ -762,40 +653,19 @@ export function StoreQrPosterModal({
                         style={{ borderColor: theme.primaryDark }}
                       />
                       <div
-                        className="w-48 h-48 sm:w-52 sm:h-52 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
+                        className="w-52 h-52 sm:w-56 sm:h-56 flex items-center justify-center [&>svg]:w-full [&>svg]:h-full"
                         dangerouslySetInnerHTML={{ __html: qrSvg }}
                       />
                     </div>
 
                     {/* Scan Callout */}
-                    <div className="space-y-1.5">
-                      <p className="text-sm sm:text-base font-extrabold text-slate-900 leading-snug">
+                    <div className="space-y-1.5 px-2">
+                      <p className="text-base font-extrabold text-slate-900 leading-snug">
                         Scan for Online Shopping from{" "}
                         <span style={{ color: theme.primary }}>{cleanName}</span>
                       </p>
-                      <div className="flex flex-wrap items-center justify-center gap-1.5 text-[9px] font-bold text-slate-600">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5">
-                          <Smartphone className="h-2.5 w-2.5" style={{ color: theme.primary }} /> Open Camera
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5">
-                          <QrCode className="h-2.5 w-2.5" style={{ color: theme.primary }} /> Scan QR
-                        </span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 border border-slate-200 px-2 py-0.5">
-                          <ShoppingBag className="h-2.5 w-2.5" style={{ color: theme.primary }} /> Order Online
-                        </span>
-                      </div>
-                      <div
-                        className="inline-block max-w-full rounded-full px-3 py-1 font-mono text-[9.5px] font-bold break-all"
-                        style={{
-                          backgroundColor: theme.softBg,
-                          border: `1px solid ${theme.borderTint}`,
-                          color: theme.primaryDark,
-                        }}
-                      >
-                        {formatDisplayUrl(cleanUrl)}
-                      </div>
                       {(city || phone) && (
-                        <p className="text-[9.5px] font-semibold text-slate-500">
+                        <p className="text-[10.5px] font-semibold text-slate-500">
                           {[city, phone].filter(Boolean).join(" • ")}
                         </p>
                       )}
