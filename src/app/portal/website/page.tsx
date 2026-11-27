@@ -49,6 +49,7 @@ import {
   PortalDoctorsTab,
   PortalServicesTab,
 } from "@/components/portal/PortalWebsiteExtensions";
+import { PortalLocationCard } from "@/components/portal/PortalLocationCard";
 import {
   PortalActionButton,
   PortalConfirmModal,
@@ -169,6 +170,8 @@ export default function PortalMyWebsitePage() {
     city: "",
     contact_phone: "",
     whatsapp_phone: "",
+    latitude: "",
+    longitude: "",
     pickup_supported: true,
     delivery_supported: true,
   });
@@ -1029,7 +1032,7 @@ export default function PortalMyWebsitePage() {
                 },
                 { id: "promotions", label: "Promotions & Banners", icon: Megaphone },
                 { id: "delivery", label: "Delivery & Pickup", icon: Truck },
-                { id: "contact", label: "Branches & Hours", icon: MapPin },
+                { id: "contact", label: "Location, Map & Hours", icon: MapPin },
                 { id: "settings", label: "Settings & Domains", icon: Settings },
               ] as Array<{ id: PortalWebsiteTab; label: string; icon: any; badge?: number }>
             ).map((tab) => {
@@ -3823,131 +3826,184 @@ export default function PortalMyWebsitePage() {
           )}
 
           {/* =============================================================== */}
-          {/* TAB 7: CONTACT, OPENING HOURS & BRANCHES                        */}
+          {/* TAB 7: EXACT MAP LOCATION, OPENING HOURS & BRANCHES             */}
           {/* =============================================================== */}
           {activeTab === "contact" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4 shadow-xs">
-                <h2 className="text-base font-bold text-slate-900">Pharmacy Opening Hours</h2>
-                <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={settingsForm.is_24_hours}
-                    onChange={(e) =>
-                      setSettingsForm((s) => ({ ...s, is_24_hours: e.target.checked }))
-                    }
-                  />
-                  <span>Open 24 Hours / 7 Days</span>
-                </label>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Monday – Saturday Hours
-                  </label>
-                  <input
-                    type="text"
-                    value={settingsForm.mon_sat_hours}
-                    onChange={(e) =>
-                      setSettingsForm((s) => ({ ...s, mon_sat_hours: e.target.value }))
-                    }
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Sunday Hours
-                  </label>
-                  <input
-                    type="text"
-                    value={settingsForm.sun_hours}
-                    onChange={(e) => setSettingsForm((s) => ({ ...s, sun_hours: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  />
-                </div>
-                <PortalActionButton
-                  variant="primary"
-                  size="md"
-                  loading={saving}
-                  loadingText="Saving Hours…"
-                  onClick={async () => {
-                    await postWebsiteAction("update_settings", {
-                      payload: {
-                        ...settingsForm,
-                        opening_hours: {
-                          mon_sat: settingsForm.mon_sat_hours,
-                          sun: settingsForm.sun_hours,
-                          is_24_hours: settingsForm.is_24_hours,
-                        },
-                      },
-                    });
-                    notify("Updated pharmacy opening hours");
-                  }}
-                >
-                  Save Opening Hours
-                </PortalActionButton>
-              </div>
+            <div className="space-y-6">
+              <PortalLocationCard
+                pharmacyName={brandingForm.display_name || sf.pharmacy_name || "Pharmacy"}
+                initialAddress={sf.address_line || ""}
+                initialCity={sf.city || "Lahore"}
+                initialPhone={sf.contact_phone || ""}
+                initialWhatsapp={sf.whatsapp_phone || ""}
+                initialLatitude={sf.latitude ?? null}
+                initialLongitude={sf.longitude ?? null}
+                saving={saving}
+                onNotify={notify}
+                onSave={async (payload) => {
+                  await postWebsiteAction("update_location", { payload });
+                }}
+              />
 
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4 shadow-xs">
-                <h2 className="text-base font-bold text-slate-900">Pharmacy Branches</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                  <input
-                    type="text"
-                    value={newBranch.branch_name}
-                    onChange={(e) => setNewBranch((b) => ({ ...b, branch_name: e.target.value }))}
-                    placeholder="Branch Name"
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-                  />
-                  <input
-                    type="text"
-                    value={newBranch.contact_phone}
-                    onChange={(e) => setNewBranch((b) => ({ ...b, contact_phone: e.target.value }))}
-                    placeholder="Branch Phone"
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-                  />
-                  <input
-                    type="text"
-                    value={newBranch.address_line}
-                    onChange={(e) => setNewBranch((b) => ({ ...b, address_line: e.target.value }))}
-                    placeholder="Street Address"
-                    className="sm:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
-                  />
-                  <button
-                    type="button"
-                    disabled={saving || !newBranch.branch_name}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4 shadow-xs">
+                  <h2 className="text-base font-bold text-slate-900">Pharmacy Opening Hours</h2>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={settingsForm.is_24_hours}
+                      onChange={(e) =>
+                        setSettingsForm((s) => ({ ...s, is_24_hours: e.target.checked }))
+                      }
+                    />
+                    <span>Open 24 Hours / 7 Days</span>
+                  </label>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Monday – Saturday Hours
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.mon_sat_hours}
+                      onChange={(e) =>
+                        setSettingsForm((s) => ({ ...s, mon_sat_hours: e.target.value }))
+                      }
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Sunday Hours
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.sun_hours}
+                      onChange={(e) => setSettingsForm((s) => ({ ...s, sun_hours: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <PortalActionButton
+                    variant="primary"
+                    size="md"
+                    loading={saving}
+                    loadingText="Saving Hours…"
                     onClick={async () => {
-                      await postWebsiteAction("upsert_branch", {
+                      await postWebsiteAction("update_settings", {
                         payload: {
-                          ...newBranch,
-                          branch_code: `BR_${Date.now().toString().slice(-4)}`,
-                          city: sf.city,
+                          ...settingsForm,
+                          opening_hours: {
+                            mon_sat: settingsForm.mon_sat_hours,
+                            sun: settingsForm.sun_hours,
+                            is_24_hours: settingsForm.is_24_hours,
+                          },
                         },
                       });
-                      setNewBranch({
-                        branch_code: "MAIN",
-                        branch_name: "",
-                        address_line: "",
-                        city: "",
-                        contact_phone: "",
-                        whatsapp_phone: "",
-                        pickup_supported: true,
-                        delivery_supported: true,
-                      });
-                      notify("Saved pharmacy branch");
+                      notify("Updated pharmacy opening hours");
                     }}
-                    className="sm:col-span-2 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold"
                   >
-                    + Add Branch Location
-                  </button>
+                    Save Opening Hours
+                  </PortalActionButton>
                 </div>
 
-                <div className="divide-y divide-slate-100 text-xs">
-                  {branches.map((b) => (
-                    <div key={b.id} className="py-2.5">
-                      <div className="font-bold text-slate-900">{b.branch_name}</div>
-                      <div className="text-slate-500">
-                        {b.address_line}, {b.city} • {b.contact_phone}
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4 shadow-xs">
+                  <h2 className="text-base font-bold text-slate-900">Additional Pharmacy Branches</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                    <input
+                      type="text"
+                      value={newBranch.branch_name}
+                      onChange={(e) => setNewBranch((b) => ({ ...b, branch_name: e.target.value }))}
+                      placeholder="Branch Name"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
+                    />
+                    <input
+                      type="text"
+                      value={newBranch.contact_phone}
+                      onChange={(e) => setNewBranch((b) => ({ ...b, contact_phone: e.target.value }))}
+                      placeholder="Branch Phone"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
+                    />
+                    <input
+                      type="text"
+                      value={newBranch.address_line}
+                      onChange={(e) => setNewBranch((b) => ({ ...b, address_line: e.target.value }))}
+                      placeholder="Street Address"
+                      className="sm:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs"
+                    />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={newBranch.latitude}
+                      onChange={(e) => setNewBranch((b) => ({ ...b, latitude: e.target.value }))}
+                      placeholder="Latitude (optional)"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono"
+                    />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={newBranch.longitude}
+                      onChange={(e) => setNewBranch((b) => ({ ...b, longitude: e.target.value }))}
+                      placeholder="Longitude (optional)"
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono"
+                    />
+                    <button
+                      type="button"
+                      disabled={saving || !newBranch.branch_name}
+                      onClick={async () => {
+                        await postWebsiteAction("upsert_branch", {
+                          payload: {
+                            ...newBranch,
+                            branch_code: `BR_${Date.now().toString().slice(-4)}`,
+                            city: newBranch.city || sf.city,
+                            latitude: newBranch.latitude.trim() ? Number(newBranch.latitude) : undefined,
+                            longitude: newBranch.longitude.trim() ? Number(newBranch.longitude) : undefined,
+                          },
+                        });
+                        setNewBranch({
+                          branch_code: "MAIN",
+                          branch_name: "",
+                          address_line: "",
+                          city: "",
+                          contact_phone: "",
+                          whatsapp_phone: "",
+                          latitude: "",
+                          longitude: "",
+                          pickup_supported: true,
+                          delivery_supported: true,
+                        });
+                        notify("Saved pharmacy branch");
+                      }}
+                      className="sm:col-span-2 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-45 text-white text-xs font-bold transition"
+                    >
+                      + Add Branch Location
+                    </button>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 text-xs">
+                    {branches.map((b: any) => (
+                      <div key={b.id} className="py-2.5 flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-900">{b.branch_name || b.name}</div>
+                          <div className="text-slate-500">
+                            {b.address_line || sf.address_line}, {b.city || sf.city}
+                            {b.contact_phone || b.phone ? ` • ${b.contact_phone || b.phone}` : ""}
+                          </div>
+                          {b.latitude !== null &&
+                            b.latitude !== undefined &&
+                            b.longitude !== null &&
+                            b.longitude !== undefined && (
+                              <div className="mt-0.5 text-[11px] font-mono text-emerald-700 font-semibold">
+                                GPS: {Number(b.latitude).toFixed(5)}, {Number(b.longitude).toFixed(5)}
+                              </div>
+                            )}
+                        </div>
+                        {Number(b.is_main) === 1 && (
+                          <span className="shrink-0 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
+                            Main
+                          </span>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

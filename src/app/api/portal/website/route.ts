@@ -7,6 +7,7 @@ import {
 } from "@/lib/portal-auth";
 import dbConnect from "@/lib/db";
 import License from "@/models/License";
+import Client from "@/models/Client";
 import OwnerPortalState from "@/models/OwnerPortalState";
 import StorefrontPairingCode from "@/models/StorefrontPairingCode";
 import {
@@ -434,6 +435,41 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/delivery-zones/${encodeURIComponent(body.zone_id)}`,
       { method: "DELETE", actor }
     );
+    return NextResponse.json(res.data, { status: res.status });
+  }
+
+  if (action === "update_location") {
+    const payload = body.payload || body;
+    const res = await callStorefrontManageApi(
+      `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/location`,
+      { method: "PUT", actor, body: payload }
+    );
+    if (res.ok && res.data?.ok) {
+      // Best-effort mirror address/city/phone back to Owner Portal MongoDB state so Profile stays in sync
+      try {
+        await dbConnect();
+        const addr = typeof payload.address_line === "string" ? payload.address_line.trim() : "";
+        const city = typeof payload.city === "string" ? payload.city.trim() : "";
+        const phone = typeof payload.contact_phone === "string" ? payload.contact_phone.trim() : "";
+        const clientPatch: Record<string, any> = { updated_at: new Date() };
+        const statePatch: Record<string, any> = {};
+        if (addr) {
+          clientPatch.address = addr;
+          statePatch.pharmacy_address = addr;
+        }
+        if (city) clientPatch.city = city;
+        if (phone) {
+          clientPatch.contact_phone = phone;
+          statePatch.pharmacy_phone = phone;
+        }
+        await Client.updateOne({ id: clientId }, { $set: clientPatch });
+        if (Object.keys(statePatch).length > 0) {
+          await OwnerPortalState.updateMany({ client_id: clientId }, { $set: statePatch });
+        }
+      } catch {
+        /* non-blocking */
+      }
+    }
     return NextResponse.json(res.data, { status: res.status });
   }
 
