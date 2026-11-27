@@ -1,17 +1,33 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Eye, EyeOff, ShieldCheck, Activity, Wallet, PackageCheck } from "lucide-react";
 import { clearPortalSessionCache } from "@/lib/portal-cache";
 
 export default function PortalLoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // If the owner is already authenticated (e.g. a stale client prefetch ever navigated here),
+  // restore them straight to the dashboard instead of stranding them on the login screen.
+  useEffect(() => {
+    let active = true;
+    fetch("/api/portal/auth/me", { cache: "no-store", credentials: "include" })
+      .then((res) => {
+        if (active && res.ok) {
+          window.location.replace("/portal/dashboard");
+        }
+      })
+      .catch(() => {
+        /* ignore when offline or unauthenticated */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,6 +36,7 @@ export default function PortalLoginPage() {
     try {
       const res = await fetch("/api/portal/auth/login", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
       });
@@ -29,7 +46,9 @@ export default function PortalLoginPage() {
         return;
       }
       clearPortalSessionCache();
-      router.push("/portal/dashboard");
+      // Full navigation flushes any stale Next.js Client Router Cache redirects
+      // (such as a pre-login 307 on /portal/website) and guarantees cookie consistency.
+      window.location.assign("/portal/dashboard");
     } catch {
       setError("Connection error. Please try again.");
     } finally {

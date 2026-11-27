@@ -156,9 +156,23 @@ export default function PortalOverviewPage() {
           );
         }
       } catch (err: any) {
-        if (err?.status === 401) {
-          router.replace("/portal/login");
+        if (err?.name === "AbortError") {
           return;
+        }
+        if (err?.status === 401) {
+          // Confirm session is genuinely expired before redirecting (avoid transient redirects)
+          try {
+            const meCheck = await fetch("/api/portal/auth/me", {
+              cache: "no-store",
+              credentials: "include",
+            });
+            if (meCheck.status === 401 || meCheck.status === 403) {
+              window.location.replace("/portal/login");
+              return;
+            }
+          } catch {
+            // Keep current page on network hiccup
+          }
         }
         if (!cachedOv) {
           setError(err?.message || "Unable to load overview data");

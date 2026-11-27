@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -272,15 +272,17 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   // Track whether /api/portal/auth/me has already been verified for this authenticated session
   const sessionVerifiedRef = useRef(false);
   const pendingTimerRef = useRef<number | null>(null);
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
-  const startRoutePending = (targetHref: string) => {
-    if (!targetHref || targetHref === pathname) return;
+  const startRoutePending = useCallback((targetHref: string) => {
+    if (!targetHref || targetHref === pathnameRef.current) return;
     setPendingHref(targetHref);
     if (pendingTimerRef.current) window.clearTimeout(pendingTimerRef.current);
     pendingTimerRef.current = window.setTimeout(() => {
       setPendingHref(null);
     }, 4000);
-  };
+  }, []);
 
   usePortalInteractionGuard(shellRef, startRoutePending);
 
@@ -319,12 +321,19 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     }
 
     let cancelled = false;
-    fetch("/api/portal/auth/me", { cache: "no-store" })
+    fetch("/api/portal/auth/me", { cache: "no-store", credentials: "include" })
       .then((res) => {
-        if (!res.ok) {
+        // ONLY redirect to login on explicit 401/403 authentication failure —
+        // never kick the owner out on transient 5xx / serverless cold-start hiccups!
+        if (res.status === 401 || res.status === 403) {
           clearPortalSessionCache();
           sessionVerifiedRef.current = false;
-          router.replace("/portal/login");
+          if (!cancelled && typeof window !== "undefined") {
+            window.location.replace("/portal/login");
+          }
+          return null;
+        }
+        if (!res.ok) {
           return null;
         }
         return res.json();
@@ -366,9 +375,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         setMe(nextMe);
       })
       .catch(() => {
-        if (!cancelled && !cached) {
-          router.replace("/portal/login");
-        }
+        // Keep session intact on transient network hiccup; server middleware guards auth.
       })
       .finally(() => {
         if (!cancelled) setChecking(false);
@@ -377,7 +384,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     return () => {
       cancelled = true;
     };
-  }, [isPublicPage, router]);
+  }, [isPublicPage]);
 
   // Background online-orders poll: keyed on primitive client_id (NOT me object or pathname), 45s interval
   const activeClientId = me?.client_id || "";
@@ -513,10 +520,10 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     try {
       clearPortalSessionCache();
       sessionVerifiedRef.current = false;
-      await fetch("/api/portal/auth/logout", { method: "POST" });
+      await fetch("/api/portal/auth/logout", { method: "POST", credentials: "include" });
       setLogoutConfirmOpen(false);
       setMe(null);
-      router.replace("/portal/login");
+      window.location.assign("/portal/login");
     } finally {
       setLoggingOut(false);
     }
@@ -574,7 +581,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
       <Link
         key={item.href}
         href={item.href}
-        prefetch={true}
+        prefetch={false}
         onClick={() => startRoutePending(item.href)}
         title={sidebarCollapsed ? item.label : undefined}
         className={`relative group flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
@@ -619,7 +626,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <Link
             href="/portal/profile"
-            prefetch={true}
+            prefetch={false}
             onClick={() => startRoutePending("/portal/profile")}
             className="flex items-center gap-2.5 min-w-0 flex-1 group hover:opacity-95 transition-opacity"
             title="View Pharmacy Profile & Owner Card"
@@ -682,7 +689,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <Link
             href="/portal/alerts"
-            prefetch={true}
+            prefetch={false}
             onClick={() => startRoutePending("/portal/alerts")}
             className={`inline-flex items-center justify-center gap-1.5 min-h-[36px] px-2.5 sm:px-3 rounded-xl text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/alerts")
@@ -698,7 +705,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <Link
             href="/portal/profile"
-            prefetch={true}
+            prefetch={false}
             onClick={() => startRoutePending("/portal/profile")}
             className={`hidden sm:inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-xl text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/profile")
@@ -713,7 +720,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
           <Link
             href="/portal/billing"
-            prefetch={true}
+            prefetch={false}
             onClick={() => startRoutePending("/portal/billing")}
             className={`hidden md:inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-xl text-xs font-semibold border transition-colors ${
               isRouteActive("/portal/billing")
@@ -884,7 +891,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
               <Link
                 key={item.href}
                 href={item.href}
-                prefetch={true}
+                prefetch={false}
                 onClick={() => startRoutePending(item.href)}
                 className="flex-1 min-w-0 min-h-[56px] py-1 px-0.5 rounded-xl flex flex-col items-center justify-center gap-1 transition-all"
               >
@@ -989,7 +996,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
                   <Link
                     key={item.href}
                     href={item.href}
-                    prefetch={true}
+                    prefetch={false}
                     onClick={() => {
                       startRoutePending(item.href);
                       setMobileMoreOpen(false);

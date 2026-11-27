@@ -33,6 +33,16 @@ async function isPortalAuthenticated(req: NextRequest): Promise<boolean> {
   }
 }
 
+function withPortalNoCacheHeaders(res: NextResponse): NextResponse {
+  // Never allow browser, CDN, or Next.js Router Cache to cache authenticated
+  // portal redirects (307 -> /portal/login) or pages across session changes.
+  res.headers.set("Cache-Control", "private, no-store, no-cache, must-revalidate");
+  res.headers.set("Vary", "Cookie, RSC, Next-Router-State-Tree, Next-Router-Prefetch");
+  // Explicitly permit same-origin Geolocation for pharmacy map pin detection
+  res.headers.set("Permissions-Policy", "geolocation=(self)");
+  return res;
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -63,30 +73,38 @@ export async function proxy(req: NextRequest) {
     if (!authenticated) {
       if (isPortalApi) {
         // Per correction #5: APIs return JSON 401, never redirect to HTML login
-        return NextResponse.json(
-          { error: "missing_token", message: "Authentication required" },
-          { status: 401 }
+        return withPortalNoCacheHeaders(
+          NextResponse.json(
+            { error: "missing_token", message: "Authentication required" },
+            { status: 401 }
+          )
         );
       }
-      // Portal pages redirect to login
-      return NextResponse.redirect(new URL("/portal/login", req.url));
+      // Portal pages redirect to login — never cache this redirect!
+      return withPortalNoCacheHeaders(
+        NextResponse.redirect(new URL("/portal/login", req.url))
+      );
     }
 
     // Authenticated portal users on /portal → redirect /portal → /portal/dashboard
     if (pathname === "/portal" || pathname === "/portal/") {
-      return NextResponse.redirect(new URL("/portal/dashboard", req.url));
+      return withPortalNoCacheHeaders(
+        NextResponse.redirect(new URL("/portal/dashboard", req.url))
+      );
     }
 
-    return NextResponse.next();
+    return withPortalNoCacheHeaders(NextResponse.next());
   }
 
   // Redirect authenticated portal users away from login page
   if (isPortalPublicPage && pathname === "/portal/login") {
     const authenticated = await isPortalAuthenticated(req);
     if (authenticated) {
-      return NextResponse.redirect(new URL("/portal/dashboard", req.url));
+      return withPortalNoCacheHeaders(
+        NextResponse.redirect(new URL("/portal/dashboard", req.url))
+      );
     }
-    return NextResponse.next();
+    return withPortalNoCacheHeaders(NextResponse.next());
   }
 
   // ── Admin routes ───────────────────────────────────────────────────────────

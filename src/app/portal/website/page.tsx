@@ -370,6 +370,7 @@ export default function PortalMyWebsitePage() {
     try {
       const res = await fetch("/api/portal/website", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...extraBody }),
       });

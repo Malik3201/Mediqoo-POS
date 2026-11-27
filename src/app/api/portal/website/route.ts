@@ -20,6 +20,20 @@ import {
   type StorefrontManagementActor,
 } from "@/lib/storefront/client";
 import { syncPosProjectLogoToStorefront } from "@/lib/storefront/pos-logo-sync";
+import {
+  resolveMapsShareLink,
+  reverseGeocodeCoords,
+  searchPlacesInPakistan,
+} from "@/lib/storefront/maps-link-resolver";
+
+/**
+ * Prevents an upstream Storefront Worker 401/403 error from being forwarded
+ * as a 401 to the Owner Portal browser (which could look like a portal logout).
+ */
+function safeUpstreamStatus(status: number): number {
+  if (status === 401 || status === 403) return 502;
+  return status;
+}
 
 async function resolveAuthenticatedPortalActor(req: NextRequest): Promise<
   | {
@@ -232,6 +246,82 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const action = String(body.action || "").trim();
 
+  // Lightweight server-side map & location helpers (do not require Worker round-trip)
+  if (action === "resolve_maps_link") {
+    const rawUrl = String(body.url || body.input || "").trim();
+    const resolved = await resolveMapsShareLink(rawUrl);
+    if (!resolved.ok) {
+      return NextResponse.json(
+        { ok: false, error: resolved.error, message: resolved.error },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json(resolved);
+  }
+
+  if (action === "search_place") {
+    const query = String(body.query || "").trim();
+    const results = await searchPlacesInPakistan(query, 6);
+    return NextResponse.json({ ok: true, results });
+  }
+
+  if (action === "reverse_geocode") {
+    const lat = Number(body.latitude);
+    const lng = Number(body.longitude);
+    const result = await reverseGeocodeCoords(lat, lng);
+    return NextResponse.json({ ok: true, result });
+  }
+
+  if (action === "approx_ip_location") {
+    const rawLat = req.headers.get("x-vercel-ip-latitude");
+    const rawLng = req.headers.get("x-vercel-ip-longitude");
+    const rawCity = req.headers.get("x-vercel-ip-city");
+    const lat = rawLat ? Number(rawLat) : NaN;
+    const lng = rawLng ? Number(rawLng) : NaN;
+
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) > 0.01) {
+      return NextResponse.json({
+        ok: true,
+        latitude: Number(lat.toFixed(6)),
+        longitude: Number(lng.toFixed(6)),
+        city: rawCity ? decodeURIComponent(rawCity) : "",
+        source: "edge_ip",
+      });
+    }
+
+    // Fallback for local dev or when edge geo headers are absent
+    try {
+      const ipRes = await fetch("https://ipwho.is/", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(4500),
+      });
+      if (ipRes.ok) {
+        const ipData: any = await ipRes.json();
+        const ipLat = Number(ipData?.latitude);
+        const ipLng = Number(ipData?.longitude);
+        if (ipData?.success !== false && Number.isFinite(ipLat) && Number.isFinite(ipLng)) {
+          return NextResponse.json({
+            ok: true,
+            latitude: Number(ipLat.toFixed(6)),
+            longitude: Number(ipLng.toFixed(6)),
+            city: String(ipData?.city || "").trim(),
+            source: "ip_fallback",
+          });
+        }
+      }
+    } catch {
+      /* fall back to Pakistan default */
+    }
+
+    return NextResponse.json({
+      ok: true,
+      latitude: 31.5204,
+      longitude: 74.3587,
+      city: "Lahore",
+      source: "default",
+    });
+  }
+
   // First resolve the pharmacy's own storefront ID using server-verified clientId
   const lookupRes = await callStorefrontManageApi(
     `/api/v1/manage/storefronts/by-pharmacy/${encodeURIComponent(clientId)}`,
@@ -253,7 +343,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/branding`,
       { method: "PUT", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "update_settings") {
@@ -265,7 +355,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/settings`,
       { method: "PUT", actor, body: payload }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "toggle_website_enabled") {
@@ -280,7 +370,7 @@ export async function POST(req: NextRequest) {
         },
       }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "update_product_publishing" || action === "batch_publish_products") {
@@ -288,7 +378,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/products/publishing`,
       { method: "PUT", actor, body: { items: body.items || [] } }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "update_product_override" && body.product_id) {
@@ -296,7 +386,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/products/${encodeURIComponent(body.product_id)}`,
       { method: "PATCH", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "assign_product_image") {
@@ -304,7 +394,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/products/${encodeURIComponent(body.pos_product_id || body.product_id)}/assign-image`,
       { method: "POST", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "browse_shared_library") {
@@ -313,7 +403,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/central-library/medicines?has_image=1&limit=30&q=${encodeURIComponent(q)}`,
       { actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "batch_match_catalog") {
@@ -322,7 +412,7 @@ export async function POST(req: NextRequest) {
       actor,
       body: { storefront_id: sfId, batch_size: body.batch_size || 100, offset: body.offset || 0 },
     });
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "upload_media") {
@@ -330,7 +420,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/media`,
       { method: "POST", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "sync_pos_logo") {
@@ -362,7 +452,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/media/cleanup`,
       { method: "POST", actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "upsert_banner") {
@@ -370,7 +460,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/banners`,
       { method: "PUT", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "delete_banner" && body.banner_id) {
@@ -378,7 +468,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/banners/${encodeURIComponent(body.banner_id)}`,
       { method: "DELETE", actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "upsert_category") {
@@ -386,7 +476,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/categories`,
       { method: "PUT", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "upsert_promotion") {
@@ -394,7 +484,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/promotions`,
       { method: "PUT", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "delete_promotion" && body.promotion_id) {
@@ -402,7 +492,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/promotions/${encodeURIComponent(body.promotion_id)}`,
       { method: "DELETE", actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "update_order_status" && body.order_id) {
@@ -419,7 +509,7 @@ export async function POST(req: NextRequest) {
         },
       }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "upsert_delivery_zone") {
@@ -427,7 +517,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/delivery-zones`,
       { method: "PUT", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "delete_delivery_zone" && body.zone_id) {
@@ -435,7 +525,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/delivery-zones/${encodeURIComponent(body.zone_id)}`,
       { method: "DELETE", actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "update_location") {
@@ -470,7 +560,7 @@ export async function POST(req: NextRequest) {
         /* non-blocking */
       }
     }
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "upsert_branch") {
@@ -478,7 +568,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/branches`,
       { method: "PUT", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "update_review" && body.review_id) {
@@ -493,7 +583,7 @@ export async function POST(req: NextRequest) {
         },
       }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "publish_all_reviews") {
@@ -501,7 +591,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/reviews/publish-all`,
       { method: "POST", actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "delete_review" && body.review_id) {
@@ -509,7 +599,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/reviews/${encodeURIComponent(body.review_id)}`,
       { method: "DELETE", actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "upsert_doctor") {
@@ -517,7 +607,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/doctors`,
       { method: "PUT", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "delete_doctor" && body.doctor_id) {
@@ -525,7 +615,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/doctors/${encodeURIComponent(body.doctor_id)}`,
       { method: "DELETE", actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "upsert_service") {
@@ -533,7 +623,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/services`,
       { method: "PUT", actor, body: body.payload || body }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "delete_service" && body.service_id) {
@@ -541,7 +631,7 @@ export async function POST(req: NextRequest) {
       `/api/v1/manage/storefronts/${encodeURIComponent(sfId)}/services/${encodeURIComponent(body.service_id)}`,
       { method: "DELETE", actor }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "add_custom_domain") {
@@ -556,7 +646,7 @@ export async function POST(req: NextRequest) {
         },
       }
     );
-    return NextResponse.json(res.data, { status: res.status });
+    return NextResponse.json(res.data, { status: safeUpstreamStatus(res.status) });
   }
 
   if (action === "sync_pos_catalog") {
@@ -638,7 +728,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(syncRes.data, { status: syncRes.status });
+    return NextResponse.json(syncRes.data, { status: safeUpstreamStatus(syncRes.status) });
   }
 
   if (action === "generate_pos_pairing_code") {

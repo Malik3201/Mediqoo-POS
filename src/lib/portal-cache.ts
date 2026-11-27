@@ -137,6 +137,7 @@ export async function fetchPortalCached<T = any>(
   const reqPromise = (async () => {
     const res = await fetch(url, {
       cache: "no-store",
+      credentials: "include",
       signal,
     });
     if (!res.ok) {

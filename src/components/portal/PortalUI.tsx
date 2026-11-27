@@ -497,7 +497,7 @@ export function PortalKpiCard({
 
   if (href) {
     return (
-      <Link href={href} prefetch={true} className={baseClass}>
+      <Link href={href} prefetch={false} className={baseClass}>
         {content}
       </Link>
     );

@@ -205,9 +205,9 @@ export default function OwnerProfilePage() {
     setLoggingOut(true);
     try {
       clearPortalSessionCache();
-      await fetch("/api/portal/auth/logout", { method: "POST" });
+      await fetch("/api/portal/auth/logout", { method: "POST", credentials: "include" });
       setConfirmLogoutOpen(false);
-      router.replace("/portal/login");
+      window.location.assign("/portal/login");
     } finally {
       setLoggingOut(false);
     }
