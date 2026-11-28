@@ -95,11 +95,113 @@ async function resolveAuthenticatedPortalActor(req: NextRequest): Promise<
   };
 }
 
+// ---------------------------------------------------------------------------
+// Worker request budget: cache the pharmacy → storefront lookup (by-pharmacy) per
+// serverless instance for 10 min so a notifications poll costs 1 Worker request, not 2.
+// Keyed by the server-verified clientId only (never by client-supplied input).
+// ---------------------------------------------------------------------------
+const STOREFRONT_LOOKUP_TTL_MS = 10 * 60_000;
+type CachedStorefrontLookup = {
+  expiresAt: number;
+  storefront: { id: string; slug?: string; pharmacy_name?: string } | null;
+};
+const storefrontLookupCache = new Map<string, CachedStorefrontLookup>();
+
+function rememberStorefrontLookup(clientId: string, sf: any | null): void {
+  storefrontLookupCache.set(clientId, {
+    expiresAt: Date.now() + STOREFRONT_LOOKUP_TTL_MS,
+    storefront: sf && sf.id ? { id: String(sf.id), slug: sf.slug, pharmacy_name: sf.pharmacy_name } : null,
+  });
+  if (storefrontLookupCache.size > 2000) {
+    const now = Date.now();
+    for (const [key, entry] of storefrontLookupCache) {
+      if (entry.expiresAt <= now) storefrontLookupCache.delete(key);
+    }
+  }
+}
+
+function readStorefrontLookup(clientId: string): CachedStorefrontLookup | null {
+  const entry = storefrontLookupCache.get(clientId);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    storefrontLookupCache.delete(clientId);
+    return null;
+  }
+  return entry;
+}
+
+function notProvisionedResponse(clientId: string) {
+  return NextResponse.json({
+    ok: true,
+    exists: false,
+    client_id: clientId,
+    website_activation_status: "not_provisioned",
+    active_attention_count: 0,
+    recent_orders: [],
+    public_link: null,
+    preview_link: null,
+    branding_status: "not_configured",
+    domain_status: "not_configured",
+    last_sync: null,
+    setup_progress: {
+      completed_steps: 0,
+      total_steps: 5,
+      percent: 0,
+      steps: [],
+    },
+  });
+}
+
+function parseOrdersVersionParam(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return /^\d{1,15}$/.test(trimmed) ? trimmed : null;
+}
+
+async function respondNotificationsOnly(
+  req: NextRequest,
+  actor: StorefrontManagementActor,
+  sf: { id: string; slug?: string; pharmacy_name?: string },
+  onNotFound?: () => void
+) {
+  const v = parseOrdersVersionParam(req.nextUrl.searchParams.get("v"));
+  const notifRes = await callStorefrontManageApi(
+    `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders/notifications${v ? `?v=${v}` : ""}`,
+    { method: "GET", actor }
+  );
+  if (notifRes.status === 404 && onNotFound) onNotFound();
+  return NextResponse.json({
+    ok: true,
+    exists: true,
+    storefront_id: sf.id,
+    slug: sf.slug,
+    pharmacy_name: sf.pharmacy_name,
+    // New Worker: may include `unchanged: true` + `orders_version` (client keeps its state).
+    ...(notifRes.data || {
+      active_attention_count: 0,
+      pending_confirmation_count: 0,
+      recent_orders: [],
+    }),
+  });
+}
+
 export async function GET(req: NextRequest) {
   const auth = await resolveAuthenticatedPortalActor(req);
   if (!auth.ok) return auth.response;
 
   const { clientId, actor } = auth;
+  const notificationsOnly = req.nextUrl.searchParams.get("notifications_only") === "1";
+
+  // Fast path: notifications poll with a cached storefront lookup → 1 Worker request.
+  if (notificationsOnly) {
+    const cached = readStorefrontLookup(clientId);
+    if (cached) {
+      if (!cached.storefront) return notProvisionedResponse(clientId);
+      return respondNotificationsOnly(req, actor, cached.storefront, () =>
+        storefrontLookupCache.delete(clientId)
+      );
+    }
+  }
 
   const res = await callStorefrontManageApi(
     `/api/v1/manage/storefronts/by-pharmacy/${encodeURIComponent(clientId)}`,
@@ -110,47 +212,17 @@ export async function GET(req: NextRequest) {
   );
 
   if (!res.ok || !res.data?.exists || !res.data?.storefront) {
-    return NextResponse.json({
-      ok: true,
-      exists: false,
-      client_id: clientId,
-      website_activation_status: "not_provisioned",
-      active_attention_count: 0,
-      recent_orders: [],
-      public_link: null,
-      preview_link: null,
-      branding_status: "not_configured",
-      domain_status: "not_configured",
-      last_sync: null,
-      setup_progress: {
-        completed_steps: 0,
-        total_steps: 5,
-        percent: 0,
-        steps: [],
-      },
-    });
+    // Only cache a definitive "no storefront" answer (not transient upstream errors).
+    if (res.ok && res.data && res.data.exists === false) rememberStorefrontLookup(clientId, null);
+    return notProvisionedResponse(clientId);
   }
 
   const sf = res.data.storefront;
+  rememberStorefrontLookup(clientId, sf);
 
   // Lightweight polling mode for Owner Portal global layout new-order badge & toast notifications
-  if (req.nextUrl.searchParams.get("notifications_only") === "1") {
-    const notifRes = await callStorefrontManageApi(
-      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders/notifications`,
-      { method: "GET", actor }
-    );
-    return NextResponse.json({
-      ok: true,
-      exists: true,
-      storefront_id: sf.id,
-      slug: sf.slug,
-      pharmacy_name: sf.pharmacy_name,
-      ...(notifRes.data || {
-        active_attention_count: 0,
-        pending_confirmation_count: 0,
-        recent_orders: [],
-      }),
-    });
+  if (notificationsOnly) {
+    return respondNotificationsOnly(req, actor, sf, () => storefrontLookupCache.delete(clientId));
   }
 
   let branding = res.data.branding;
@@ -172,32 +244,42 @@ export async function GET(req: NextRequest) {
   const urls = getStorefrontPublicPreviewUrl(sf.slug, sf.primary_domain);
   const hasVerifiedDomain = domains.some((d) => d.verification_status === "verified");
 
-  // Fetch products, online orders, reviews, doctors, custom services & notification summary in parallel
+  // Worker budget: try the aggregate dashboard endpoint first (1 request instead of 6).
+  // Any piece missing from the aggregate (or a non-ok/404 aggregate on an older Worker)
+  // falls back to the individual endpoint, so the response shape stays identical.
+  const sfPath = `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}`;
+  const dashRes = await callStorefrontManageApi(`${sfPath}/dashboard`, { method: "GET", actor });
+  const dash: any = dashRes.ok && dashRes.data && dashRes.data.ok !== false ? dashRes.data : null;
+
+  const pickArray = (...candidates: any[]): any[] | undefined => {
+    for (const c of candidates) if (Array.isArray(c)) return c;
+    return undefined;
+  };
+  const dashProducts = dash
+    ? pickArray(dash.products, dash.products_summary?.products, dash.products_summary?.items)
+    : undefined;
+  const dashOrders = dash ? pickArray(dash.orders, dash.orders_summary?.orders) : undefined;
+  const dashNotifications =
+    dash && (dash.order_notifications || dash.notifications) && typeof (dash.order_notifications || dash.notifications) === "object"
+      ? dash.order_notifications || dash.notifications
+      : undefined;
+  const dashReviews = dash ? pickArray(dash.reviews) : undefined;
+  const dashDoctors = dash ? pickArray(dash.doctors) : undefined;
+  const dashServices = dash ? pickArray(dash.services, dash.custom_services) : undefined;
+
+  const fetchIfMissing = (present: unknown, path: string) =>
+    present !== undefined
+      ? Promise.resolve(null)
+      : callStorefrontManageApi(`${sfPath}${path}`, { method: "GET", actor });
+
+  // Fetch any pieces the aggregate did not provide, in parallel
   const [productsRes, ordersRes, notifRes, reviewsRes, doctorsRes, servicesRes] = await Promise.all([
-    callStorefrontManageApi(
-      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/products?limit=100`,
-      { method: "GET", actor }
-    ),
-    callStorefrontManageApi(
-      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders?limit=100`,
-      { method: "GET", actor }
-    ),
-    callStorefrontManageApi(
-      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/orders/notifications`,
-      { method: "GET", actor }
-    ),
-    callStorefrontManageApi(
-      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/reviews`,
-      { method: "GET", actor }
-    ),
-    callStorefrontManageApi(
-      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/doctors`,
-      { method: "GET", actor }
-    ),
-    callStorefrontManageApi(
-      `/api/v1/manage/storefronts/${encodeURIComponent(sf.id)}/services`,
-      { method: "GET", actor }
-    ),
+    fetchIfMissing(dashProducts, "/products?limit=100"),
+    fetchIfMissing(dashOrders, "/orders?limit=100"),
+    fetchIfMissing(dashNotifications, "/orders/notifications"),
+    fetchIfMissing(dashReviews, "/reviews"),
+    fetchIfMissing(dashDoctors, "/doctors"),
+    fetchIfMissing(dashServices, "/services"),
   ]);
 
   return NextResponse.json({
@@ -228,13 +310,13 @@ export async function GET(req: NextRequest) {
     banners: res.data.banners || [],
     media: res.data.media || [],
     orders_summary: res.data.orders_summary || {},
-    order_notifications: notifRes.data || null,
+    order_notifications: dashNotifications ?? notifRes?.data ?? null,
     sync_cursors: res.data.sync_cursors || [],
-    products: productsRes.data?.products || [],
-    orders: ordersRes.data?.orders || [],
-    reviews: reviewsRes.data?.reviews || [],
-    doctors: doctorsRes.data?.doctors || [],
-    custom_services: servicesRes.data?.services || [],
+    products: dashProducts ?? productsRes?.data?.products ?? [],
+    orders: dashOrders ?? ordersRes?.data?.orders ?? [],
+    reviews: dashReviews ?? reviewsRes?.data?.reviews ?? [],
+    doctors: dashDoctors ?? doctorsRes?.data?.doctors ?? [],
+    custom_services: dashServices ?? servicesRes?.data?.services ?? [],
   });
 }
 

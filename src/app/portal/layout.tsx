@@ -386,24 +386,62 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
     };
   }, [isPublicPage]);
 
-  // Background online-orders poll: keyed on primitive client_id (NOT me object or pathname), 45s interval
+  // Background online-orders poll: keyed on primitive client_id (NOT me object or pathname).
+  // Worker request budget (free tier shared by ~500 pharmacies):
+  // - visible: every 3 min, idle backoff 3 → 6 → 10 min while nothing changes
+  // - hidden tab: no polling
+  // - focus/visibility triggers throttled to once per 2 min
+  // - pharmacy without a storefront: stop polling for this session
+  // - sends last `orders_version` as `v` → Worker replies `{ unchanged: true }` cheaply
   const activeClientId = me?.client_id || "";
   useEffect(() => {
     if (isPublicPage || !activeClientId) return;
 
+    const BASE_MS = 3 * 60_000;
+    const IDLE_STEPS_MS = [3 * 60_000, 6 * 60_000, 10 * 60_000];
+    const FOCUS_THROTTLE_MS = 2 * 60_000;
+
     let cancelled = false;
-    const pollWebsiteOrders = async () => {
-      if (typeof document !== "undefined" && document.hidden) return;
+    let stopped = false;
+    let timer: number | null = null;
+    let idleStep = 0;
+    let lastPollAt = 0;
+    let lastOrdersVersion: number | null = null;
+    let inFlight = false;
+
+    const pollWebsiteOrders = async (): Promise<boolean> => {
+      // Returns true when something changed (new version / new order)
+      if (stopped || inFlight) return false;
+      if (typeof document !== "undefined" && document.hidden) return false;
+      inFlight = true;
+      lastPollAt = Date.now();
       try {
-        const res = await fetch("/api/portal/website?notifications_only=1", {
+        const qs = lastOrdersVersion !== null ? `&v=${encodeURIComponent(String(lastOrdersVersion))}` : "";
+        const res = await fetch(`/api/portal/website?notifications_only=1${qs}`, {
           cache: "no-store",
         });
-        if (!res.ok) return;
+        if (!res.ok) return false;
         const json = await res.json();
-        if (cancelled || !json?.ok || !json?.exists) {
-          if (!cancelled) setOnlineOrderBadgeCount(0);
-          return;
+        if (cancelled) return false;
+        if (!json?.ok) return false;
+        if (!json?.exists) {
+          // No storefront for this pharmacy → stop polling for the rest of this session.
+          setOnlineOrderBadgeCount(0);
+          stopped = true;
+          return false;
         }
+
+        const nextVersion =
+          json.orders_version !== undefined && json.orders_version !== null && Number.isFinite(Number(json.orders_version))
+            ? Number(json.orders_version)
+            : null;
+        if (json.unchanged === true) {
+          // Nothing changed since `v` — keep the current badge/banner state.
+          if (nextVersion !== null) lastOrdersVersion = nextVersion;
+          return false;
+        }
+        const versionChanged = nextVersion !== null && nextVersion !== lastOrdersVersion;
+        lastOrdersVersion = nextVersion;
 
         const attentionCount = Number(
           json.new_unacknowledged_count ?? json.pending_confirmation_count ?? 0
@@ -452,25 +490,55 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
             fulfillment_type: String(unseenOrder.fulfillment_type || "delivery"),
           });
         }
+        // Old Worker (no orders_version): treat a pending unseen order as a change.
+        return versionChanged || Boolean(unseenOrder);
       } catch {
         // Silent background poll resilience
+        return false;
+      } finally {
+        inFlight = false;
       }
     };
 
-    void pollWebsiteOrders();
-    const timer = window.setInterval(() => {
-      void pollWebsiteOrders();
-    }, 45_000);
+    const scheduleNext = (changed: boolean) => {
+      if (cancelled || stopped) return;
+      if (timer !== null) window.clearTimeout(timer);
+      let delay: number;
+      if (changed) {
+        idleStep = 0;
+        delay = BASE_MS;
+      } else {
+        delay = IDLE_STEPS_MS[Math.min(idleStep, IDLE_STEPS_MS.length - 1)];
+        idleStep = Math.min(idleStep + 1, IDLE_STEPS_MS.length - 1);
+      }
+      timer = window.setTimeout(async () => {
+        timer = null;
+        if (typeof document !== "undefined" && document.hidden) {
+          // Paused while hidden; the visibility listener resumes polling.
+          return;
+        }
+        const didChange = await pollWebsiteOrders();
+        scheduleNext(didChange);
+      }, delay);
+    };
+
+    void pollWebsiteOrders().then(() => scheduleNext(true));
 
     const onFocusOrVisible = () => {
-      if (!document.hidden) void pollWebsiteOrders();
+      if (stopped || document.hidden) return;
+      if (Date.now() - lastPollAt < FOCUS_THROTTLE_MS) {
+        // Ensure a timer is armed after returning from a hidden tab.
+        if (timer === null) scheduleNext(false);
+        return;
+      }
+      void pollWebsiteOrders().then((didChange) => scheduleNext(didChange));
     };
     window.addEventListener("focus", onFocusOrVisible);
     document.addEventListener("visibilitychange", onFocusOrVisible);
 
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      if (timer !== null) window.clearTimeout(timer);
       window.removeEventListener("focus", onFocusOrVisible);
       document.removeEventListener("visibilitychange", onFocusOrVisible);
     };
